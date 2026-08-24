@@ -1,0 +1,33 @@
+// Top-level Gradle build file — configuration shared across all sub-projects/modules.
+// Do NOT put project-specific dependencies here; they belong in android/app/build.gradle.
+
+buildscript {
+    ext {
+        buildToolsVersion = "35.0.0"
+        minSdkVersion    = 24          // Android 7.0+ (covers 97% of active devices)
+        compileSdkVersion = 35         // Android 15
+        targetSdkVersion  = 35
+        ndkVersion        = "27.1.12297006"
+        kotlinVersion     = "1.9.25"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.7.2")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
+    }
+}
+
+plugins {
+    id("com.facebook.react") version "0.76.9" apply false
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url("https://www.jitpack.io") }
+    }
+}

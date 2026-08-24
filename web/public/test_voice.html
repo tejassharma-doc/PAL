@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Voice Test</title>
+</head>
+<body>
+    <h1>Test</h1>
+    <div id="status">Click button to test</div>
+    <button onclick="test()">Test</button>
+    <script>
+    function test() {
+        const s = document.createElement('script');
+        s.src = '/sarvam-voice-client.v2.js';
+        s.onload = () => {
+            document.getElementById('status').innerHTML = window.SarvamVoiceClient ? 'WORKS!' : 'NO CLASS';
+        };
+        s.onerror = () => {
+            document.getElementById('status').innerHTML = 'LOAD ERROR';
+        };
+        document.body.appendChild(s);
+    }
+    </script>
+</body>
+</html>

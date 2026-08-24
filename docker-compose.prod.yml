@@ -1,0 +1,164 @@
+name: pal-prod
+
+services:
+  # PostgreSQL database with pgvector extension
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: pal-prod-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-pal}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"  # Use 5433 externally to avoid conflicts
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pal}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - pal-network
+
+  # Redis cache
+  redis:
+    image: redis:7-alpine
+    container_name: pal-prod-redis
+    ports:
+      - "6380:6379"  # Use 6380 externally to avoid conflicts
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - pal-network
+
+  # FastAPI backend
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: pal-prod-api
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pal}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pal}
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: production
+    ports:
+      - "8001:8000"  # Use 8001 externally
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/uploads
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
+    restart: unless-stopped
+    networks:
+      - pal-network
+
+  # Next.js frontend
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://pal-agent.medmode.org
+    container_name: pal-prod-web
+    env_file: .env
+    environment:
+      NEXT_PUBLIC_API_URL: https://pal-agent.medmode.org
+      API_INTERNAL_URL: http://api:8000
+      NODE_ENV: production
+    ports:
+      - "3002:3000"  # Use 3002 externally to keep 3000 free for BusinessAgent
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - pal-network
+
+  # MCP API server (webhook receiver - DO NOT MODIFY)
+  mcp-api:
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile
+    container_name: pal-prod-mcp-api
+    env_file: .env
+    environment:
+      PORT: 3001
+      PAL_API_KEY: ${PAL_API_KEY}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-pal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-pal}
+    ports:
+      - "3003:3001"  # Use 3003 externally
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3001/health || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - pal-network
+
+  # FastMCP server (tool calling for Gemma)
+  fastmcp:
+    build:
+      context: ./mcp-server-fastmcp
+      dockerfile: Dockerfile
+    container_name: pal-prod-fastmcp
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-pal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-pal}
+      PAL_API_KEY: ${PAL_API_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:8002:8002"
+    networks:
+      - pal-network
+
+  # Medical Data Toolkit
+  mdt:
+    build:
+      context: ./mdt-source
+      dockerfile: Dockerfile
+    container_name: pal-prod-mdt
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    ports:
+      - "8081:8080"  # Use 8081 externally
+    volumes:
+      - ./loinc-kb-minimal:/data:ro
+    restart: unless-stopped
+    networks:
+      - pal-network
+
+volumes:
+  db_data:
+  redis_data:
+  uploads:
+
+networks:
+  pal-network:
+    driver: bridge

@@ -1,0 +1,45 @@
+# Centrifugo for PAL — merge into PAL/docker-compose.yml, or run alongside it:
+#   docker compose -f docker-compose.yml -f deploy/centrifugo/docker-compose.centrifugo.yml up
+#
+# Nothing in PAL's existing compose file is modified by this — it is an overlay,
+# so `docker compose up` without the -f keeps behaving exactly as it does today
+# (and the API falls back to the native /ws/chat socket automatically because
+# CENTRIFUGO_API_KEY is unset).
+
+services:
+  centrifugo:
+    image: centrifugo/centrifugo:v5.4.9
+    container_name: pal-centrifugo
+    command: centrifugo -c /centrifugo/config.json
+    volumes:
+      - ./deploy/centrifugo/config.json:/centrifugo/config.json:ro
+    ports:
+      - "8100:8000"          # 8000 inside the container is Centrifugo's default
+    environment:
+      # Env vars win over the JSON file — keep real secrets out of the repo.
+      CENTRIFUGO_TOKEN_HMAC_SECRET_KEY: ${CENTRIFUGO_TOKEN_HMAC_SECRET:?set in .env}
+      CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY:?set in .env}
+      CENTRIFUGO_ALLOWED_ORIGINS: ${CENTRIFUGO_ALLOWED_ORIGINS:-http://localhost:3000}
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # PAL's api service needs these to switch transports. Add to the existing
+  # `api` service's environment block rather than duplicating the service:
+  #
+  #   CHAT_TRANSPORT: centrifugo
+  #   CENTRIFUGO_URL: ws://localhost:8100/connection/websocket   # browser-facing
+  #   CENTRIFUGO_API_URL: http://centrifugo:8000/api             # server-to-server
+  #   CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY}
+  #   CENTRIFUGO_TOKEN_HMAC_SECRET: ${CENTRIFUGO_TOKEN_HMAC_SECRET}
+  #
+  # and the web service:
+  #
+  #   NEXT_PUBLIC_CENTRIFUGO_URL: ws://localhost:8100/connection/websocket

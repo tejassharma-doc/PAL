@@ -1,0 +1,2379 @@
+'use client';
+
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import VoiceCall from '../components/VoiceCall';
+import {
+  search, secondOpinion as apiSecondOpinion, confirmAction, uploadFile,
+  voiceBooking as apiVoiceBooking, bookAppointment,
+  listConversations, getConversationTurns, deleteConversation,
+  getHealthFacts,
+  initiateCall, sendCallTurn, endCall,
+  updateProfile,
+  type HealthFact, type SearchResult, type ConversationSummary, type ConversationTurn,
+  type VoiceBookingResult, type UploadResult, type CallSession as CallSessionType,
+} from '../lib/api';
+import type { RecordingHandle } from '../lib/stt';
+import { useTranslation } from '../lib/useTranslation';
+import { useAuthStore } from '../lib/store';
+import { SUPPORTED_LANGUAGES } from '../lib/languages';
+import FamilyHubButton from '../components/family/FamilyHubButton';
+
+// ─── Design tokens ────────────────────────────────────────────────────────────
+const c = {
+  ink: '#0d1f24', deep: '#13343b', deep2: '#0c2429',
+  paper: '#f6f3ec', soft: '#fbf9f4', jade: '#37b59b',
+  jadeD: '#1f7d6b', amber: '#d8a24a', amberD: '#8a6020',
+  rose: '#c2675e', blue: '#5a8fa8', blueD: '#33607a', mist: '#dfe6e3',
+};
+const mono = "'Space Mono', monospace";
+const serif = "'Newsreader', serif";
+const sans = "'Space Grotesk', sans-serif";
+
+// ─── Static data (mirrors prototype JS) ──────────────────────────────────────
+const PEOPLE = [
+  { key: 'anil',   name: 'Anil',   initial: 'A', grad: 'linear-gradient(150deg,#37b59b,#1f7d6b)', role: '(you)',   note: 'your own record',         scopeType: 'full' },
+  { key: 'priya',  name: 'Priya',  initial: 'P', grad: 'linear-gradient(150deg,#5a8fa8,#33607a)', role: '',        note: 'spouse · she granted you', scopeType: 'full' },
+  { key: 'meera',  name: 'Meera',  initial: 'M', grad: 'linear-gradient(150deg,#d8a24a,#b07d2c)', role: '',        note: "child · you're guardian",  scopeType: 'full' },
+  { key: 'ramesh', name: 'Ramesh', initial: 'R', grad: 'linear-gradient(150deg,#9c7bb0,#6a4a86)', role: '',        note: 'parent · limited scope',   scopeType: 'partial' },
+];
+
+const RECORDS: Record<string, { notice: string|null, vitals: {n:string,d:string,v:string,u:string,tag:string,tagType:string,src:string}[], log: boolean }> = {
+  anil:   { notice: null, vitals: [
+    { n:'LDL cholesterol', d:'12 May 2026', v:'162', u:'mg/dL', tag:'above target', tagType:'high', src:'from City Lab report · tap to view source' },
+    { n:'Blood pressure',  d:'2 Jun 2026',  v:'124/79', u:'',   tag:'in range',    tagType:'ok',   src:'from OPD visit note · tap to view source' },
+  ], log: true },
+  priya:  { notice: null, vitals: [
+    { n:'HbA1c', d:'20 Apr 2026', v:'5.4', u:'%', tag:'in range', tagType:'ok', src:'from City Lab report · tap to view source' },
+    { n:'Blood pressure', d:'2 Jun 2026', v:'118/76', u:'', tag:'in range', tagType:'ok', src:'from home monitor · tap to view source' },
+  ], log: false },
+  meera:  { notice: "Meera is a minor — you're her guardian. Her record is limited to preventive care, and becomes hers at 18.", vitals: [
+    { n:'Vaccinations', d:'on schedule', v:'Up to date', u:'', tag:'complete', tagType:'ok', src:'from School Health record' },
+  ], log: false },
+  ramesh: { notice: "You have meds-only access to Ramesh's record. Vitals and visit notes aren't shared with you.", vitals: [
+    { n:'Amlodipine 5 mg', d:'once daily', v:'Active', u:'', tag:'shared with you', tagType:'ok', src:'from his prescription' },
+  ], log: false },
+};
+
+const PROVSTYLE: Record<string, { dot: string, border: string, color: string }> = {
+  rec: { dot: '#37b59b', border: 'rgba(31,125,107,.4)', color: '#1f7d6b' },
+  evi: { dot: '#d8a24a', border: 'rgba(216,162,74,.5)',  color: '#8a6020' },
+  est: { dot: '#0d1f24', border: 'rgba(13,31,36,.16)',   color: '#0d1f24' },
+};
+
+const SEGSTYLE: Record<string, string> = {
+  self: 'color:#1f7d6b;border-bottom:1px dotted #37b59b',
+  src:  'color:#8a6020;border-bottom:1px dotted #d8a24a;cursor:pointer',
+  b:    'font-weight:600;color:#0d1f24',
+  t:    '',
+};
+
+const ANSWERS: Record<string, {
+  q: string, kind: string, ahd: string,
+  steps: {name:string,desc:string,meta:string}[],
+  para: {k:string,v:string}[], prov: {t:string,label:string}[],
+  followups: {label:string,cue:string,target:string}[],
+  action?: {label:string,when:string},
+}> = {
+  cholesterol: {
+    q: 'What should I eat for my cholesterol, and will it clash with my statin?', kind:'about', ahd:'✶ one answer, synthesised',
+    steps: [
+      { name:'Records', desc:'read your lipid panel', meta:'you approved' },
+      { name:'Medication', desc:'checked atorvastatin', meta:'1 interaction' },
+      { name:'Nutrition', desc:'building your plan', meta:'iNutriMon' },
+      { name:'Evidence', desc:'finding studies', meta:'PubMed' },
+    ],
+    para: [
+      {k:'t',v:'Your last LDL was '},{k:'self',v:'162 mg/dL (12 May)'},
+      {k:'t',v:' — above target. A Mediterranean-style plan suits you and is '},
+      {k:'src',v:'shown to lower LDL¹'},{k:'t',v:'. One caution: skip '},
+      {k:'b',v:'grapefruit'},{k:'t',v:', which '},{k:'src',v:'interacts with atorvastatin²'},{k:'t',v:'.'},
+    ],
+    prov: [{t:'rec',label:'from your record'},{t:'evi',label:'2 studies cited'},{t:'est',label:'1 estimate'}],
+    followups: [{label:'See your 7-day meal plan',cue:'open →',target:'nutrition'},{label:'Why grapefruit?',cue:'explain →',target:'explain'}],
+  },
+  meds: {
+    q: 'Do my meds interact?', kind:'about', ahd:'✶ answered from your record',
+    steps: [
+      { name:'Records', desc:'read your medication list', meta:'you approved' },
+      { name:'Medication', desc:'cross-checked interactions', meta:'iNutriMon' },
+      { name:'Evidence', desc:'verified against references', meta:'PubMed' },
+    ],
+    para: [
+      {k:'t',v:'You currently take '},{k:'self',v:'atorvastatin 20 mg'},
+      {k:'t',v:'. No drug–drug interactions were found in your list, but one food caution applies: avoid '},
+      {k:'b',v:'grapefruit'},{k:'t',v:', which '},{k:'src',v:'raises statin levels³'},{k:'t',v:'.'},
+    ],
+    prov: [{t:'rec',label:'from your record'},{t:'evi',label:'guideline-based'}],
+    followups: [{label:'See the full caution',cue:'open →',target:'nutrition'}],
+  },
+  book: {
+    q: 'Is my cholesterol in a safe range, and can you book a review?', kind:'action', ahd:'✶ answered from your record',
+    steps: [
+      { name:'Records', desc:'read your lipid panel', meta:'you approved' },
+      { name:'Guidelines', desc:'checked target range', meta:'NICE' },
+      { name:'Scheduling', desc:'finding a clinic slot', meta:'City Clinic' },
+    ],
+    para: [
+      {k:'t',v:'Your LDL of '},{k:'self',v:'162 mg/dL'},
+      {k:'t',v:' is above the usual target for your profile. A review with your clinician is reasonable.'},
+    ],
+    prov: [{t:'rec',label:'from your record'},{t:'evi',label:'guideline-based'}],
+    followups: [],
+    action: { label:'Lipid review · Dr. Rao', when:'Thu 26 Jun, 11:30 · City Clinic OPD' },
+  },
+  recipe: {
+    q: 'A recipe for tonight that fits my plan', kind:'about', ahd:'✶ from your nutrition plan',
+    steps: [
+      { name:'Records', desc:'read your nutrition plan', meta:'you approved' },
+      { name:'Nutrition', desc:'matched tonight\'s meal', meta:'iNutriMon' },
+    ],
+    para: [
+      {k:'t',v:'Tonight Sneha\'s plan suggests '},{k:'b',v:'grilled fish with sautéed greens'},
+      {k:'t',v:' — omega-3s that '},{k:'src',v:'support heart health⁴'},
+      {k:'t',v:'. It fits your '},{k:'self',v:'cholesterol goal'},{k:'t',v:'.'},
+    ],
+    prov: [{t:'rec',label:'from your plan'},{t:'evi',label:'1 study cited'}],
+    followups: [{label:'Open the recipe & method',cue:'open →',target:'nutrition'}],
+  },
+  diabetes: {
+    q: 'What is type 2 diabetes?', kind:'general', ahd:'✶ general health answer · record not used',
+    steps: [
+      { name:'Library', desc:'searching clinical references', meta:'MedlinePlus' },
+      { name:'Evidence', desc:'finding plain-language sources', meta:'PubMed' },
+    ],
+    para: [
+      {k:'t',v:'Type 2 diabetes is a condition where the body '},{k:'src',v:'doesn\'t use insulin well⁵'},
+      {k:'t',v:', so blood sugar runs high over time. It\'s often managed with diet, activity, and medication.'},
+    ],
+    prov: [{t:'evi',label:'2 sources cited'}],
+    followups: [{label:'Is this relevant to me?',cue:'use my record →',target:'consent'}],
+  },
+  general: {
+    q: '', kind:'general', ahd:'✶ general answer · record not used',
+    steps: [
+      { name:'Library', desc:'searching references', meta:'MedlinePlus' },
+      { name:'Evidence', desc:'finding studies', meta:'PubMed' },
+    ],
+    para: [
+      {k:'t',v:'Here\'s general guidance without using your record. '},
+      {k:'t',v:'For advice specific to you, switch this question to use your record anytime.'},
+    ],
+    prov: [{t:'evi',label:'guideline-based'}],
+    followups: [{label:'Use my record instead',cue:'consent →',target:'consent'}],
+  },
+};
+
+const THREADS = [
+  { group:'Today', title:'What should I eat for my cholesterol, and will it clash with my statin?', short:'Cholesterol & statin', kind:'personal', agents:'records · meds · nutrition · evidence', when:'9:42',
+    msgs:[{role:'me',text:'What should I eat for my cholesterol, and will it clash with my statin?'},{role:'ai',spans:[{t:'t',v:'Your last LDL was '},{t:'self',v:'162 mg/dL (12 May)'},{t:'t',v:' — above target. A Mediterranean-style plan suits you and is '},{t:'src',v:'shown to lower LDL¹'},{t:'t',v:'. Skip grapefruit — it '},{t:'src',v:'interacts with atorvastatin²'},{t:'t',v:'.'}]},{role:'me',text:'What about eggs?'},{role:'ai',spans:[{t:'t',v:'For your profile, a few eggs a week is generally fine — dietary cholesterol affects blood LDL less than saturated fat does.'}]}]
+  },
+  { group:'Today', title:'What is type 2 diabetes?', short:'Type 2 diabetes', kind:'general', agents:'', when:'8:15',
+    msgs:[{role:'me',text:'What is type 2 diabetes?'},{role:'ai',spans:[{t:'t',v:"Type 2 diabetes is a condition where the body doesn't use insulin well, so blood sugar runs high over time. It's often managed with diet, activity, and medication."}]}]
+  },
+  { group:'Yesterday', title:'Is my blood pressure in a safe range?', short:'Blood pressure', kind:'personal', agents:'records · evidence', when:'Tue 18:30',
+    msgs:[{role:'me',text:'Is my blood pressure in a safe range?'},{role:'ai',spans:[{t:'t',v:'Your last reading was '},{t:'self',v:'124/79 mmHg (2 Jun)'},{t:'t',v:' — within the normal range. Nothing to change at the moment.'}]}]
+  },
+  { group:'Yesterday', title:'A simple recipe for dinner tonight', short:'Dinner recipe', kind:'general', agents:'', when:'Tue 17:02',
+    msgs:[{role:'me',text:'A simple recipe for dinner tonight'},{role:'ai',spans:[{t:'t',v:'Grilled fish with sautéed greens is quick, heart-healthy, and fits a Mediterranean-style plan.'}]}]
+  },
+  { group:'Earlier this week', title:'Pre-visit questions for Dr. Rao', short:'Pre-visit: Dr. Rao', kind:'personal', agents:'pre-visit interview', when:'Mon',
+    msgs:[{role:'me',text:'Pre-visit questions for Dr. Rao'},{role:'ai',spans:[{t:'t',v:'Based on your care plan, here are three questions to bring: 1) Should my statin dose change given my '},{t:'self',v:'LDL of 162'},{t:'t',v:'? 2) Any changes to my BP target? 3) Is my activity level enough?'}]}]
+  },
+];
+
+const CARE = {
+  meds: [{ nm:'Atorvastatin 20 mg', dt:'Once daily at night, with or without food.', tag:'prescribed by Dr. Rao', track:'PAL reminds', pic:'℞', picType:'med' }],
+  targets: [
+    { nm:'LDL cholesterol', dt:'Goal <100 mg/dL. Recheck in 12 weeks.', tag:'last: 162 · 12 May', track:'tracked', pic:'◎', picType:'tar' },
+    { nm:'Activity', dt:'30 min brisk walk, 5 days a week.', tag:'', track:'PAL reminds', pic:'🚶', picType:'act' },
+  ],
+};
+
+const MEALS = [
+  { mt:'Breakfast', mc:'~320 kcal', mn:'Oats with walnuts & berries', why:[{b:'Why: '},{t:'soluble fibre and good fats help lower LDL.'}] },
+  { mt:'Lunch', mc:'~480 kcal', mn:'Rajma with brown rice & salad', why:[{b:'Why: '},{t:'plant protein, no added saturated fat.'}] },
+  { mt:'Dinner', mc:'~430 kcal', mn:'Grilled fish, sautéed greens', why:[{b:'Why: '},{t:'omega-3s support heart health. '},{b:'Avoid grapefruit'},{t:' — clashes with your statin.'}] },
+];
+
+// ─── Main component ───────────────────────────────────────────────────────────
+export default function PAL() {
+  const router = useRouter();
+  const { t } = useTranslation();
+  const hour = new Date().getHours();
+  const greetKey = hour < 12 ? 'greeting_morning' : hour < 17 ? 'greeting_afternoon' : 'greeting_evening';
+
+  const [personKey, setPersonKey] = useState('anil');
+  const [userName, setUserName] = useState(() => {
+    // Load from localStorage immediately
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('pal_user_name') || localStorage.getItem('pal_full_name') || '';
+    }
+    return '';
+  });  // Real user name from DB
+  const [tab, setTabRaw] = useState<'ask'|'history'|'record'|'visits'|'reminders'|'profile'>('ask');
+  const [view, setView] = useState<string|null>(null);
+  const [ask, setAsk] = useState<'idle'|'consent'|'thinking'|'answer'>('idle');
+  const [curId, setCurId] = useState<string|null>(null);
+  const [kind, setKind] = useState<'general'|'about'|'action'>('general');
+  const [generalized, setGeneralized] = useState(false);
+  const [thinkStep, setThinkStep] = useState(0);
+  const [reveal, setReveal] = useState<'roster'|'stream'|'quiet'>('roster');
+  const [booked, setBooked] = useState(false);
+  const [explainOpen, setExplainOpen] = useState(false);
+  const [revoked, setRevoked] = useState<Record<string, boolean>>({});
+  const [notif, setNotif] = useState<Record<string, string>>({ statin:'pending', dinner:'pending', recheck:'pending' });
+  const [historyView, setHistoryView] = useState<string|null>(null);
+  const [activeThread, setActiveThread] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState<number|null>(null);
+  const [continueText, setContinueText] = useState('');
+
+  // ─── Real API state ───────────────────────────────────────────────────────
+  const [queryText, setQueryText] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [showVoiceCall, setShowVoiceCall] = useState(false);
+  const [realQuestion, setRealQuestion] = useState<string | null>(null);
+  const [realAnswer, setRealAnswer] = useState<string | null>(null);
+  const [realVitals, setRealVitals] = useState<HealthFact[] | null>(null);
+  const recordingRef = useRef<RecordingHandle | null>(null);
+
+  // Conversation threading + pending actions
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [pendingActions, setPendingActions] = useState<NonNullable<SearchResult['pending_actions']>>([]);
+  const [isSecondOpinionMode, setIsSecondOpinionMode] = useState(false);
+  const [actionToast, setActionToast] = useState<string | null>(null);
+
+  // Upload
+  const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+
+  // History — real threads from API (falls back to demo THREADS when empty)
+  const [realThreads, setRealThreads] = useState<ConversationSummary[] | null>(null);
+  const [realTurns, setRealTurns] = useState<ConversationTurn[] | null>(null);
+  const [activeRealConvId, setActiveRealConvId] = useState<string | null>(null);
+
+  // Voice booking (Visits tab — simple transcript-based flow)
+  const [voiceBookingLoading, setVoiceBookingLoading] = useState(false);
+  const [voiceBookingResult, setVoiceBookingResult] = useState<VoiceBookingResult | null>(null);
+
+  // Profile data
+  const [patientProfile, setPatientProfile] = useState<any | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [bookingConfirmed, setBookingConfirmed] = useState(false);
+
+  // Records data
+  const [records, setRecords] = useState<any | null>(null);
+  const [recordsLoading, setRecordsLoading] = useState(false);
+  const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
+
+  // Hermes A2A call overlay
+  const [activeCallSession, setActiveCallSession] = useState<CallSessionType | null>(null);
+  const [callTurns, setCallTurns] = useState<Array<{role:'hermes'|'patient'|'docehr'|'speaker_suggest', content:string}>>([]);
+  const [callInput, setCallInput] = useState('');
+  const [callLoading, setCallLoading] = useState(false);
+  const callScrollRef = useRef<HTMLDivElement | null>(null);
+  const [callRinging, setCallRinging] = useState(false);
+  const [speakerOn, setSpeakerOn] = useState(false);
+  const demoTurnRef = useRef(0);
+
+  // STT read-back confirmation: set when STT transcribes, cleared after user confirms/retries
+  const [sttDraft, setSttDraft] = useState<string | null>(null);
+
+  // Conversational thread for Ask tab
+  const [chatMessages, setChatMessages] = useState<Array<
+    | { id: string; role: 'user'; text: string }
+    | { id: string; role: 'assistant'; text: string; isThinking?: boolean; pendingActions?: NonNullable<SearchResult['pending_actions']> }
+    | { id: string; role: 'consent'; text: string; demoId: string; demoKind: 'general'|'about'|'action' }
+  >>([]);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Settings sheet
+  const [settingsOpen, setSettingsOpen]               = useState(false);
+  const [settingsName, setSettingsName]               = useState('');
+  const [settingsLang, setSettingsLang]               = useState('en');
+  const [settingsAvatar, setSettingsAvatar]           = useState<string | null>(null);
+  const [settingsStanding, setSettingsStanding]       = useState(false);
+  const [settingsAnalytics, setSettingsAnalytics]     = useState(false);
+  const [settingsSaving, setSettingsSaving]           = useState(false);
+  const [settingsSaved, setSettingsSaved]             = useState(false);
+  const [signOutConfirmOpen, setSignOutConfirmOpen]   = useState(false);
+  const [signOutReason, setSignOutReason]             = useState('');
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const clearAuth = useAuthStore((s) => s.clearAuth);
+
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const clearTimers = () => { timers.current.forEach(clearTimeout); timers.current = []; };
+  const addTimer = (fn: () => void, ms: number) => {
+    const id = setTimeout(fn, ms);
+    timers.current.push(id);
+  };
+
+  // Redirect to login if not authenticated, then check profile
+  useEffect(() => {
+    const token = localStorage.getItem('pal_token');
+    const patientId = localStorage.getItem('pal_patient_id');
+
+    if (!token) {
+      // No token - redirect to login
+      window.location.replace('/login');
+    } else if (!patientId) {
+      // Has token but no patient profile - redirect to profile creation
+      window.location.replace('/profile/create');
+    }
+  }, []);
+
+  useEffect(() => () => clearTimers(), []);
+
+  // Load real conversations when History tab opens.
+  useEffect(() => {
+    if (tab !== 'history') return;
+    listConversations()
+      .then(convs => { if (convs.length > 0) setRealThreads(convs); })
+      .catch(() => null);
+  }, [tab]);
+
+  // Fetch real health facts when on Record tab; falls back to demo data on error.
+  useEffect(() => {
+    if (tab !== 'record' || personKey !== 'anil') return;
+    const memberId = typeof window !== 'undefined' ? localStorage.getItem('pal_user_id') : null;
+    if (!memberId) return;
+    getHealthFacts(memberId)
+      .then(facts => facts.length > 0 && setRealVitals(facts))
+      .catch(() => null);
+  }, [tab, personKey]);
+
+  // Load patient profile when Profile tab opens
+  useEffect(() => {
+    if (tab !== 'profile') return;
+
+    async function loadPatientProfile() {
+      setProfileLoading(true);
+      try {
+        const { getUserProfile } = await import('../lib/api-auth');
+        const profile = await getUserProfile();
+
+        if (profile.patient) {
+          setPatientProfile(profile.patient);
+        } else {
+          setPatientProfile(null);
+        }
+      } catch (err) {
+        console.error('Failed to load patient profile:', err);
+        setPatientProfile(null);
+      } finally {
+        setProfileLoading(false);
+      }
+    }
+
+    loadPatientProfile();
+  }, [tab]);
+
+  // Load records when Record tab opens
+  useEffect(() => {
+    if (tab !== 'record') return;
+
+    async function loadRecords() {
+      setRecordsLoading(true);
+      try {
+        const patientId = localStorage.getItem('pal_patient_id');
+        const token = localStorage.getItem('pal_token');
+
+        if (!patientId || !token) {
+          setRecords(null);
+          return;
+        }
+
+        const response = await fetch(`/api/records/patient/${patientId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setRecords(data);
+        } else {
+          setRecords(null);
+        }
+      } catch (err) {
+        console.error('Failed to load records:', err);
+        setRecords(null);
+      } finally {
+        setRecordsLoading(false);
+      }
+    }
+
+    loadRecords();
+  }, [tab]);
+
+  const person = PEOPLE.find(p => p.key === personKey) || PEOPLE[0];
+  const ans = generalized ? ANSWERS.general : (ANSWERS[curId || ''] || ANSWERS.general);
+
+  // Load settings from API on mount
+  useEffect(() => {
+    async function loadUserProfile() {
+      try {
+        const { getUserProfile } = await import('../lib/api-auth');
+        const profile = await getUserProfile();
+
+        // Update state with API data (patient data, not user)
+        if (profile.patient) {
+          setSettingsName(profile.patient.full_name || '');
+          setUserName(profile.patient.full_name || '');
+
+          // Store in localStorage
+          localStorage.setItem('pal_full_name', profile.patient.full_name || '');
+          if (profile.patient.phone) localStorage.setItem('pal_phone', profile.patient.phone);
+        } else {
+          // No patient profile
+          setSettingsName('');
+          setUserName('');
+        }
+
+        // Language defaults to 'en'
+        setSettingsLang('en');
+        localStorage.setItem('pal_preferred_lang', 'en');
+
+        // Load avatar from localStorage (stored as base64)
+        setSettingsAvatar(localStorage.getItem('pal_avatar') || null);
+
+        // Load privacy preferences from localStorage
+        const prefs = localStorage.getItem('pal_privacy_prefs');
+        if (prefs) {
+          try {
+            const p = JSON.parse(prefs);
+            setSettingsStanding(!!p.standing);
+            setSettingsAnalytics(!!p.analytics);
+          } catch { /* ignore */ }
+        }
+      } catch (err) {
+        console.error('Failed to load user profile:', err);
+        // Fallback to localStorage
+        setSettingsName(localStorage.getItem('pal_full_name') || '');
+        setSettingsLang(localStorage.getItem('pal_preferred_lang') || 'en');
+        setSettingsAvatar(localStorage.getItem('pal_avatar') || null);
+      }
+    }
+
+    loadUserProfile();
+  }, []);
+
+  function handleAvatarFile(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const b64 = reader.result as string;
+      localStorage.setItem('pal_avatar', b64);
+      setSettingsAvatar(b64);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleSettingsSave() {
+    setSettingsSaving(true);
+    await updateProfile({ full_name: settingsName, preferred_language: settingsLang });
+    localStorage.setItem('pal_full_name', settingsName);
+    localStorage.setItem('pal_preferred_lang', settingsLang);
+    localStorage.setItem('pal_privacy_prefs', JSON.stringify({ standing: settingsStanding, analytics: settingsAnalytics }));
+    window.dispatchEvent(new StorageEvent('storage', { key: 'pal_preferred_lang', newValue: settingsLang }));
+    setSettingsSaving(false);
+    setSettingsSaved(true);
+    setTimeout(() => setSettingsSaved(false), 2000);
+  }
+
+  function handleSignOut() {
+    clearAuth();
+    window.location.replace('/login');
+  }
+
+  // ─── Real API handlers ────────────────────────────────────────────────────
+
+  async function handleTextQuery(text: string, opts: { convId?: string } = {}) {
+    if (!text.trim()) return;
+    const msgId = `${Date.now()}`;
+    setQueryText('');
+    setUploadResult(null);
+    setIsSecondOpinionMode(false);
+    setTabRaw('ask');
+    setView(null);
+
+    setChatMessages(prev => [
+      ...prev,
+      { id: `u-${msgId}`, role: 'user' as const, text },
+      { id: `t-${msgId}`, role: 'assistant' as const, text: '', isThinking: true },
+    ]);
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
+
+    const patientId = typeof window !== 'undefined' ? localStorage.getItem('pal_patient_id') : null;
+    const activeConvId = opts.convId ?? conversationId;
+
+    try {
+      // Call Hermes AI with MCP + Vertex AI
+      const { askHermes } = await import('../lib/hermes-api');
+      const result = await askHermes(text, patientId || '', activeConvId || undefined);
+
+      if (result.conversation_id) setConversationId(result.conversation_id);
+
+      setChatMessages(prev => prev.map(m =>
+        m.id === `t-${msgId}`
+          ? {
+              id: `a-${msgId}`,
+              role: 'assistant' as const,
+              text: result.answer,
+              isThinking: false
+            }
+          : m
+      ));
+    } catch (err) {
+      setChatMessages(prev => prev.map(m =>
+        m.id === `t-${msgId}`
+          ? {
+              id: `a-${msgId}`,
+              role: 'assistant' as const,
+              text: err instanceof Error ? `⚠ ${err.message}` : '⚠ Could not reach the server.',
+              isThinking: false
+            }
+          : m
+      ));
+    }
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 80);
+  }
+
+  async function handleMicClick() {
+    if (isRecording) {
+      const result = await recordingRef.current?.stop();
+      recordingRef.current = null;
+      setIsRecording(false);
+      if (result?.text) setSttDraft(result.text);
+      return;
+    }
+    setIsRecording(true);
+    const { getOrDetectCapabilities } = await import('../lib/deviceCapabilities');
+    const caps = await getOrDetectCapabilities();
+
+    if (caps.use_web_speech) {
+      const { startWebSpeechRecording } = await import('../lib/stt');
+      const lang = typeof window !== 'undefined' ? (localStorage.getItem('pal_preferred_lang') ?? undefined) : undefined;
+      const handle = startWebSpeechRecording(lang);
+      recordingRef.current = handle;
+      const result = await handle.stop();
+      setIsRecording(false);
+      recordingRef.current = null;
+      if (result?.text) setSttDraft(result.text);
+    } else {
+      const { startRecording } = await import('../lib/stt');
+      const handle = startRecording();
+      recordingRef.current = handle;
+    }
+  }
+
+  async function handleConfirmAction(action: NonNullable<SearchResult['pending_actions']>[number]) {
+    const sessionId = `sess-confirm-${Date.now()}`;
+    try {
+      await confirmAction({
+        actionType: action.type,
+        actionPayload: action.action_payload || {},
+        confirmToken: action.confirm_token || '',
+        sessionId,
+      });
+      setActionToast('Action confirmed — your clinic will be in touch.');
+    } catch (err) {
+      setActionToast(err instanceof Error ? err.message : 'Could not confirm — please try again.');
+    }
+    setTimeout(() => setActionToast(null), 4500);
+  }
+
+  async function handleSecondOpinion(userText: string) {
+    const msgId = `so-${Date.now()}`;
+    const memberId = typeof window !== 'undefined' ? localStorage.getItem('pal_user_id') : null;
+    const sessionId = `sess-so-${msgId}`;
+    setIsSecondOpinionMode(true);
+    setChatMessages(prev => [...prev, { id: `t-${msgId}`, role: 'assistant' as const, text: '', isThinking: true }]);
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
+    try {
+      const result = await apiSecondOpinion(userText, sessionId, conversationId, { memberId: memberId || undefined });
+      if (result.conversation_id) setConversationId(result.conversation_id);
+      setChatMessages(prev => prev.map(m =>
+        m.id === `t-${msgId}`
+          ? { id: `a-${msgId}`, role: 'assistant' as const, text: `✶ second opinion: ${result.answer_text}`, isThinking: false, pendingActions: result.pending_actions || [] }
+          : m
+      ));
+    } catch (err) {
+      setChatMessages(prev => prev.map(m =>
+        m.id === `t-${msgId}`
+          ? { id: `a-${msgId}`, role: 'assistant' as const, text: '⚠ Second opinion unavailable.', isThinking: false }
+          : m
+      ));
+    }
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 80);
+  }
+
+  async function handleUpload(file: File) {
+    const msgId = `${Date.now()}`;
+    setTabRaw('ask');
+    setView(null);
+    setChatMessages(prev => [
+      ...prev,
+      { id: `u-${msgId}`, role: 'user' as const, text: `📎 ${file.name}` },
+      { id: `t-${msgId}`, role: 'assistant' as const, text: '', isThinking: true },
+    ]);
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
+    try {
+      const result = await uploadFile(file);
+      const msg = result.type === 'document_accepted' ? `⛁ ${result.message}` : `⚠ ${result.message}`;
+      setChatMessages(prev => prev.map(m =>
+        m.id === `t-${msgId}` ? { id: `a-${msgId}`, role: 'assistant' as const, text: msg, isThinking: false } : m
+      ));
+    } catch (err) {
+      setChatMessages(prev => prev.map(m =>
+        m.id === `t-${msgId}` ? { id: `a-${msgId}`, role: 'assistant' as const, text: `⚠ ${err instanceof Error ? err.message : 'Upload failed.'}`, isThinking: false } : m
+      ));
+    }
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 80);
+  }
+
+  async function handleVoiceBooking() {
+    setVoiceBookingLoading(true);
+    setVoiceBookingResult(null);
+    setBookingConfirmed(false);
+    const lang = typeof window !== 'undefined' ? (localStorage.getItem('pal_preferred_lang') ?? undefined) : undefined;
+    const sessionId = `sess-vb-${Date.now()}`;
+    try {
+      const { startWebSpeechRecording } = await import('../lib/stt');
+      const handle = startWebSpeechRecording(lang);
+      const sttResult = await handle.stop();
+      const transcript = sttResult?.text || 'Book an appointment with Dr. Rao next week';
+      const result = await apiVoiceBooking(transcript, sessionId, lang);
+      setVoiceBookingResult(result);
+    } catch (err) {
+      setActionToast(err instanceof Error ? err.message : 'Voice booking failed.');
+      setTimeout(() => setActionToast(null), 4000);
+    }
+    setVoiceBookingLoading(false);
+  }
+
+  async function handleConfirmBooking(slotId: string) {
+    const action = voiceBookingResult?.proposed_actions?.[0];
+    const sessionId = `sess-bk-${Date.now()}`;
+    try {
+      await bookAppointment({
+        slotId,
+        reason: 'Patient-initiated booking via PAL voice',
+        confirmToken: action?.confirm_token || '',
+        sessionId,
+      });
+      setBookingConfirmed(true);
+      setActionToast('Appointment requested — your clinic will confirm shortly.');
+      setTimeout(() => setActionToast(null), 5000);
+    } catch (err) {
+      setActionToast(err instanceof Error ? err.message : 'Booking failed — please try again.');
+      setTimeout(() => setActionToast(null), 4000);
+    }
+  }
+
+  const DEMO_SCRIPT = [
+    {
+      docehr_queries: [{ query_type: 'check_availability', params: { doctor_id: 'default' }, response: 'STATUS: AVAILABLE, Time: June 25 at 09:00 AM. Doctor: Dr. Rao at City Clinic OPD. Slot ID: slot-demo-001.' }],
+      hermes_response: "Wonderful! I've just checked Dr. Rao's schedule and there's an opening this Wednesday, June 25th at 9 in the morning at City Clinic OPD. Does that time work for you?",
+      call_state: 'scheduling', call_ended: false, booking_done: false, available_slots: [] as import('../lib/api').AppointmentSlot[],
+    },
+    {
+      docehr_queries: [{ query_type: 'check_lab_requirements', params: { appointment_reason: 'lipid review' }, response: 'LABS REQUIRED: True. Details: Lipid Profile Panel. Instructions: Fast for 12 hours before the test. Avoid fatty foods the night before.' }],
+      hermes_response: "Excellent! Before your visit you'll need a Lipid Profile blood test. You'll need to fast for about 12 hours beforehand — water is fine. It helps Dr. Rao get the most accurate cholesterol results.",
+      call_state: 'lab_check', call_ended: false, booking_done: false, available_slots: [] as import('../lib/api').AppointmentSlot[],
+    },
+    {
+      docehr_queries: [{ query_type: 'book_appointment', params: { slot_id: 'slot-demo-001', reason: 'Lipid review' }, response: 'ACTION COMPLETE: Appointment successfully booked for June 25 at 09:00 AM with Dr. Rao at City Clinic OPD. Reference: BK-7A3F2E9. EHR updated.' }],
+      hermes_response: "All booked! To confirm — you're scheduled for Wednesday, June 25th at 9 AM with Dr. Rao at City Clinic OPD. Please fast for 12 hours before and bring any recent reports. We'll send a reminder 24 hours before. Anything else I can help with?",
+      call_state: 'confirming', call_ended: false, booking_done: true, available_slots: [] as import('../lib/api').AppointmentSlot[],
+    },
+    {
+      docehr_queries: [],
+      hermes_response: "My pleasure. Take care, and we look forward to seeing you on Wednesday! Have a wonderful day. Goodbye!",
+      call_state: 'ended', call_ended: true, booking_done: true, available_slots: [] as import('../lib/api').AppointmentSlot[],
+    },
+  ];
+
+  async function handleInitiateCall() {
+    demoTurnRef.current = 0;
+    setCallRinging(true);
+    setCallTurns([]);
+    setActiveCallSession(null);
+    setCallInput('');
+    setCallLoading(false);
+    try {
+      const session = await initiateCall({ doctorId: 'default', doctorName: 'Dr. Rao', patientName: userName || settingsName || 'there' });
+      setCallRinging(false);
+      setActiveCallSession(session);
+      if (session.hermes_response) setCallTurns([{ role: 'hermes', content: session.hermes_response }]);
+    } catch {
+      // Demo mode: simulate the call locally
+      await new Promise(r => setTimeout(r, 1800));
+      setCallRinging(false);
+      const greeting = `Hello, am I speaking with ${userName || settingsName || 'you'}? This is Hermes, an AI medical receptionist from PAL. I'm calling to schedule your lipid review appointment with Dr. Rao at City Clinic. Is this a good time to talk?`;
+      setActiveCallSession({ session_id: 'demo', status: 'active', hermes_response: greeting, call_state: 'greeting', call_ended: false, available_slots: [] });
+      setCallTurns([{ role: 'hermes', content: greeting }]);
+    }
+  }
+
+  async function handleCallTurn() {
+    if (!activeCallSession || !callInput.trim() || callLoading) return;
+    const userText = callInput.trim();
+    setCallInput('');
+    setCallTurns(t => [...t, { role: 'patient', content: userText }]);
+    setCallLoading(true);
+
+    const isDemo = activeCallSession.session_id === 'demo';
+
+    if (isDemo) {
+      await new Promise(r => setTimeout(r, 1400));
+      const step = DEMO_SCRIPT[Math.min(demoTurnRef.current, DEMO_SCRIPT.length - 1)];
+      demoTurnRef.current += 1;
+      const next: Array<{role:'hermes'|'patient'|'docehr'|'speaker_suggest', content:string}> = [];
+      step.docehr_queries.forEach((q: { query_type: string; response: string }) => {
+        next.push({ role: 'docehr', content: `${q.query_type.replace(/_/g,' ')} → ${q.response.slice(0, 90)}` });
+      });
+      if (step.docehr_queries.length > 0 && !speakerOn) {
+        next.push({ role: 'speaker_suggest', content: '' });
+      }
+      next.push({ role: 'hermes', content: step.hermes_response });
+      setCallTurns(t => [...t, ...next]);
+      setActiveCallSession(prev => prev ? { ...prev, ...step } : { ...step, session_id: 'demo', status: step.call_ended ? 'ended' : 'active' });
+      setTimeout(() => { callScrollRef.current?.scrollTo({ top: 999999, behavior: 'smooth' }); }, 80);
+    } else {
+      try {
+        const result = await sendCallTurn(activeCallSession.session_id, userText);
+        const next: Array<{role:'hermes'|'patient'|'docehr'|'speaker_suggest', content:string}> = [];
+        (result.docehr_queries || []).forEach(q => {
+          next.push({ role: 'docehr', content: `${q.query_type.replace(/_/g,' ')} → ${q.response.slice(0, 90)}` });
+        });
+        if ((result.docehr_queries || []).length > 0 && !speakerOn) {
+          next.push({ role: 'speaker_suggest', content: '' });
+        }
+        if (result.hermes_response) next.push({ role: 'hermes', content: result.hermes_response });
+        setCallTurns(t => [...t, ...next]);
+        setActiveCallSession(prev => prev ? { ...prev, ...result } : result);
+        setTimeout(() => { callScrollRef.current?.scrollTo({ top: 999999, behavior: 'smooth' }); }, 80);
+      } catch {
+        setCallTurns(t => [...t, { role: 'hermes', content: '(connection issue — please try again)' }]);
+      }
+    }
+    setCallLoading(false);
+  }
+
+  async function handleEndCall() {
+    setCallRinging(false);
+    setSpeakerOn(false);
+    if (activeCallSession && activeCallSession.session_id !== 'demo') {
+      try { await endCall(activeCallSession.session_id); } catch { /* ignore */ }
+    }
+    setActiveCallSession(null);
+    setCallTurns([]);
+    demoTurnRef.current = 0;
+  }
+
+  function setTab(t: typeof tab) {
+    clearTimers();
+    setTabRaw(t);
+    setView(null);
+    setHistoryView(null);
+    if (ask === 'thinking') setAsk('idle');
+  }
+
+  function startThinking() {
+    clearTimers();
+    setAsk('thinking');
+    setThinkStep(0);
+    setExplainOpen(false);
+    const steps = ans?.steps || [];
+    if (reveal === 'quiet') { addTimer(() => setAsk('answer'), 1650); return; }
+    const per = reveal === 'stream' ? 640 : 760;
+    const n = Math.max(steps.length, 1);
+    for (let i = 1; i <= n; i++) addTimer(() => setThinkStep(i), per * i);
+    addTimer(() => setAsk('answer'), per * n + 560);
+  }
+
+  function runQuery(id: string, k: 'general'|'about'|'action') {
+    const a = ANSWERS[id] || ANSWERS.general;
+    const text = a.q || id;
+    const msgId = `${Date.now()}`;
+    clearTimers();
+    setCurId(id);
+    setKind(k);
+    setGeneralized(false);
+    setExplainOpen(false);
+    setTabRaw('ask');
+    setView(null);
+
+    setChatMessages(prev => [...prev, { id: `u-${msgId}`, role: 'user' as const, text }]);
+
+    if (k === 'general') {
+      const thinkId = `t-${msgId}`;
+      setChatMessages(prev => [...prev, { id: thinkId, role: 'assistant' as const, text: '', isThinking: true }]);
+      const per = reveal === 'quiet' ? 0 : 760;
+      const delay = reveal === 'quiet' ? 1600 : (Math.max(a.steps?.length || 2, 1) * per + 560);
+      const t1 = setTimeout(() => {
+        const ansText = a.para.map((s: {v: string}) => s.v).join('');
+        setChatMessages(prev => prev.map(m =>
+          m.id === thinkId ? { id: `a-${msgId}`, role: 'assistant' as const, text: ansText, isThinking: false } : m
+        ));
+        setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
+      }, delay);
+      timers.current.push(t1);
+    } else {
+      const consentId = `c-${msgId}`;
+      setChatMessages(prev => [...prev, { id: consentId, role: 'consent' as const, text, demoId: id, demoKind: k }]);
+    }
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
+  }
+
+  function giveConsent(use: boolean, consentMsgId: string, demoId: string) {
+    setGeneralized(!use);
+    const thinkId = `t-gc-${Date.now()}`;
+    setChatMessages(prev => prev.map(m =>
+      m.id === consentMsgId ? { id: thinkId, role: 'assistant' as const, text: '', isThinking: true } : m
+    ));
+    const a = use ? (ANSWERS[demoId] || ANSWERS.general) : ANSWERS.general;
+    const delay = reveal === 'quiet' ? 1600 : (Math.max(a.steps?.length || 2, 1) * 760 + 560);
+    const t1 = setTimeout(() => {
+      const ansText = a.para.map((s: {v: string}) => s.v).join('');
+      setChatMessages(prev => prev.map(m =>
+        m.id === thinkId ? { id: `a-gc-${Date.now()}`, role: 'assistant' as const, text: ansText, isThinking: false } : m
+      ));
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
+    }, delay);
+    timers.current.push(t1);
+  }
+
+  function followTo(target: string) {
+    if (target === 'nutrition') { setTabRaw('visits'); setView('nutrition'); }
+    else if (target === 'consent') { setAsk('consent'); }
+    else if (target === 'explain') { setExplainOpen(e => !e); }
+  }
+
+  // ─── Derived layout state ─────────────────────────────────────────────────
+  let appTitle = '', appSub = '', showBack = false;
+  if (view === 'careplan') { appTitle = 'Care plan'; appSub = 'Dr. Rao · 12 May'; showBack = true; }
+  else if (view === 'nutrition') { appTitle = 'Nutrition plan'; appSub = 'Sneha · 14 May'; showBack = true; }
+  else if (historyView === 'thread') {
+    const realConvTitle = realThreads?.find(t => t.id === activeRealConvId)?.title;
+    const ht = THREADS[activeThread] || {};
+    appTitle = realConvTitle || (ht as any).short || 'Conversation';
+    appSub = 'conversation'; showBack = true;
+  }
+  else if (tab === 'history') { appTitle = 'History'; appSub = 'your conversations'; }
+  else if (tab === 'record') { appTitle = 'Your record'; appSub = 'health records'; }
+  else if (tab === 'visits') { appTitle = 'Visits'; appSub = 'appointments'; }
+  else if (tab === 'reminders') { appTitle = 'Reminders'; appSub = 'notifications'; }
+  else if (tab === 'profile') { appTitle = 'Profile'; appSub = 'your details'; }
+  else { appTitle = userName || person.name; appSub = 'your health assistant'; }
+
+  const TABS = [
+    { id:'ask' as const, icon:'⌕', label: t('tab_ask') },
+    { id:'history' as const, icon:'◴', label: t('tab_history') },
+    { id:'record' as const, icon:'⛁', label: t('tab_record') },
+    { id:'upload' as const, icon:'⇪', label: 'Upload' },
+    { id:'family_chat' as const, icon:'👨‍👩‍👧', label: 'FamilyChat' },
+    { id:'visits' as const, icon:'◷', label: t('tab_visits') },
+  ];
+
+  const rec = RECORDS[personKey] || RECORDS.anil;
+
+  const vitalsToShow = (personKey === 'anil' && realVitals && realVitals.length > 0)
+    ? realVitals.map(f => ({
+        n: f.key,
+        d: f.recorded_at
+          ? new Date(f.recorded_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+          : '—',
+        v: f.value,
+        u: f.unit || '',
+        tag: f.evidence_class,
+        tagType: 'ok' as const,
+        src: 'from your health record · live',
+      }))
+    : rec.vitals;
+
+  // Thread groups
+  const tgMap: Record<string, typeof THREADS> = {};
+  const tgOrder: string[] = [];
+  THREADS.forEach(t => {
+    if (!tgMap[t.group]) { tgMap[t.group] = []; tgOrder.push(t.group); }
+    tgMap[t.group].push(t);
+  });
+
+  const activeT = THREADS[activeThread] || THREADS[0];
+  const isTPersonal = activeT.kind === 'personal';
+
+  const careItems = [...CARE.meds, ...CARE.targets];
+
+  // Notification state helpers
+  function setNotifVal(id: string, val: string) { setNotif(n => ({ ...n, [id]: val })); }
+
+  const todayNotifs = [
+    { id:'statin', icon:'℞', iconStyle:`background:rgba(55,181,155,.14);color:#1f7d6b`, accent:'#37b59b', tt:'Atorvastatin · evening dose', bd:'From Dr. Rao\'s plan. Best taken at night.', time:'9:00 PM', kind:'statin' },
+    { id:'dinner', icon:'☘', iconStyle:`background:rgba(216,162,74,.16);color:#8a6020`, accent:'#d8a24a', tt:'Tonight: grilled fish & greens', bd:'From Sneha\'s plan for today. Recipe ready.', time:'6:30 PM', kind:'dinner' },
+    { id:'walk',   icon:'🚶', iconStyle:`background:rgba(55,181,155,.20);color:#1f7d6b`, accent:'#37b59b', tt:'Morning walk', bd:'30 min — part of your care plan.', time:'7:15 AM', kind:'donealready' },
+  ];
+  const comingNotifs = [
+    { id:'recheck', icon:'◷', iconStyle:`background:rgba(90,143,168,.14);color:#33607a`, accent:'#5a8fa8', tt:'Lipid recheck due soon', bd:'Dr. Rao asked to recheck LDL in 12 weeks. Want to book it?', time:'in 3 weeks · 26 Jun review', kind:'recheck' },
+    { id:'planupd', icon:'⛁', iconStyle:`background:rgba(90,143,168,.18);color:#33607a`, accent:'#33607a', tt:'Sneha updated your nutrition plan', bd:'New meals for next week are ready to view.', time:'yesterday', kind:'seeplan' },
+  ];
+
+  const chips = [
+    { icon:'⚛', text:'What is type 2 diabetes?', sub:'general · no record', id:'diabetes', kind:'general' as const },
+    { icon:'℞', text:'Do my meds interact?', sub:'about you · consent', id:'meds', kind:'about' as const },
+    { icon:'◷', text:'Book a follow-up', sub:'action · you confirm', id:'book', kind:'action' as const },
+    { icon:'☘', text:'A recipe for tonight', sub:'nutrition', id:'recipe', kind:'about' as const },
+  ];
+  const suggestions = [
+    { icon:'☘', text:'Your cholesterol meal plan', sub:'nutrition · uses your record', id:'cholesterol', kind:'about' as const },
+  ];
+
+  // ─── Styles helpers ───────────────────────────────────────────────────────
+  const slab = (s: string): React.CSSProperties => ({ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '16px 2px 10px', color: c.ink } as React.CSSProperties);
+
+  // ─── RENDER ───────────────────────────────────────────────────────────────
+  const isAsk = tab === 'ask' && !view;
+  const isRecord = tab === 'record' && !view;
+  const isHistory = tab === 'history' && historyView !== 'thread';
+  const isHistoryThread = historyView === 'thread';
+  const isVisits = tab === 'visits' && !view;
+  const isReminders = tab === 'reminders' && !view;
+  const isProfile = tab === 'profile' && !view;
+  const isCarePlan = view === 'careplan';
+  const isNutrition = view === 'nutrition';
+
+  return (
+    <div style={{ minHeight: '100vh', background: 'radial-gradient(120% 80% at 50% -10%, #18454e 0%, #13343b 38%, #0c2429 100%)', padding: '20px 16px 48px', display: 'flex', flexDirection: 'column', alignItems: 'center', color: c.mist, fontFamily: sans }}>
+      <style>{`
+        @keyframes ring-pulse {
+          0%   { transform: scale(1);   opacity: .55; }
+          100% { transform: scale(2.6); opacity: 0;   }
+        }
+        @keyframes hermes-glow {
+          0%,100% { box-shadow: 0 0 0 0   rgba(55,181,155,.55); }
+          50%     { box-shadow: 0 0 0 18px rgba(55,181,155,0);   }
+        }
+        @keyframes fade-in {
+          from { opacity: 0; transform: translateY(6px); }
+          to   { opacity: 1; transform: translateY(0);   }
+        }
+      `}</style>
+
+      {/* Header */}
+      <div style={{ maxWidth: 560, textAlign: 'center', marginBottom: 13 }}>
+        <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.2em', textTransform: 'uppercase', color: c.jade, marginBottom: 6 }}>PAL · interactive prototype</div>
+        <h1 style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.35rem', color: c.paper, letterSpacing: '-.02em', lineHeight: 1.2 }}>A working PAL — tap through it.</h1>
+      </div>
+
+      {/* Reveal selector */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginBottom: 14 }}>
+        <div style={{ fontFamily: mono, fontSize: '.58rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .55 }}>Compare · how it reveals its reasoning</div>
+        <div style={{ display: 'flex', gap: 5, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(223,230,227,.14)', borderRadius: 12, padding: 4 }}>
+          {(['roster','stream','quiet'] as const).map(r => {
+            const on = reveal === r;
+            return <button key={r} onClick={() => setReveal(r)} style={{ fontFamily: sans, fontWeight: 600, fontSize: '.78rem', padding: '8px 16px', borderRadius: 9, border: 'none', cursor: 'pointer', background: on ? c.paper : 'transparent', color: on ? c.deep2 : c.mist, transition: 'all .18s' }}>{r.charAt(0).toUpperCase()+r.slice(1)}</button>;
+          })}
+        </div>
+        <div style={{ fontFamily: mono, fontSize: '.56rem', opacity: .4 }}>Roster — specialists resolve · Stream — one reasoning line · Quiet — minimal</div>
+      </div>
+
+      {/* PHONE */}
+      <div style={{ width: 344, height: 728, background: c.paper, borderRadius: 40, padding: 11, boxShadow: '0 1px 2px rgba(13,31,36,.06),0 30px 70px -22px rgba(0,0,0,.6),0 0 0 2px rgba(255,255,255,.06)', position: 'relative', flexShrink: 0 }}>
+        <div style={{ width: '100%', height: '100%', background: c.soft, borderRadius: 30, overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column', color: c.ink }}>
+          {/* Notch */}
+          <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 122, height: 24, background: c.paper, borderRadius: '0 0 16px 16px', zIndex: 30 }} />
+
+
+          {/* DELETE SHEET */}
+          {historyView === 'delete' && (
+            <div onClick={() => setHistoryView(null)} style={{ position: 'absolute', inset: 0, background: 'rgba(13,31,36,.45)', zIndex: 40, borderRadius: 29 }}>
+              <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: c.soft, borderRadius: '20px 20px 0 0', padding: '20px 18px 28px' }}>
+                <div style={{ width: 36, height: 4, borderRadius: 3, background: 'rgba(13,31,36,.16)', margin: '0 auto 16px' }} />
+                <div style={{ fontFamily: serif, fontWeight: 400, fontSize: '1.1rem', marginBottom: 6 }}>Delete this conversation?</div>
+                <p style={{ fontSize: '.8rem', opacity: .72, lineHeight: 1.5, marginBottom: 10 }}>This permanently removes the thread and everything PAL derived from it. It can&apos;t be undone.</p>
+                <div style={{ background: 'rgba(194,103,94,.06)', border: '1px solid rgba(194,103,94,.3)', borderRadius: 11, padding: '11px 12px', marginBottom: 16 }}>
+                  {['The messages in this conversation','Any record details PAL pulled in','What PAL remembered from it'].map((item, i) => (
+                    <div key={i} style={{ fontSize: '.74rem', opacity: .8, padding: '3px 0', display: 'flex', gap: 7, alignItems: 'center' }}>
+                      <span style={{ color: c.rose, fontSize: '.7rem' }}>✓</span>{item}
+                    </div>
+                  ))}
+                </div>
+                <button onClick={() => setHistoryView(null)} style={{ width: '100%', background: c.rose, color: '#fff', border: 'none', fontFamily: sans, fontWeight: 600, fontSize: '.88rem', padding: 13, borderRadius: 12, cursor: 'pointer', marginBottom: 8 }}>Delete permanently</button>
+                <button onClick={() => setHistoryView(null)} style={{ width: '100%', background: 'transparent', border: '1px solid rgba(13,31,36,.16)', color: c.ink, fontFamily: sans, fontWeight: 500, fontSize: '.84rem', padding: 11, borderRadius: 12, cursor: 'pointer' }}>Keep it</button>
+              </div>
+            </div>
+          )}
+
+          {/* SETTINGS SHEET */}
+          {settingsOpen && (
+            <div onClick={() => setSettingsOpen(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(13,31,36,.45)', zIndex: 40, borderRadius: 29 }}>
+              <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: c.soft, borderRadius: '20px 20px 0 0', padding: '20px 18px 32px', maxHeight: '88%', overflowY: 'auto' }}>
+                <div style={{ width: 36, height: 4, borderRadius: 3, background: 'rgba(13,31,36,.16)', margin: '0 auto 16px' }} />
+                <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.25rem', marginBottom: 16 }}>{t('settings_title')}</div>
+
+                {/* Profile */}
+                <div style={{ fontFamily: mono, fontSize: '.55rem', letterSpacing: '.12em', textTransform: 'uppercase', opacity: .45, marginBottom: 10 }}>{t('settings_profile')}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+                  <button
+                    onClick={() => avatarInputRef.current?.click()}
+                    style={{ width: 52, height: 52, borderRadius: 16, border: '1.5px dashed rgba(55,181,155,.5)', background: settingsAvatar ? 'transparent' : 'rgba(55,181,155,.08)', display: 'grid', placeItems: 'center', flexShrink: 0, cursor: 'pointer', overflow: 'hidden', padding: 0 }}
+                    aria-label="Upload avatar photo"
+                  >
+                    {settingsAvatar
+                      ? <img src={settingsAvatar} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : <span style={{ fontSize: '1.35rem' }}>📷</span>}
+                  </button>
+                  <input ref={avatarInputRef} type="file" accept="image/*" style={{ display: 'none' }}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) handleAvatarFile(f); e.target.value = ''; }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontFamily: mono, fontSize: '.58rem', opacity: .5, marginBottom: 5 }}>{t('settings_name_label')}</div>
+                    <input
+                      value={settingsName}
+                      onChange={e => setSettingsName(e.target.value)}
+                      placeholder="Full name"
+                      style={{ width: '100%', border: '1px solid rgba(13,31,36,.16)', borderRadius: 10, padding: '7px 10px', fontFamily: sans, fontSize: '.88rem', background: '#fff', color: c.ink, boxSizing: 'border-box', outline: 'none' }}
+                    />
+                    <div style={{ fontFamily: mono, fontSize: '.55rem', opacity: .38, marginTop: 5 }}>{t('settings_phone_label')} · {localStorage.getItem('pal_phone') || '+91 ···'}</div>
+                  </div>
+                </div>
+
+                {/* Language */}
+                <div style={{ fontFamily: mono, fontSize: '.55rem', letterSpacing: '.12em', textTransform: 'uppercase', opacity: .45, marginBottom: 10 }}>{t('settings_language')}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 16 }}>
+                  {SUPPORTED_LANGUAGES.map(lang => {
+                    const sel = settingsLang === lang.code;
+                    return (
+                      <button key={lang.code} onClick={() => setSettingsLang(lang.code)}
+                        style={{ padding: '7px 4px', borderRadius: 10, border: sel ? `1.5px solid ${c.jade}` : '1px solid rgba(13,31,36,.12)', background: sel ? 'rgba(55,181,155,.1)' : '#fff', cursor: 'pointer', textAlign: 'center' }}>
+                        <div style={{ fontFamily: sans, fontWeight: sel ? 700 : 400, fontSize: '.72rem', color: sel ? c.jadeD : c.ink }}>{lang.native}</div>
+                        <div style={{ fontFamily: mono, fontSize: '.5rem', opacity: .45, marginTop: 1 }}>{lang.name}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Privacy */}
+                <div style={{ fontFamily: mono, fontSize: '.55rem', letterSpacing: '.12em', textTransform: 'uppercase', opacity: .45, marginBottom: 10 }}>{t('settings_privacy')}</div>
+                {/* Always personalise */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', borderRadius: 11, padding: '10px 12px', marginBottom: 7, border: '1px solid rgba(13,31,36,.08)' }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={c.ink} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <circle cx="12" cy="9" r="2.5"/>
+                    <path d="M8 17a4 4 0 0 1 8 0"/>
+                    <path d="M3.5 12A8.5 8.5 0 0 1 12 3.5"/>
+                    <path d="M20.5 12A8.5 8.5 0 0 1 12 20.5"/>
+                    <path d="M2 10.5l1.5 2 2-1.5"/>
+                    <path d="M22 13.5l-1.5-2-2 1.5"/>
+                  </svg>
+                  <div style={{ flex: 1, fontFamily: sans, fontSize: '.82rem' }}>{t('settings_always_personalise')}</div>
+                  <button role="switch" aria-checked={settingsStanding} onClick={() => setSettingsStanding(!settingsStanding)}
+                    style={{ width: 38, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer', background: settingsStanding ? c.jade : 'rgba(13,31,36,.15)', transition: 'background .2s', flexShrink: 0, position: 'relative', padding: 0 }}>
+                    <span style={{ position: 'absolute', top: 3, left: settingsStanding ? 19 : 3, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .2s', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />
+                  </button>
+                </div>
+
+                {/* Usage analytics */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', borderRadius: 11, padding: '10px 12px', marginBottom: 7, border: '1px solid rgba(13,31,36,.08)' }}>
+                  <svg width="20" height="20" viewBox="0 0 26 22" fill="none" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <polyline points="2,18 9,8 15,13 23,3" stroke={c.ink} strokeWidth="2.2" fill="none"/>
+                    <circle cx="2"  cy="18" r="2.8" fill={c.ink}/>
+                    <circle cx="9"  cy="8"  r="2.8" fill={c.ink}/>
+                    <circle cx="15" cy="13" r="2.8" fill={c.ink}/>
+                    <circle cx="23" cy="3"  r="2.8" fill={c.ink}/>
+                  </svg>
+                  <div style={{ flex: 1, fontFamily: sans, fontSize: '.82rem' }}>{t('settings_analytics')}</div>
+                  <button role="switch" aria-checked={settingsAnalytics} onClick={() => setSettingsAnalytics(!settingsAnalytics)}
+                    style={{ width: 38, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer', background: settingsAnalytics ? c.jade : 'rgba(13,31,36,.15)', transition: 'background .2s', flexShrink: 0, position: 'relative', padding: 0 }}>
+                    <span style={{ position: 'absolute', top: 3, left: settingsAnalytics ? 19 : 3, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .2s', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />
+                  </button>
+                </div>
+
+                {/* Save button */}
+                <button
+                  onClick={handleSettingsSave}
+                  disabled={settingsSaving}
+                  style={{ width: '100%', background: settingsSaved ? c.jadeD : c.jade, color: settingsSaved ? '#fff' : c.deep2, border: 'none', fontFamily: sans, fontWeight: 700, fontSize: '.88rem', padding: 13, borderRadius: 12, cursor: settingsSaving ? 'wait' : 'pointer', marginTop: 4, marginBottom: 10, transition: 'background .2s' }}>
+                  {settingsSaved ? t('settings_saved') : settingsSaving ? '…' : t('settings_save')}
+                </button>
+
+                {/* Account */}
+                <div style={{ fontFamily: mono, fontSize: '.55rem', letterSpacing: '.12em', textTransform: 'uppercase', opacity: .45, marginBottom: 8 }}>{t('settings_account')}</div>
+                <button
+                  onClick={() => setSignOutConfirmOpen(true)}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(216,162,74,.08)', border: '1px solid rgba(216,162,74,.35)', borderRadius: 11, padding: '11px 13px', cursor: 'pointer', color: c.amberD, fontFamily: sans, fontWeight: 600, fontSize: '.84rem', marginBottom: 14 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={c.amberD} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <path d="M10 3H5a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h5"/>
+                    <polyline points="17 8 21 12 17 16"/>
+                    <line x1="21" y1="12" x2="9" y2="12"/>
+                  </svg>
+                  {t('settings_sign_out')}
+                </button>
+
+                <div style={{ fontFamily: mono, fontSize: '.52rem', opacity: .3, textAlign: 'center', lineHeight: 1.6 }}>
+                  PAL v0.1.0 · Not a medical device · For informational use only
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SIGN-OUT CONFIRMATION */}
+          {signOutConfirmOpen && (
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(13,31,36,.6)', zIndex: 50, borderRadius: 29, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 24px' }}>
+              <div style={{ background: c.soft, borderRadius: 20, padding: '24px 20px', width: '100%' }}>
+                <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.1rem', marginBottom: 3 }}>Before you go…</div>
+                <div style={{ fontFamily: mono, fontSize: '.6rem', opacity: .5, marginBottom: 16, letterSpacing: '.04em' }}>Help us improve PAL</div>
+                <textarea
+                  value={signOutReason}
+                  onChange={e => setSignOutReason(e.target.value)}
+                  placeholder="Why are you signing out? (optional)"
+                  style={{ width: '100%', border: '1px solid rgba(13,31,36,.16)', borderRadius: 11, padding: '10px 12px', fontFamily: sans, fontSize: '.82rem', background: '#fff', color: c.ink, resize: 'none', height: 86, boxSizing: 'border-box', outline: 'none', lineHeight: 1.5 }}
+                />
+                <button
+                  onClick={() => { handleSignOut(); }}
+                  style={{ width: '100%', background: c.amber, color: c.deep2, border: 'none', fontFamily: sans, fontWeight: 700, fontSize: '.88rem', padding: 12, borderRadius: 12, cursor: 'pointer', marginTop: 12, marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c.deep2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M10 3H5a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h5"/>
+                    <polyline points="17 8 21 12 17 16"/>
+                    <line x1="21" y1="12" x2="9" y2="12"/>
+                  </svg>
+                  {t('settings_sign_out')}
+                </button>
+                <button
+                  onClick={() => { setSignOutConfirmOpen(false); setSignOutReason(''); }}
+                  style={{ width: '100%', background: 'transparent', border: '1px solid rgba(13,31,36,.16)', color: c.ink, fontFamily: sans, fontSize: '.82rem', padding: 10, borderRadius: 12, cursor: 'pointer' }}>
+                  Stay signed in
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* APPBAR */}
+          <div style={{ padding: '30px 18px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              {showBack && (
+                <button onClick={() => { if (historyView === 'thread') setHistoryView(null); else setView(null); }}
+                  style={{ border: 'none', background: 'none', fontSize: '1.3rem', color: c.ink, cursor: 'pointer', padding: '0 4px 0 0', lineHeight: 1 }}>‹</button>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <button
+                  onClick={() => setTab('profile')}
+                  style={{ width: 34, height: 34, borderRadius: 11, display: 'grid', placeItems: 'center', flexShrink: 0, border: 'none', background: person.grad, cursor: 'pointer', padding: 0, overflow: 'hidden' }}
+                  aria-label="View Profile"
+                >
+                  {settingsAvatar ? (
+                    <img src={settingsAvatar} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <span style={{ color: '#fff', fontWeight: 700, fontSize: '.9rem' }}>
+                      {userName ? userName.charAt(0).toUpperCase() : person.initial}
+                    </span>
+                  )}
+                </button>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontWeight: 600, fontSize: '.92rem', letterSpacing: '-.01em' }}>{appTitle}</div>
+                  <div style={{ fontFamily: mono, fontSize: '.6rem', opacity: .5 }}>{appSub}</div>
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <FamilyHubButton />
+              <button onClick={() => setSettingsOpen(true)} aria-label="Settings" style={{ width: 34, height: 34, borderRadius: 11, border: '1px solid rgba(13,31,36,.10)', display: 'grid', placeItems: 'center', fontSize: '.85rem', color: c.ink, background: '#fff', cursor: 'pointer' }}>⚙</button>
+              <button onClick={() => setTab('reminders')} style={{ width: 34, height: 34, borderRadius: 11, border: '1px solid rgba(13,31,36,.10)', display: 'grid', placeItems: 'center', background: '#fff', position: 'relative', cursor: 'pointer', flexShrink: 0 }}>
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+                  <path d="M8.5 17.5h3M10 3C7 3 4.5 5.5 4.5 8.5V13l-1.5 2.5h14L15.5 13V8.5C15.5 5.5 13 3 10 3z" stroke="#0d1f24" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <span style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: '50%', background: c.rose, color: '#fff', fontFamily: mono, fontSize: '.54rem', display: 'grid', placeItems: 'center', fontWeight: 700 }}>3</span>
+              </button>
+            </div>
+          </div>
+
+          {/* BODY */}
+          <div className="scr" style={{ flex: 1, overflowY: 'auto', padding: isAsk ? '6px 18px 148px' : '6px 18px 92px' }}>
+
+            {/* ===== ASK ===== */}
+            {isAsk && <div>
+              {/* EMPTY STATE — greeting + chips */}
+              {chatMessages.length === 0 && <>
+                <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.7rem', letterSpacing: '-.01em', margin: '12px 0 4px', lineHeight: 1.15 }}>
+                  {t(greetKey)}, {userName || person.name}.<br /><em style={{ fontStyle: 'italic', color: c.jadeD }}>{t('mind_question')}</em>
+                </div>
+                <div style={{ fontSize: '.85rem', opacity: .6, marginBottom: 14 }}>{t('ask_subtitle')}</div>
+                <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.04em', opacity: .45, margin: '2px 2px 18px', textAlign: 'center' }}>{t('tap_hint')}</div>
+
+                <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '16px 2px 10px' }}>{t('section_continue')}</div>
+                {suggestions.map((g, i) => (
+                  <button key={i} onClick={() => runQuery(g.id, g.kind)}
+                    style={{ width: '100%', textAlign: 'left', background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 13, padding: '13px 14px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', marginBottom: 9 }}>
+                    <span style={{ width: 30, height: 30, borderRadius: 9, display: 'grid', placeItems: 'center', fontSize: '.85rem', flexShrink: 0, background: 'rgba(55,181,155,.14)', color: c.jadeD }}>{g.icon}</span>
+                    <span>
+                      <span style={{ fontSize: '.86rem', fontWeight: 500, lineHeight: 1.3, display: 'block' }}>{g.text}</span>
+                      <span style={{ fontFamily: mono, fontSize: '.58rem', opacity: .5 }}>{g.sub}</span>
+                    </span>
+                  </button>
+                ))}
+
+                <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '18px 2px 11px' }}>{t('section_try_asking')}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}>
+                  {chips.map((c2, i) => (
+                    <button key={i} onClick={() => runQuery(c2.id, c2.kind)}
+                      style={{ textAlign: 'left', background: 'linear-gradient(180deg,#fff,#fbf9f4)', border: '1px solid rgba(13,31,36,.10)', borderRadius: 13, padding: 13, display: 'flex', flexDirection: 'column', gap: 6, cursor: 'pointer' }}>
+                      <span style={{ fontSize: '1.05rem' }}>{c2.icon}</span>
+                      <span style={{ fontSize: '.8rem', fontWeight: 600, lineHeight: 1.25 }}>{c2.text}</span>
+                      <span style={{ fontFamily: mono, fontSize: '.55rem', opacity: .5 }}>{c2.sub}</span>
+                    </button>
+                  ))}
+                </div>
+              </>}
+
+              {/* CONVERSATION THREAD */}
+              {chatMessages.length > 0 && (() => {
+                let lastUserText = '';
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 6 }}>
+                    {chatMessages.map(msg => {
+                      if (msg.role === 'user') {
+                        lastUserText = msg.text;
+                        return (
+                          <div key={msg.id} style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <div style={{ background: c.deep, color: c.paper, borderRadius: '14px 14px 4px 14px', padding: '10px 14px', fontFamily: serif, fontSize: '.93rem', lineHeight: 1.5, maxWidth: '80%' }}>
+                              {msg.text}
+                            </div>
+                          </div>
+                        );
+                      }
+                      if (msg.role === 'consent') {
+                        const cmId = msg.id;
+                        const dmId = (msg as {id:string;role:'consent';text:string;demoId:string;demoKind:string}).demoId;
+                        return (
+                          <div key={msg.id} style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                            <div style={{ border: '1px solid rgba(194,103,94,.4)', background: 'rgba(194,103,94,.06)', borderRadius: '4px 14px 14px 14px', padding: '12px 14px', maxWidth: '92%' }}>
+                              <div style={{ fontSize: '.82rem', fontWeight: 600, color: c.rose, display: 'flex', gap: 7, alignItems: 'center', marginBottom: 5 }}>◆ {t('consent_title')}</div>
+                              <div style={{ fontSize: '.78rem', opacity: .75, lineHeight: 1.5, marginBottom: 12 }}>{t('consent_body')}</div>
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                <button onClick={() => giveConsent(true, cmId, dmId)} style={{ flex: 1, fontFamily: sans, fontWeight: 600, fontSize: '.74rem', padding: 10, borderRadius: 9, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer' }}>{t('consent_use')}</button>
+                                <button onClick={() => giveConsent(false, cmId, dmId)} style={{ flex: 1, fontFamily: sans, fontWeight: 600, fontSize: '.74rem', padding: 10, borderRadius: 9, border: '1px solid rgba(13,31,36,.16)', background: 'transparent', color: c.ink, cursor: 'pointer' }}>{t('consent_general')}</button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                      if (msg.role === 'assistant' && msg.isThinking) {
+                        return (
+                          <div key={msg.id} style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                            <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: '4px 14px 14px 14px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 9 }}>
+                              <span style={{ width: 7, height: 7, borderRadius: '50%', background: c.jade, display: 'inline-block', animation: 'palbreath 1s infinite' }} />
+                              <span style={{ fontFamily: mono, fontSize: '.6rem', color: c.jadeD, letterSpacing: '.08em' }}>thinking…</span>
+                            </div>
+                          </div>
+                        );
+                      }
+                      if (msg.role === 'assistant') {
+                        const capturedUserText = lastUserText;
+                        return (
+                          <div key={msg.id} style={{ display: 'flex', justifyContent: 'flex-start', width: '100%' }}>
+                            <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: '4px 14px 14px 14px', padding: '12px 14px', maxWidth: '92%', width: '92%' }}>
+                              <p style={{ fontFamily: serif, fontSize: '.95rem', lineHeight: 1.62, margin: '0 0 8px' }}>{msg.text}</p>
+                              {(msg.pendingActions || []).length > 0 && (
+                                <div style={{ marginTop: 8 }}>
+                                  {(msg.pendingActions || []).map((action, i) => (
+                                    <div key={i} style={{ background: 'linear-gradient(160deg,#13343b,#0c2429)', borderRadius: 12, padding: 14, color: c.paper, marginBottom: 8 }}>
+                                      <div style={{ fontFamily: mono, fontSize: '.56rem', color: c.jade, letterSpacing: '.1em', marginBottom: 7 }}>◷ your confirmation needed</div>
+                                      <div style={{ fontFamily: serif, fontSize: '.9rem', lineHeight: 1.45, marginBottom: 11 }}>{action.description}</div>
+                                      {action.confirm_token_required && (
+                                        <div style={{ display: 'flex', gap: 8 }}>
+                                          <button onClick={() => handleConfirmAction(action)} style={{ flex: 1, fontFamily: sans, fontWeight: 600, fontSize: '.74rem', padding: 10, borderRadius: 9, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer' }}>Confirm</button>
+                                          <button onClick={() => setChatMessages(prev => prev.map(m => m.id === msg.id && m.role === 'assistant' ? { ...m, pendingActions: (m.pendingActions || []).filter((_: unknown, j: number) => j !== i) } : m))} style={{ fontFamily: sans, fontWeight: 600, fontSize: '.74rem', padding: '10px 14px', borderRadius: 9, border: 'none', background: 'rgba(255,255,255,.1)', color: c.paper, cursor: 'pointer' }}>Dismiss</button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {!isSecondOpinionMode && (
+                                <button onClick={() => handleSecondOpinion(capturedUserText)}
+                                  style={{ background: 'none', border: 'none', fontFamily: mono, fontSize: '.58rem', color: c.blueD, opacity: .6, cursor: 'pointer', padding: '4px 0', textDecoration: 'underline', textDecorationStyle: 'dotted', display: 'block' }}>
+                                  Doesn&apos;t seem right — get a second look
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })}
+                    {sttDraft && (
+                      <div style={{ background: 'rgba(55,181,155,.09)', border: '1px solid rgba(55,181,155,.25)', borderRadius: 14, padding: '12px 14px' }}>
+                        <div style={{ fontFamily: mono, fontSize: '.52rem', color: c.jadeD, marginBottom: 6, letterSpacing: '.06em' }}>{t('stt_heard')}</div>
+                        <div style={{ fontSize: '.88rem', color: c.ink, marginBottom: 10 }}>&ldquo;{sttDraft}&rdquo;</div>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button onClick={() => { handleTextQuery(sttDraft); setSttDraft(null); }}
+                            style={{ flex: 1, fontFamily: mono, fontSize: '.56rem', padding: '7px 0', borderRadius: 10, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer', fontWeight: 700 }}>{t('stt_confirm')}</button>
+                          <button onClick={() => { setSttDraft(null); handleMicClick(); }}
+                            style={{ fontFamily: mono, fontSize: '.56rem', padding: '7px 12px', borderRadius: 10, border: '1px solid rgba(13,31,36,.16)', background: 'transparent', color: c.ink, cursor: 'pointer', opacity: .7 }}>{t('stt_retry')}</button>
+                        </div>
+                      </div>
+                    )}
+                    <div ref={chatEndRef} />
+                  </div>
+                );
+              })()}
+            </div>}
+
+            {/* ===== RECORD ===== */}
+            {isRecord && <div>
+              <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.5rem', margin: '12px 0 3px' }}>Medical Records</div>
+              <div style={{ fontSize: '.8rem', opacity: .6, marginBottom: 18 }}>Complete medical history</div>
+
+              {recordsLoading && (
+                <div style={{ textAlign: 'center', padding: 40 }}>
+                  <div style={{ fontSize: '.9rem', opacity: .6 }}>Loading records...</div>
+                </div>
+              )}
+
+              {!recordsLoading && records && (
+                <div>
+                  {/* Appointments Section */}
+                  {records.appointments && records.appointments.length > 0 && (
+                    <div style={{ marginBottom: 24 }}>
+                      <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Consultations & Visits</div>
+
+                      {records.appointments.map((appt: any) => (
+                        <div key={appt.id} style={{ marginBottom: 10 }}>
+                          <div
+                            onClick={() => setExpandedRecordId(expandedRecordId === appt.id ? null : appt.id)}
+                            style={{
+                              background: '#fff',
+                              border: '1px solid rgba(13,31,36,.10)',
+                              borderRadius: 13,
+                              padding: 14,
+                              cursor: 'pointer',
+                              transition: 'all .2s',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              {/* LEFT: Chief Complaint */}
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 600, fontSize: '.9rem', color: c.ink, marginBottom: 4 }}>
+                                  {appt.chief_complaint || 'General Consultation'}
+                                </div>
+                                <div style={{ fontSize: '.75rem', opacity: .6 }}>
+                                  {appt.doctor_name && appt.clinic_name
+                                    ? `${appt.doctor_name} • ${appt.clinic_name}`
+                                    : appt.doctor_name || appt.clinic_name || 'No provider info'}
+                                </div>
+                              </div>
+
+                              {/* RIGHT: Date */}
+                              <div style={{ textAlign: 'right', marginLeft: 16 }}>
+                                <div style={{ fontFamily: mono, fontSize: '.7rem', color: c.jadeD, whiteSpace: 'nowrap' }}>
+                                  📅 {appt.date}
+                                </div>
+                                <div style={{ fontFamily: mono, fontSize: '.6rem', opacity: .5, marginTop: 2 }}>
+                                  {appt.status}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Expanded Details */}
+                            {expandedRecordId === appt.id && (
+                              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(13,31,36,.10)' }}>
+                                {appt.patient_summary && (
+                                  <div style={{ marginBottom: 12, padding: 12, background: 'rgba(55,181,155,.08)', borderRadius: 10 }}>
+                                    <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.1em', textTransform: 'uppercase', color: c.jadeD, marginBottom: 4 }}>Summary</div>
+                                    <div style={{ fontSize: '.85rem', lineHeight: 1.5 }}>{appt.patient_summary}</div>
+                                  </div>
+                                )}
+
+                                {appt.soap_note && (
+                                  <div style={{ marginBottom: 12 }}>
+                                    <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.1em', textTransform: 'uppercase', opacity: .5, marginBottom: 6 }}>Clinical Notes (SOAP)</div>
+                                    <div style={{ fontSize: '.75rem', lineHeight: 1.6, whiteSpace: 'pre-wrap', opacity: .8, padding: 10, background: '#f9fafb', borderRadius: 10 }}>
+                                      {appt.soap_note}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {appt.management_plan && (
+                                  <div style={{ marginBottom: 12, padding: 12, background: 'rgba(90,143,168,.08)', borderRadius: 10 }}>
+                                    <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.1em', textTransform: 'uppercase', color: c.blueD, marginBottom: 4 }}>Management Plan</div>
+                                    <div style={{ fontSize: '.85rem', lineHeight: 1.5 }}>{appt.management_plan}</div>
+                                  </div>
+                                )}
+
+                                {appt.diagnosis && (
+                                  <div style={{ marginBottom: 12 }}>
+                                    <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.1em', textTransform: 'uppercase', opacity: .5, marginBottom: 4 }}>Diagnosis</div>
+                                    <div style={{ fontSize: '.85rem', lineHeight: 1.5 }}>{appt.diagnosis}</div>
+                                  </div>
+                                )}
+
+                                {appt.notes && (
+                                  <div style={{ marginBottom: 12 }}>
+                                    <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.1em', textTransform: 'uppercase', opacity: .5, marginBottom: 4 }}>Doctor's Notes</div>
+                                    <div style={{ fontSize: '.85rem', lineHeight: 1.5, opacity: .8 }}>{appt.notes}</div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Lab Tests Section */}
+                  {records.lab_tests && records.lab_tests.length > 0 && (
+                    <div style={{ marginBottom: 24 }}>
+                      <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Lab Tests & Results</div>
+
+                      {records.lab_tests.map((test: any) => (
+                        <div key={test.id} style={{ marginBottom: 10 }}>
+                          <div
+                            onClick={() => setExpandedRecordId(expandedRecordId === test.id ? null : test.id)}
+                            style={{
+                              background: '#fff',
+                              border: `1px solid ${test.abnormal_flag ? 'rgba(194,103,94,.3)' : 'rgba(13,31,36,.10)'}`,
+                              borderRadius: 13,
+                              padding: 14,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              {/* LEFT: Test Name */}
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 600, fontSize: '.9rem', color: c.ink, marginBottom: 4 }}>
+                                  {test.test_name}
+                                  {test.abnormal_flag && (
+                                    <span style={{ marginLeft: 8, fontFamily: mono, fontSize: '.6rem', background: 'rgba(194,103,94,.14)', color: c.rose, padding: '2px 8px', borderRadius: 10 }}>
+                                      ⚠️ Abnormal
+                                    </span>
+                                  )}
+                                </div>
+                                <div style={{ fontSize: '.75rem', opacity: .6 }}>
+                                  {test.lab_name || 'Lab test'} • {test.status}
+                                </div>
+                              </div>
+
+                              {/* RIGHT: Date */}
+                              <div style={{ textAlign: 'right', marginLeft: 16 }}>
+                                <div style={{ fontFamily: mono, fontSize: '.7rem', color: c.jadeD, whiteSpace: 'nowrap' }}>
+                                  📅 {test.result_date || test.ordered_date}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Expanded Details */}
+                            {expandedRecordId === test.id && test.results && (
+                              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(13,31,36,.10)' }}>
+                                <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.1em', textTransform: 'uppercase', opacity: .5, marginBottom: 8 }}>Results</div>
+                                {Object.entries(test.results).map(([key, value]: [string, any]) => (
+                                  <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(13,31,36,.05)' }}>
+                                    <span style={{ fontSize: '.8rem', textTransform: 'capitalize' }}>{key.replace(/_/g, ' ')}</span>
+                                    <span style={{ fontSize: '.8rem', fontWeight: 600, color: value.abnormal ? c.rose : c.ink }}>
+                                      {value.value} {value.unit}
+                                      {value.range && <span style={{ fontSize: '.7rem', opacity: .5, marginLeft: 6 }}>({value.range})</span>}
+                                    </span>
+                                  </div>
+                                ))}
+
+                                {test.interpretation && (
+                                  <div style={{ marginTop: 12, padding: 12, background: 'rgba(55,181,155,.08)', borderRadius: 10 }}>
+                                    <div style={{ fontFamily: mono, fontSize: '.6rem', color: c.jadeD, marginBottom: 4 }}>Interpretation</div>
+                                    <div style={{ fontSize: '.8rem', lineHeight: 1.5 }}>{test.interpretation}</div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Prescriptions Section */}
+                  {records.prescriptions && records.prescriptions.length > 0 && (
+                    <div style={{ marginBottom: 24 }}>
+                      <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Prescriptions</div>
+
+                      {records.prescriptions.map((rx: any) => (
+                        <div key={rx.id} style={{ marginBottom: 10 }}>
+                          <div
+                            onClick={() => setExpandedRecordId(expandedRecordId === rx.id ? null : rx.id)}
+                            style={{
+                              background: '#fff',
+                              border: '1px solid rgba(13,31,36,.10)',
+                              borderRadius: 13,
+                              padding: 14,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              {/* LEFT: Medication Count */}
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 600, fontSize: '.9rem', color: c.ink, marginBottom: 4 }}>
+                                  {rx.medications && rx.medications.length > 0
+                                    ? `${rx.medications.length} Medication${rx.medications.length > 1 ? 's' : ''}`
+                                    : 'Prescription'}
+                                </div>
+                                {rx.pdf_url && (
+                                  <div style={{ fontSize: '.75rem', color: c.jadeD, cursor: 'pointer' }}>
+                                    📄 View PDF
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* RIGHT: Date */}
+                              <div style={{ textAlign: 'right', marginLeft: 16 }}>
+                                <div style={{ fontFamily: mono, fontSize: '.7rem', color: c.jadeD, whiteSpace: 'nowrap' }}>
+                                  📅 {rx.date}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Expanded Details */}
+                            {expandedRecordId === rx.id && rx.medications && rx.medications.length > 0 && (
+                              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(13,31,36,.10)' }}>
+                                <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.1em', textTransform: 'uppercase', opacity: .5, marginBottom: 8 }}>Medications</div>
+                                {rx.medications.map((med: any, idx: number) => (
+                                  <div key={idx} style={{ marginBottom: 12, padding: 12, background: '#fff', border: '1px solid rgba(13,31,36,.08)', borderRadius: 10 }}>
+                                    <div style={{ fontWeight: 600, fontSize: '.9rem', color: c.ink, marginBottom: 6 }}>
+                                      💊 {med.name || med.medication || 'Medication'}
+                                    </div>
+                                    {med.generic_name && (
+                                      <div style={{ fontSize: '.75rem', opacity: .6, marginBottom: 6 }}>
+                                        {med.generic_name}
+                                      </div>
+                                    )}
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: '.75rem', marginBottom: 8 }}>
+                                      {(med.dosage || med.dose) && (
+                                        <div>
+                                          <span style={{ opacity: .6 }}>Dosage:</span>{' '}
+                                          <span style={{ fontWeight: 600 }}>{med.dosage || med.dose}</span>
+                                        </div>
+                                      )}
+                                      {med.frequency && (
+                                        <div>
+                                          <span style={{ opacity: .6 }}>Frequency:</span>{' '}
+                                          <span style={{ fontWeight: 600 }}>{med.frequency || med.timing}</span>
+                                        </div>
+                                      )}
+                                      {med.duration && (
+                                        <div>
+                                          <span style={{ opacity: .6 }}>Duration:</span>{' '}
+                                          <span style={{ fontWeight: 600 }}>{med.duration}</span>
+                                        </div>
+                                      )}
+                                      {med.quantity && (
+                                        <div>
+                                          <span style={{ opacity: .6 }}>Quantity:</span>{' '}
+                                          <span style={{ fontWeight: 600 }}>{med.quantity}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                    {med.instructions && (
+                                      <div style={{ fontSize: '.75rem', padding: 8, background: 'rgba(216,162,74,.08)', borderRadius: 8, marginBottom: 6 }}>
+                                        <span style={{ fontWeight: 600, color: c.amberD }}>📋 Instructions: </span>
+                                        {med.instructions}
+                                      </div>
+                                    )}
+                                    {med.reason && (
+                                      <div style={{ fontSize: '.75rem', padding: 8, background: 'rgba(55,181,155,.08)', borderRadius: 8 }}>
+                                        <span style={{ fontWeight: 600, color: c.jadeD }}>ℹ️ Reason: </span>
+                                        {med.reason}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                                {rx.refillable && (
+                                  <div style={{ fontSize: '.75rem', padding: 8, background: 'rgba(90,143,168,.08)', borderRadius: 8, marginTop: 8 }}>
+                                    <span style={{ fontWeight: 600 }}>Refills remaining:</span> {rx.refills_remaining || 0}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Documents Section */}
+                  {records.documents && records.documents.length > 0 && (
+                    <div style={{ marginBottom: 24 }}>
+                      <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Documents & Reports</div>
+
+                      {records.documents.map((doc: any) => (
+                        <div
+                          key={doc.id}
+                          style={{
+                            background: '#fff',
+                            border: '1px solid rgba(13,31,36,.10)',
+                            borderRadius: 13,
+                            padding: 14,
+                            marginBottom: 10,
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 600, fontSize: '.9rem', color: c.ink, marginBottom: 4 }}>
+                              📄 {doc.title}
+                            </div>
+                            <div style={{ fontSize: '.75rem', opacity: .6 }}>
+                              {doc.kind} • {(doc.size_bytes / 1024).toFixed(0)} KB
+                            </div>
+                          </div>
+
+                          <div style={{ textAlign: 'right', marginLeft: 16 }}>
+                            <div style={{ fontFamily: mono, fontSize: '.7rem', color: c.jadeD, whiteSpace: 'nowrap' }}>
+                              📅 {doc.date}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Empty State */}
+                  {(!records.appointments || records.appointments.length === 0) &&
+                   (!records.lab_tests || records.lab_tests.length === 0) &&
+                   (!records.prescriptions || records.prescriptions.length === 0) &&
+                   (!records.documents || records.documents.length === 0) && (
+                    <div style={{ textAlign: 'center', padding: 40 }}>
+                      <div style={{ fontSize: '3rem', marginBottom: 12 }}>📋</div>
+                      <div style={{ fontFamily: serif, fontSize: '1.2rem', fontWeight: 300, marginBottom: 8 }}>No Records Yet</div>
+                      <div style={{ fontSize: '.8rem', opacity: .6 }}>Your medical records will appear here</div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+            </div>}
+
+            {/* ===== HISTORY ===== */}
+            {isHistory && <div>
+              <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.5rem', margin: '12px 0 3px' }}>Your conversations</div>
+              <div style={{ fontSize: '.8rem', opacity: .6, marginBottom: 13 }}>Saved so you can continue. Yours to delete.</div>
+              <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 12, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 9, marginBottom: 16 }}>
+                <span style={{ color: c.jadeD, fontSize: '.9rem', opacity: .7 }}>⌕</span>
+                <input placeholder="Search your history…" style={{ border: 'none', outline: 'none', background: 'none', fontSize: '.85rem', width: '100%', color: c.ink, fontFamily: sans }} />
+              </div>
+
+              {/* Real threads from API */}
+              {realThreads && realThreads.length > 0 ? (
+                <>
+                  {realThreads.map(t => {
+                    const isP = t.scope_tag === 'personal';
+                    const date = t.updated_at ? new Date(t.updated_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '';
+                    return (
+                      <div key={t.id} onClick={async () => {
+                        setActiveRealConvId(t.id);
+                        setHistoryView('thread');
+                        setRealTurns(null);
+                        try { setRealTurns(await getConversationTurns(t.id)); } catch {}
+                      }} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 13, padding: 13, marginBottom: 9, position: 'relative', overflow: 'hidden', cursor: 'pointer' }}>
+                        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: isP ? c.jade : c.mist }} />
+                        <div style={{ paddingLeft: 8, paddingRight: 22, fontFamily: serif, fontSize: '.94rem', lineHeight: 1.35 }}>{t.title || 'Conversation'}</div>
+                        <div style={{ paddingLeft: 8, display: 'flex', alignItems: 'center', gap: 8, marginTop: 7 }}>
+                          <span style={{ fontFamily: mono, fontSize: '.55rem', padding: '3px 8px', borderRadius: 10, display: 'inline-flex', alignItems: 'center', gap: 5, ...(isP ? {background:'rgba(55,181,155,.12)',color:c.jadeD} : {background:'rgba(13,31,36,.06)',color:'rgba(13,31,36,.6)'}) }}>
+                            <span style={{ width: 5, height: 5, borderRadius: '50%', flexShrink: 0, background: isP ? c.jade : c.mist, display: 'inline-block' }} />
+                            {isP ? 'used your record' : 'general'}
+                          </span>
+                          <span style={{ fontFamily: mono, fontSize: '.55rem', opacity: .4, marginLeft: 'auto' }}>{date}</span>
+                        </div>
+                        <button onClick={async e => { e.stopPropagation(); await deleteConversation(t.id); setRealThreads(prev => prev ? prev.filter(x => x.id !== t.id) : null); }}
+                          style={{ position: 'absolute', top: 10, right: 10, border: 'none', background: 'none', fontSize: '.95rem', opacity: .28, cursor: 'pointer', padding: '2px 4px', lineHeight: 1 }}>⋯</button>
+                      </div>
+                    );
+                  })}
+                </>
+              ) : (
+                /* Fallback: demo threads */
+                tgOrder.map(grp => (
+                  <div key={grp}>
+                    <div style={{ fontFamily: mono, fontSize: '.58rem', letterSpacing: '.12em', textTransform: 'uppercase', opacity: .45, margin: '14px 2px 9px' }}>{grp}</div>
+                    {tgMap[grp].map((t, idx) => {
+                      const threadIdx = THREADS.indexOf(t);
+                      const isP = t.kind === 'personal';
+                      return (
+                        <div key={idx} onClick={() => { setActiveThread(threadIdx); setHistoryView('thread'); }}
+                          style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 13, padding: 13, marginBottom: 9, position: 'relative', overflow: 'hidden', cursor: 'pointer' }}>
+                          <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: isP ? c.jade : c.mist }} />
+                          <div style={{ paddingLeft: 8, paddingRight: 22, fontFamily: serif, fontSize: '.94rem', lineHeight: 1.35 }}>{t.title}</div>
+                          <div style={{ paddingLeft: 8, display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, flexWrap: 'wrap' }}>
+                            <span style={{ fontFamily: mono, fontSize: '.55rem', padding: '3px 8px', borderRadius: 10, display: 'inline-flex', alignItems: 'center', gap: 5, ...(isP ? {background:'rgba(55,181,155,.12)',color:c.jadeD} : {background:'rgba(13,31,36,.06)',color:'rgba(13,31,36,.6)'}) }}>
+                              <span style={{ width: 5, height: 5, borderRadius: '50%', flexShrink: 0, background: isP ? c.jade : c.mist, display: 'inline-block' }} />
+                              {isP ? 'used your record' : 'general'}
+                            </span>
+                            {t.agents && <span style={{ fontFamily: mono, fontSize: '.55rem', opacity: .45 }}>{t.agents}</span>}
+                            <span style={{ fontFamily: mono, fontSize: '.55rem', opacity: .4, marginLeft: 'auto' }}>{t.when}</span>
+                          </div>
+                          <button onClick={e => { e.stopPropagation(); setActiveThread(threadIdx); setHistoryView('delete'); }}
+                            style={{ position: 'absolute', top: 10, right: 10, border: 'none', background: 'none', fontSize: '.95rem', opacity: .28, cursor: 'pointer', padding: '2px 4px', lineHeight: 1 }}>⋯</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))
+              )}
+              <div style={{ fontFamily: mono, fontSize: '.54rem', opacity: .36, textAlign: 'center', margin: '8px 0 4px' }}>swipe a card left to delete · tap ⋯ for options</div>
+            </div>}
+
+            {/* ===== HISTORY THREAD ===== */}
+            {isHistoryThread && (() => {
+              const realConv = realThreads?.find(t => t.id === activeRealConvId);
+              const isRealThread = !!realConv;
+              const threadIsPersonal = isRealThread ? realConv.scope_tag === 'personal' : isTPersonal;
+              return <div>
+                <div style={{ fontFamily: mono, fontSize: '.55rem', padding: '4px 9px', borderRadius: 9, display: 'inline-flex', alignItems: 'center', gap: 5, margin: '6px 0 12px', ...(threadIsPersonal ? {background:'rgba(55,181,155,.1)',color:c.jadeD} : {background:'rgba(13,31,36,.05)',color:'rgba(13,31,36,.55)'}) }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', flexShrink: 0, background: threadIsPersonal ? c.jade : c.mist, display: 'inline-block' }} />
+                  {threadIsPersonal ? 'used your record · consent active' : 'general · record not used'}
+                </div>
+                <div style={{ fontFamily: mono, fontSize: '.52rem', opacity: .38, textAlign: 'center', margin: '8px 0 10px' }}>— conversation —</div>
+
+                {/* Real turns from API */}
+                {isRealThread && realTurns ? (
+                  realTurns.length === 0
+                    ? <div style={{ fontFamily: mono, fontSize: '.7rem', opacity: .5, textAlign: 'center', padding: '24px 0' }}>No messages yet</div>
+                    : realTurns.map((turn, i) => turn.role === 'user'
+                        ? <div key={i} style={{ background: c.deep, color: c.paper, borderRadius: '14px 14px 4px 14px', padding: '10px 13px', fontSize: '.88rem', maxWidth: '80%', marginLeft: 'auto', marginBottom: 9, fontFamily: serif }}>{turn.content}</div>
+                        : <div key={i} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: '14px 14px 14px 4px', padding: '11px 13px', fontSize: '.86rem', lineHeight: 1.55, maxWidth: '88%', marginBottom: 9 }}>{turn.content}</div>
+                    )
+                ) : isRealThread && !realTurns ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0' }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: c.jade, animation: 'palbreath 1s infinite', display: 'inline-block' }} />
+                  </div>
+                ) : (
+                  /* Demo thread */
+                  (activeT.msgs || []).map((msg: any, i: number) => msg.role === 'me'
+                    ? <div key={i} style={{ background: c.deep, color: c.paper, borderRadius: '14px 14px 4px 14px', padding: '10px 13px', fontSize: '.88rem', maxWidth: '80%', marginLeft: 'auto', marginBottom: 9, fontFamily: serif }}>{msg.text}</div>
+                    : <div key={i} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: '14px 14px 14px 4px', padding: '11px 13px', fontSize: '.86rem', lineHeight: 1.55, maxWidth: '88%', marginBottom: 9 }}>
+                        {(msg.spans || []).map((sp: any, j: number) => <span key={j} style={sp.t==='self'?{color:c.jadeD,fontStyle:'italic'}:sp.t==='src'?{color:c.amberD,borderBottom:`1px dotted ${c.amber}`}:{}}>{sp.v}</span>)}
+                      </div>
+                  )
+                )}
+
+                <div style={{ background: '#fff', border: '1px dashed rgba(13,31,36,.16)', borderRadius: 14, padding: '11px 13px', display: 'flex', alignItems: 'center', gap: 9, marginTop: 8 }}>
+                  <input value={continueText} onChange={e => setContinueText(e.target.value)}
+                    placeholder="Continue this conversation…"
+                    onKeyDown={e => { if (e.key === 'Enter' && continueText.trim()) { handleTextQuery(continueText.trim(), { convId: activeRealConvId || undefined }); setHistoryView(null); } }}
+                    style={{ border: 'none', outline: 'none', background: 'none', fontSize: '.86rem', width: '100%', fontFamily: serif, color: c.ink }} />
+                  <div style={{ width: 26, height: 26, borderRadius: 8, background: c.jade, color: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: '.78rem' }}>🎙</div>
+                </div>
+                <div style={{ fontFamily: mono, fontSize: '.54rem', opacity: .38, textAlign: 'center', marginTop: 9 }}>PAL remembers this thread&apos;s context — no need to re-explain.</div>
+              </div>;
+            })()}
+
+            {/* ===== VISITS ===== */}
+            {isVisits && <div>
+              <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.5rem', margin: '12px 0 3px' }}>Your visits</div>
+              <div style={{ fontSize: '.8rem', opacity: .6, marginBottom: 16 }}>Every plan here comes from your care team.</div>
+              <div style={{ background: 'linear-gradient(160deg,#13343b,#0c2429)', borderRadius: 14, padding: 15, color: c.paper, marginBottom: 14 }}>
+                <div style={{ fontFamily: mono, fontSize: '.58rem', letterSpacing: '.12em', textTransform: 'uppercase', color: c.jade, marginBottom: 9 }}>◷ upcoming{booked ? ' · confirmed ✓' : ''}</div>
+                <div style={{ fontFamily: serif, fontSize: '1.05rem' }}>Lipid review · Dr. Rao</div>
+                <div style={{ fontSize: '.76rem', opacity: .7, marginTop: 3 }}>Thu 26 Jun, 11:30 · City Clinic OPD</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 13 }}>
+                  <button style={{ flex: 1, fontFamily: sans, fontWeight: 600, fontSize: '.74rem', padding: 9, borderRadius: 9, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer' }}>Prepare with PAL</button>
+                  <button onClick={() => setShowVoiceCall(true)}
+                    style={{ flex: 1, fontFamily: sans, fontWeight: 600, fontSize: '.74rem', padding: 9, borderRadius: 9, border: 'none', background: 'rgba(55,181,155,.18)', color: c.jade, cursor: 'pointer' }}>
+                    📞 Call Hermes AI
+                  </button>
+                </div>
+
+                {/* Voice booking proposal */}
+                {voiceBookingResult && !bookingConfirmed && (voiceBookingResult.available_slots.length > 0 || voiceBookingResult.proposed_actions.length > 0) && (
+                  <div style={{ marginTop: 13 }}>
+                    <div style={{ fontFamily: mono, fontSize: '.58rem', letterSpacing: '.12em', textTransform: 'uppercase', color: c.jade, marginBottom: 8 }}>◷ available slots — confirm one</div>
+                    {voiceBookingResult.available_slots.slice(0, 3).map((slot, i) => {
+                      const dt = new Date(slot.datetime);
+                      const label = dt.toLocaleString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+                      return (
+                        <div key={i} style={{ background: 'rgba(255,255,255,.08)', borderRadius: 10, padding: '10px 12px', marginBottom: 7, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ fontSize: '.82rem', fontWeight: 600 }}>{slot.doctor_name}</div>
+                            <div style={{ fontFamily: mono, fontSize: '.58rem', opacity: .7, marginTop: 2 }}>{label} · {slot.clinic}</div>
+                          </div>
+                          <button onClick={() => handleConfirmBooking(slot.slot_id)}
+                            style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 12px', borderRadius: 8, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer', flexShrink: 0 }}>
+                            Confirm
+                          </button>
+                        </div>
+                      );
+                    })}
+                    <div style={{ fontFamily: mono, fontSize: '.54rem', opacity: .5, textAlign: 'center', marginTop: 6 }}>PAL never books without your explicit confirmation</div>
+                  </div>
+                )}
+                {bookingConfirmed && (
+                  <div style={{ marginTop: 13, fontFamily: mono, fontSize: '.6rem', color: c.jade }}>✓ Appointment requested — clinic will confirm</div>
+                )}
+              </div>
+              <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '14px 2px 10px' }}>Care plans</div>
+              {[
+                { initial:'R', grad:'linear-gradient(150deg,#5a8fa8,#33607a)', name:'Dr. Rao', sub:'Physician · OPD', date:'12 May', year:'2026', icon:'⛁', plan:'Cardiometabolic care plan', target:'careplan' },
+                { initial:'S', grad:'linear-gradient(150deg,#37b59b,#1f7d6b)', name:'Sneha', sub:'Nutritionist · iNutriMon', date:'14 May', year:'2026', icon:'☘', plan:'Cholesterol nutrition plan', target:'nutrition' },
+              ].map(card => (
+                <button key={card.name} onClick={() => setView(card.target)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, padding: 14, marginBottom: 11, cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 10 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: 11, display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 700, fontSize: '.85rem', flexShrink: 0, background: card.grad }}>{card.initial}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: '.88rem' }}>{card.name}</div>
+                      <div style={{ fontFamily: mono, fontSize: '.58rem', opacity: .55, marginTop: 2 }}>{card.sub}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontWeight: 600, fontSize: '.82rem' }}>{card.date}</div>
+                      <div style={{ fontFamily: mono, fontSize: '.58rem', opacity: .5 }}>{card.year}</div>
+                    </div>
+                  </div>
+                  <div style={{ borderTop: '1px solid rgba(13,31,36,.10)', marginTop: 4, paddingTop: 11, display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '.78rem' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 7, color: c.jadeD, fontWeight: 500 }}>{card.icon} {card.plan}</span>
+                    <span style={{ fontFamily: mono, fontSize: '.7rem', color: c.jadeD }}>open →</span>
+                  </div>
+                </button>
+              ))}
+              <div style={{ display: 'flex', gap: 11, alignItems: 'center', background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, padding: '12px 14px', marginTop: 4 }}>
+                <span style={{ fontFamily: mono, fontSize: '.55rem', background: 'rgba(90,143,168,.14)', color: c.blueD, padding: '3px 8px', borderRadius: 10, whiteSpace: 'nowrap' }}>⛁ clinician-canonical</span>
+                <span style={{ fontSize: '.74rem', opacity: .65 }}>Plans are your team&apos;s own words — never altered by AI.</span>
+              </div>
+            </div>}
+
+            {/* ===== PROFILE ===== */}
+            {isProfile && <div>
+              <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.5rem', margin: '12px 0 3px' }}>Your Profile</div>
+              <div style={{ fontSize: '.8rem', opacity: .6, marginBottom: 16 }}>Manage your health information</div>
+
+              {profileLoading && (
+                <div style={{ textAlign: 'center', padding: 40 }}>
+                  <div style={{ fontSize: '.9rem', opacity: .6 }}>Loading profile...</div>
+                </div>
+              )}
+
+              {!profileLoading && !patientProfile && (
+                <div style={{ background: 'linear-gradient(160deg,rgba(55,181,155,.12),rgba(55,181,155,.03))', border: '1px solid rgba(55,181,155,.3)', borderRadius: 14, padding: 20, marginBottom: 14, textAlign: 'center' }}>
+                  <div style={{ fontSize: '3rem', marginBottom: 12 }}>👤</div>
+                  <div style={{ fontFamily: serif, fontSize: '1.2rem', fontWeight: 300, marginBottom: 8 }}>Create Your Profile</div>
+                  <div style={{ fontSize: '.8rem', opacity: .7, marginBottom: 16 }}>Add your health information to access all features</div>
+                  <button
+                    onClick={() => router.push('/profile/create')}
+                    style={{ fontFamily: sans, fontWeight: 600, fontSize: '.85rem', padding: '12px 24px', borderRadius: 11, border: 'none', background: c.jade, color: '#fff', cursor: 'pointer' }}>
+                    Create Profile
+                  </button>
+                </div>
+              )}
+
+              {!profileLoading && patientProfile && (
+                <>
+                  {/* Personal Information */}
+                  <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+                    <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Personal Information</div>
+
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Full Name</div>
+                      <div style={{ fontSize: '.9rem', fontWeight: 500 }}>{patientProfile.full_name || 'Not set'}</div>
+                    </div>
+
+                    {patientProfile.phone && (
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Phone</div>
+                        <div style={{ fontSize: '.85rem' }}>{patientProfile.phone}</div>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                      <div>
+                        <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Date of Birth</div>
+                        <div style={{ fontSize: '.85rem' }}>{patientProfile.date_of_birth || 'Not set'}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Gender</div>
+                        <div style={{ fontSize: '.85rem' }}>{patientProfile.gender || 'Not set'}</div>
+                      </div>
+                    </div>
+
+                    {patientProfile.blood_group && (
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Blood Group</div>
+                        <div style={{ fontSize: '.85rem' }}>{patientProfile.blood_group}</div>
+                      </div>
+                    )}
+
+                    {patientProfile.address && (
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Address</div>
+                        <div style={{ fontSize: '.85rem' }}>{patientProfile.address}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Healthcare IDs */}
+                  {(patientProfile.mrn || patientProfile.abha_id || patientProfile.abha_address) && (
+                    <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+                      <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Healthcare IDs</div>
+
+                      {patientProfile.mrn && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>MRN</div>
+                          <div style={{ fontSize: '.85rem', fontFamily: mono }}>{patientProfile.mrn}</div>
+                        </div>
+                      )}
+
+                      {patientProfile.abha_id && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>ABHA ID</div>
+                          <div style={{ fontSize: '.85rem', fontFamily: mono }}>{patientProfile.abha_id}</div>
+                        </div>
+                      )}
+
+                      {patientProfile.abha_address && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>ABHA Address</div>
+                          <div style={{ fontSize: '.85rem' }}>{patientProfile.abha_address}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Medical Information */}
+                  {(patientProfile.allergies || patientProfile.chronic_conditions || patientProfile.current_medications) && (
+                    <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+                      <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Medical Information</div>
+
+                      {patientProfile.allergies && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Allergies</div>
+                          <div style={{ fontSize: '.85rem', lineHeight: 1.4 }}>{patientProfile.allergies}</div>
+                        </div>
+                      )}
+
+                      {patientProfile.chronic_conditions && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Chronic Conditions</div>
+                          <div style={{ fontSize: '.85rem', lineHeight: 1.4 }}>{patientProfile.chronic_conditions}</div>
+                        </div>
+                      )}
+
+                      {patientProfile.current_medications && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Current Medications</div>
+                          <div style={{ fontSize: '.85rem', lineHeight: 1.4 }}>{patientProfile.current_medications}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Emergency Contact */}
+                  {patientProfile.emergency_contact && (
+                    <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+                      <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Emergency Contact</div>
+
+                      {patientProfile.emergency_contact.name && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Name</div>
+                          <div style={{ fontSize: '.85rem' }}>{patientProfile.emergency_contact.name}</div>
+                        </div>
+                      )}
+
+                      {patientProfile.emergency_contact.relationship && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Relationship</div>
+                          <div style={{ fontSize: '.85rem' }}>{patientProfile.emergency_contact.relationship}</div>
+                        </div>
+                      )}
+
+                      {patientProfile.emergency_contact.phone && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Phone</div>
+                          <div style={{ fontSize: '.85rem' }}>{patientProfile.emergency_contact.phone}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Edit Profile Button */}
+                  <button
+                    onClick={() => router.push('/profile/create')}
+                    style={{ width: '100%', fontFamily: sans, fontWeight: 600, fontSize: '.78rem', padding: 10, borderRadius: 10, border: 'none', background: c.jade, color: '#fff', cursor: 'pointer', marginBottom: 14 }}>
+                    Edit Profile
+                  </button>
+                </>
+              )}
+
+              {/* Account Section */}
+              <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, padding: 16 }}>
+                <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Account</div>
+                <button
+                  onClick={() => setSettingsOpen(true)}
+                  style={{ width: '100%', textAlign: 'left', fontFamily: sans, fontSize: '.85rem', padding: 10, borderRadius: 10, border: '1px solid rgba(13,31,36,.10)', background: '#fff', cursor: 'pointer', marginBottom: 8 }}>
+                  ⚙️ Settings
+                </button>
+                <button
+                  onClick={() => setSignOutConfirmOpen(true)}
+                  style={{ width: '100%', textAlign: 'left', fontFamily: sans, fontSize: '.85rem', padding: 10, borderRadius: 10, border: '1px solid rgba(194,103,94,.3)', background: 'rgba(194,103,94,.05)', color: c.rose, cursor: 'pointer' }}>
+                  🚪 Sign Out
+                </button>
+              </div>
+            </div>}
+
+            {/* ===== CARE PLAN DETAIL ===== */}
+            {isCarePlan && <div>
+              <div style={{ background: 'linear-gradient(160deg,rgba(90,143,168,.12),rgba(90,143,168,.03))', border: '1px solid rgba(90,143,168,.3)', borderRadius: 16, padding: 16, margin: '8px 0 14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 8 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 11, display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 700, fontSize: '.85rem', flexShrink: 0, background: 'linear-gradient(150deg,#5a8fa8,#33607a)' }}>R</div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '.9rem' }}>Dr. Rao</div>
+                    <div style={{ fontFamily: mono, fontSize: '.58rem', opacity: .6 }}>Physician · City Clinic OPD</div>
+                  </div>
+                </div>
+                <div style={{ fontFamily: serif, fontSize: '1.05rem', lineHeight: 1.4, marginTop: 6, color: c.ink }}>Lower LDL toward &lt;100 mg/dL over 12 weeks, keep BP in range.</div>
+                <div style={{ fontFamily: mono, fontSize: '.56rem', color: c.blueD, marginTop: 10 }}>⛁ clinician-canonical · signed 12 May · review at next visit</div>
+              </div>
+              <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '14px 2px 10px' }}>Your plan</div>
+              {careItems.map((it, i) => (
+                <div key={i} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 13, padding: '13px 14px', marginBottom: 9, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', fontSize: '.85rem', flexShrink: 0, ...(it.picType==='med'?{background:'rgba(55,181,155,.14)',color:c.jadeD}:it.picType==='tar'?{background:'rgba(90,143,168,.14)',color:c.blueD}:{background:'rgba(216,162,74,.16)',color:c.amberD}) }}>{it.pic}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: '.85rem' }}>{it.nm}</div>
+                    <div style={{ fontSize: '.76rem', opacity: .72, marginTop: 3, lineHeight: 1.45 }}>{it.dt}</div>
+                    {it.tag && <div style={{ fontFamily: mono, fontSize: '.55rem', marginTop: 7, opacity: .6 }}>{it.tag}</div>}
+                  </div>
+                  <span style={{ fontFamily: mono, fontSize: '.58rem', color: c.jadeD, background: 'rgba(55,181,155,.12)', padding: '4px 8px', borderRadius: 8, whiteSpace: 'nowrap' }}>{it.track}</span>
+                </div>
+              ))}
+              <div style={{ background: 'rgba(55,181,155,.06)', border: '1px solid rgba(55,181,155,.3)', borderRadius: 13, padding: '13px 14px', marginTop: 8, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                <div style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', fontSize: '.85rem', flexShrink: 0, background: 'rgba(55,181,155,.14)', color: c.jadeD }}>✶</div>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: '.85rem' }}>PAL keeps this plan alive</div>
+                  <div style={{ fontSize: '.76rem', opacity: .72, marginTop: 3, lineHeight: 1.45 }}>Gentle reminders for your medicine and walks, and a nudge before your recheck — all from this plan, never invented.</div>
+                </div>
+              </div>
+            </div>}
+
+            {/* ===== NUTRITION DETAIL ===== */}
+            {isNutrition && <div>
+              <div style={{ background: 'linear-gradient(160deg,rgba(55,181,155,.12),rgba(55,181,155,.03))', border: '1px solid rgba(55,181,155,.3)', borderRadius: 16, padding: 16, margin: '8px 0 14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 8 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 11, display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 700, fontSize: '.85rem', flexShrink: 0, background: 'linear-gradient(150deg,#37b59b,#1f7d6b)' }}>S</div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '.9rem' }}>Sneha</div>
+                    <div style={{ fontFamily: mono, fontSize: '.58rem', opacity: .6 }}>Nutritionist · iNutriMon</div>
+                  </div>
+                </div>
+                <div style={{ fontFamily: serif, fontSize: '1.05rem', lineHeight: 1.4, marginTop: 4 }}>Mediterranean-style, lower saturated fat — built around your LDL of 162.</div>
+                <div style={{ fontFamily: mono, fontSize: '.56rem', color: c.jadeD, marginTop: 10 }}>⛁ clinician-canonical · aligned to Dr. Rao&apos;s plan</div>
+              </div>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 13, overflowX: 'auto' }}>
+                {['M','T','W','T','F','S','S'].map((d, i) => (
+                  <div key={i} style={{ flexShrink: 0, width: 40, textAlign: 'center', padding: '8px 0', borderRadius: 10, fontFamily: mono, fontSize: '.6rem', ...(i===0?{background:c.jadeD,color:'#fff'}:{background:'transparent',color:'rgba(13,31,36,.4)'}) }}>
+                    <span style={{ fontSize: '.85rem', fontWeight: 700, display: 'block' }}>{d}</span>
+                  </div>
+                ))}
+              </div>
+              {MEALS.map((m, i) => (
+                <div key={i} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 13, padding: 13, marginBottom: 9 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span style={{ fontFamily: mono, fontSize: '.58rem', letterSpacing: '.1em', textTransform: 'uppercase', color: c.jadeD }}>{m.mt}</span>
+                    <span style={{ fontFamily: mono, fontSize: '.58rem', opacity: .5 }}>{m.mc}</span>
+                  </div>
+                  <div style={{ fontFamily: serif, fontSize: '1rem' }}>{m.mn}</div>
+                  <div style={{ fontSize: '.72rem', opacity: .7, marginTop: 5, lineHeight: 1.4 }}>
+                    {m.why.map((w: any, j: number) => <span key={j} style={(w as any).b ? {color:c.jadeD,fontWeight:600} : {}}>{(w as any).b || (w as any).t}</span>)}
+                  </div>
+                  <div style={{ fontFamily: mono, fontSize: '.66rem', color: c.jadeD, marginTop: 9, display: 'inline-flex', gap: 6, alignItems: 'center' }}>◷ recipe &amp; method →</div>
+                </div>
+              ))}
+            </div>}
+
+            {/* ===== REMINDERS ===== */}
+            {isReminders && <div>
+              <div style={{ background: 'linear-gradient(160deg,#13343b,#0c2429)', borderRadius: 16, padding: 16, color: c.paper, margin: '8px 0 16px' }}>
+                <div style={{ fontFamily: mono, fontSize: '.58rem', letterSpacing: '.12em', textTransform: 'uppercase', color: c.jade, marginBottom: 12 }}>✶ this week, with you</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ width: 52, height: 52, borderRadius: '50%', flexShrink: 0, display: 'grid', placeItems: 'center', background: 'conic-gradient(#37b59b 0% 86%, rgba(255,255,255,.12) 86% 100%)', position: 'relative' }}>
+                    <div style={{ position: 'absolute', inset: 6, borderRadius: '50%', background: c.deep }} />
+                    <span style={{ position: 'relative', fontFamily: serif, fontSize: '1rem', fontWeight: 500 }}>6/7</span>
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: serif, fontSize: '.98rem', lineHeight: 1.4 }}>Six days on track — nicely done.</div>
+                    <div style={{ fontSize: '.74rem', opacity: .65, marginTop: 3 }}>Your statin, most evenings.</div>
+                  </div>
+                </div>
+                <div style={{ fontFamily: mono, fontSize: '.56rem', opacity: .55, borderTop: '1px solid rgba(255,255,255,.12)', paddingTop: 10, marginTop: 12 }}>Missed a day? That&apos;s okay. Tap any reminder to catch up — no streak to break.</div>
+              </div>
+
+              <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '14px 2px 10px' }}>Today</div>
+              {todayNotifs.map(n => {
+                const st = notif[n.id];
+                const done = n.kind === 'donealready' || st === 'taken';
+                return (
+                  <div key={n.id} style={{ background: '#fff', borderRadius: 14, padding: 13, marginBottom: 10, display: 'flex', gap: 12, alignItems: 'flex-start', borderLeft: `3px solid ${n.accent}`, opacity: done ? 0.62 : 1 }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 10, display: 'grid', placeItems: 'center', fontSize: '.9rem', flexShrink: 0, ...Object.fromEntries(n.iconStyle.split(';').filter(Boolean).map((s:string)=>{const [k2,v2]=s.split(':');return [k2.trim().replace(/-([a-z])/g,(_:string,m:string)=>m.toUpperCase()),v2?.trim()];})) }}>{n.icon}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: '.85rem', lineHeight: 1.3 }}>{n.tt}</div>
+                      <div style={{ fontSize: '.76rem', opacity: .72, marginTop: 3, lineHeight: 1.45 }}>{n.bd}</div>
+                      <div style={{ fontFamily: mono, fontSize: '.56rem', opacity: .45, marginTop: 6 }}>{n.time}</div>
+                      {n.kind === 'statin' && st === 'pending' && (
+                        <div style={{ display: 'flex', gap: 7, marginTop: 10 }}>
+                          <button onClick={() => setNotifVal(n.id,'taken')} style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 13px', borderRadius: 8, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer' }}>Taken ✓</button>
+                          <button onClick={() => setNotifVal(n.id,'later')} style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 13px', borderRadius: 8, border: '1px solid rgba(13,31,36,.16)', background: 'transparent', color: c.ink, cursor: 'pointer' }}>Later</button>
+                        </div>
+                      )}
+                      {n.kind === 'statin' && st === 'later' && (
+                        <div style={{ fontFamily: mono, fontSize: '.6rem', color: c.amberD, marginTop: 9 }}>we&apos;ll remind you again this evening</div>
+                      )}
+                      {n.kind === 'dinner' && (
+                        <div style={{ display: 'flex', gap: 7, marginTop: 10 }}>
+                          <button onClick={() => { setTabRaw('visits'); setView('nutrition'); }} style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 13px', borderRadius: 8, border: 'none', background: 'rgba(90,143,168,.14)', color: c.blueD, cursor: 'pointer' }}>View recipe</button>
+                          <button style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 13px', borderRadius: 8, border: '1px solid rgba(13,31,36,.16)', background: 'transparent', color: c.ink, cursor: 'pointer' }}>Swap meal</button>
+                        </div>
+                      )}
+                      {done && n.kind !== 'donealready' && <span style={{ fontFamily: mono, fontSize: '.58rem', color: c.jadeD }}>done ✓</span>}
+                    </div>
+                    {n.kind === 'donealready' && <span style={{ fontFamily: mono, fontSize: '.58rem', color: c.jadeD }}>done ✓</span>}
+                  </div>
+                );
+              })}
+
+              <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '14px 2px 10px' }}>Coming up</div>
+              {comingNotifs.map(n => {
+                const st = notif[n.id];
+                return (
+                  <div key={n.id} style={{ background: '#fff', borderRadius: 14, padding: 13, marginBottom: 10, display: 'flex', gap: 12, alignItems: 'flex-start', borderLeft: `3px solid ${n.accent}` }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 10, display: 'grid', placeItems: 'center', fontSize: '.9rem', flexShrink: 0, ...Object.fromEntries(n.iconStyle.split(';').filter(Boolean).map((s:string)=>{const [k2,v2]=s.split(':');return [k2.trim().replace(/-([a-z])/g,(_:string,m:string)=>m.toUpperCase()),v2?.trim()];})) }}>{n.icon}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: '.85rem', lineHeight: 1.3 }}>{n.tt}</div>
+                      <div style={{ fontSize: '.76rem', opacity: .72, marginTop: 3, lineHeight: 1.45 }}>{n.bd}</div>
+                      <div style={{ fontFamily: mono, fontSize: '.56rem', opacity: .45, marginTop: 6 }}>{n.time}</div>
+                      {n.kind === 'recheck' && st !== 'booked' && (
+                        <div style={{ display: 'flex', gap: 7, marginTop: 10 }}>
+                          <button onClick={() => { setBooked(true); setNotifVal(n.id,'booked'); }} style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 13px', borderRadius: 8, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer' }}>Book review</button>
+                          <button style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 13px', borderRadius: 8, border: '1px solid rgba(13,31,36,.16)', background: 'transparent', color: c.ink, cursor: 'pointer' }}>Remind me</button>
+                        </div>
+                      )}
+                      {n.kind === 'recheck' && st === 'booked' && (
+                        <div style={{ fontFamily: mono, fontSize: '.6rem', color: c.jadeD, marginTop: 9 }}>review booked ✓ · see Visits</div>
+                      )}
+                      {n.kind === 'seeplan' && (
+                        <div style={{ display: 'flex', gap: 7, marginTop: 10 }}>
+                          <button onClick={() => { setTabRaw('visits'); setView('nutrition'); }} style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 13px', borderRadius: 8, border: 'none', background: 'rgba(90,143,168,.14)', color: c.blueD, cursor: 'pointer' }}>See plan</button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div style={{ fontFamily: mono, fontSize: '.6rem', opacity: .5, textAlign: 'center', marginTop: 14, lineHeight: 1.6 }}>You choose what PAL reminds you about,<br />and when. Quiet hours respected.</div>
+            </div>}
+
+          </div>
+
+          {/* ===== RINGING OVERLAY ===== */}
+          {callRinging && (
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(175deg,#0a1e23 0%,#0d1f24 100%)', zIndex: 60, borderRadius: 29, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0 }}>
+              {/* Pulsing rings */}
+              <div style={{ position: 'relative', width: 96, height: 96, marginBottom: 28 }}>
+                <div style={{ position: 'absolute', inset: -24, borderRadius: '50%', border: `2px solid ${c.jade}`, opacity: 0, animation: 'ring-pulse 2s ease-out infinite' }} />
+                <div style={{ position: 'absolute', inset: -14, borderRadius: '50%', border: `2px solid ${c.jade}`, opacity: 0, animation: 'ring-pulse 2s ease-out .65s infinite' }} />
+                <div style={{ position: 'absolute', inset: -4, borderRadius: '50%', border: `2px solid ${c.jade}`, opacity: 0, animation: 'ring-pulse 2s ease-out 1.3s infinite' }} />
+                {/* Hermes avatar */}
+                <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: `linear-gradient(150deg,${c.jade},${c.jadeD})`, display: 'grid', placeItems: 'center', animation: 'hermes-glow 2.2s ease-in-out infinite' }}>
+                  <span style={{ fontFamily: serif, fontSize: '2rem', fontWeight: 300, color: '#fff', lineHeight: 1 }}>H</span>
+                </div>
+              </div>
+              <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.22rem', color: c.paper, marginBottom: 4 }}>Hermes</div>
+              <div style={{ fontFamily: mono, fontSize: '.54rem', letterSpacing: '.14em', color: c.jade, marginBottom: 6 }}>AI MEDICAL RECEPTIONIST · PAL</div>
+              <div style={{ fontFamily: mono, fontSize: '.52rem', color: c.mist, opacity: .45, marginBottom: 40 }}>connecting call…</div>
+              <button onClick={handleEndCall}
+                style={{ fontFamily: sans, fontWeight: 600, fontSize: '.76rem', padding: '12px 32px', borderRadius: 32, border: `1px solid rgba(194,103,94,.4)`, background: 'rgba(194,103,94,.14)', color: '#c2675e', cursor: 'pointer', letterSpacing: '.02em' }}>
+                ✕ Cancel
+              </button>
+            </div>
+          )}
+
+          {/* ===== HERMES CALL OVERLAY ===== */}
+          {activeCallSession && (
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(175deg,#0c2429 0%,#0d1f24 100%)', zIndex: 50, borderRadius: 29, display: 'flex', flexDirection: 'column' }}>
+              {/* Call header */}
+              <div style={{ padding: '38px 20px 16px', textAlign: 'center', flexShrink: 0 }}>
+                <div style={{ width: 56, height: 56, borderRadius: 18, background: 'linear-gradient(150deg,#37b59b,#1f7d6b)', display: 'grid', placeItems: 'center', margin: '0 auto 10px', fontSize: '1.5rem' }}>H</div>
+                <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.1rem', color: c.paper }}>Hermes</div>
+                <div style={{ fontFamily: mono, fontSize: '.56rem', color: c.jade, letterSpacing: '.1em', marginTop: 3 }}>AI MEDICAL RECEPTIONIST</div>
+                <div style={{ fontFamily: mono, fontSize: '.54rem', color: c.mist, opacity: .5, marginTop: 5 }}>
+                  {activeCallSession.call_ended ? '◉ call ended' : activeCallSession.call_state === 'greeting' ? '● ringing…' : '● connected'}
+                </div>
+                {!activeCallSession.call_ended && (
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginTop: 8 }}>
+                    {(['earpiece', 'speaker'] as const).map(mode => {
+                      const isActive = mode === 'speaker' ? speakerOn : !speakerOn;
+                      return (
+                        <button key={mode} onClick={() => setSpeakerOn(mode === 'speaker')}
+                          style={{ fontFamily: mono, fontSize: '.5rem', letterSpacing: '.06em', padding: '4px 11px', borderRadius: 16, border: `1px solid ${isActive ? 'rgba(55,181,155,.55)' : 'rgba(255,255,255,.15)'}`, background: isActive ? 'rgba(55,181,155,.14)' : 'transparent', color: isActive ? c.jade : c.mist, cursor: 'pointer', opacity: isActive ? 1 : 0.55 }}>
+                          {mode === 'earpiece' ? '📱 Earpiece' : '🔊 Speaker'}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* DocEHR agent indicator */}
+              <div style={{ margin: '0 16px 10px', background: 'rgba(90,143,168,.12)', border: '1px solid rgba(90,143,168,.25)', borderRadius: 10, padding: '7px 12px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#5a8fa8', flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontFamily: mono, fontSize: '.54rem', color: '#5a8fa8', letterSpacing: '.08em' }}>DOCEHR AGENT</div>
+                  <div style={{ fontFamily: mono, fontSize: '.5rem', color: c.mist, opacity: .5, marginTop: 2 }}>backend scheduler · queried silently during call</div>
+                </div>
+              </div>
+
+              {/* Transcript */}
+              <div ref={callScrollRef} style={{ flex: 1, overflowY: 'auto', padding: '0 14px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {callTurns.map((turn, i) => {
+                  if (turn.role === 'speaker_suggest') {
+                    return (
+                      <div key={i} style={{ alignSelf: 'stretch', background: 'rgba(55,181,155,.08)', border: '1px solid rgba(55,181,155,.25)', borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', animation: 'fade-in .22s ease' }}>
+                        <div style={{ fontFamily: mono, fontSize: '.5rem', color: c.jade }}>🔊 Switch to Speaker · Read instructions while staying on the call.</div>
+                        <button onClick={() => setSpeakerOn(true)} style={{ fontFamily: mono, fontSize: '.48rem', padding: '3px 8px', borderRadius: 10, border: '1px solid rgba(55,181,155,.4)', background: 'rgba(55,181,155,.2)', color: c.jade, cursor: 'pointer', whiteSpace: 'nowrap', marginLeft: 8 }}>
+                          Enable
+                        </button>
+                      </div>
+                    );
+                  }
+                  if (turn.role === 'docehr') {
+                    return (
+                      <div key={i} style={{ alignSelf: 'center', background: 'rgba(90,143,168,.1)', border: '1px solid rgba(90,143,168,.22)', borderRadius: 8, padding: '5px 11px', fontFamily: mono, fontSize: '.5rem', color: '#5a8fa8', textAlign: 'center', maxWidth: '94%', animation: 'fade-in .22s ease' }}>
+                        ◯ DocEHR · {turn.content}
+                      </div>
+                    );
+                  }
+                  const isHermes = turn.role === 'hermes';
+                  return (
+                    <div key={i} style={{ alignSelf: isHermes ? 'flex-start' : 'flex-end', maxWidth: '82%', animation: 'fade-in .22s ease' }}>
+                      {isHermes && <div style={{ fontFamily: mono, fontSize: '.46rem', color: c.jade, letterSpacing: '.1em', marginBottom: 3, paddingLeft: 4 }}>HERMES</div>}
+                      <div style={{ background: isHermes ? 'rgba(255,255,255,.09)' : `rgba(55,181,155,.2)`, border: isHermes ? '1px solid rgba(255,255,255,.11)' : `1px solid rgba(55,181,155,.38)`, borderRadius: isHermes ? '3px 13px 13px 13px' : '13px 3px 13px 13px', padding: '9px 12px', color: c.paper, fontSize: '.78rem', lineHeight: 1.55 }}>
+                        {turn.content}
+                      </div>
+                    </div>
+                  );
+                })}
+                {callLoading && (
+                  <div style={{ alignSelf: 'flex-start', maxWidth: '80%' }}>
+                    <div style={{ fontFamily: mono, fontSize: '.48rem', color: c.jade, letterSpacing: '.08em', marginBottom: 3, paddingLeft: 4 }}>HERMES</div>
+                    <div style={{ background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '4px 14px 14px 14px', padding: '9px 12px', color: c.mist, fontSize: '.78rem', opacity: .6 }}>⋯</div>
+                  </div>
+                )}
+                {activeCallSession.call_ended && (
+                  <div style={{ alignSelf: 'center', background: activeCallSession.booking_done ? 'rgba(55,181,155,.14)' : 'rgba(255,255,255,.06)', border: `1px solid ${activeCallSession.booking_done ? 'rgba(55,181,155,.4)' : 'rgba(255,255,255,.15)'}`, borderRadius: 12, padding: '12px 16px', textAlign: 'center', marginTop: 6 }}>
+                    {activeCallSession.booking_done
+                      ? <><div style={{ fontSize: '1.1rem', marginBottom: 4 }}>✓</div><div style={{ fontFamily: mono, fontSize: '.58rem', color: c.jade }}>Appointment booked via Hermes</div></>
+                      : <><div style={{ fontFamily: mono, fontSize: '.58rem', color: c.mist, opacity: .6 }}>Call ended</div></>
+                    }
+                  </div>
+                )}
+              </div>
+
+              {/* Input + controls */}
+              {!activeCallSession.call_ended ? (
+                <div style={{ padding: '10px 14px 28px', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                    <input
+                      value={callInput}
+                      onChange={e => setCallInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleCallTurn()}
+                      placeholder="Reply to Hermes…"
+                      style={{ flex: 1, fontFamily: sans, fontSize: '.8rem', padding: '10px 13px', borderRadius: 11, border: '1px solid rgba(255,255,255,.18)', background: 'rgba(255,255,255,.08)', color: c.paper, outline: 'none' }}
+                    />
+                    <button onClick={handleCallTurn} disabled={callLoading || !callInput.trim()}
+                      style={{ fontFamily: sans, fontWeight: 700, fontSize: '.78rem', padding: '10px 14px', borderRadius: 11, border: 'none', background: c.jade, color: c.deep2, cursor: callLoading || !callInput.trim() ? 'default' : 'pointer', opacity: callLoading || !callInput.trim() ? .5 : 1 }}>
+                      Send
+                    </button>
+                  </div>
+                  <button onClick={handleEndCall}
+                    style={{ width: '100%', fontFamily: sans, fontWeight: 600, fontSize: '.76rem', padding: '10px', borderRadius: 11, border: '1px solid rgba(194,103,94,.4)', background: 'rgba(194,103,94,.14)', color: '#c2675e', cursor: 'pointer' }}>
+                    ✕ End call
+                  </button>
+                </div>
+              ) : (
+                <div style={{ padding: '12px 14px 28px', flexShrink: 0 }}>
+                  <button onClick={handleEndCall}
+                    style={{ width: '100%', fontFamily: sans, fontWeight: 600, fontSize: '.76rem', padding: '11px', borderRadius: 11, border: 'none', background: 'rgba(55,181,155,.18)', color: c.jade, cursor: 'pointer' }}>
+                    Close
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* CHAT INPUT — Ask tab only */}
+          {isAsk && (
+            <div style={{ position: 'absolute', bottom: 72, left: 0, right: 0, padding: '8px 14px 10px', background: 'rgba(251,249,244,.95)', backdropFilter: 'blur(14px)', borderTop: '1px solid rgba(13,31,36,.08)', zIndex: 14 }}>
+              <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.16)', borderRadius: 16, padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 1px 2px rgba(13,31,36,.05),0 4px 14px -8px rgba(13,31,36,.14)' }}>
+                <span style={{ color: c.jadeD, fontSize: '1rem', opacity: .7, flexShrink: 0 }}>⌕</span>
+                <input
+                  placeholder={chatMessages.length > 0 ? 'Ask a follow-up…' : t('ask_placeholder')}
+                  value={queryText}
+                  onChange={e => setQueryText(e.target.value)}
+                  style={{ border: 'none', outline: 'none', background: 'none', fontFamily: serif, fontSize: '.95rem', width: '100%', color: c.ink, minWidth: 0 }}
+                  onKeyDown={e => { if (e.key === 'Enter' && queryText.trim()) handleTextQuery(queryText.trim()); }}
+                />
+                {chatMessages.length > 0 && (
+                  <button onClick={() => { setChatMessages([]); setConversationId(null); setQueryText(''); setSttDraft(null); setIsSecondOpinionMode(false); }} title="New conversation"
+                    style={{ width: 26, height: 26, borderRadius: 8, background: 'rgba(13,31,36,.07)', color: c.ink, display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: '.65rem', border: 'none', cursor: 'pointer', opacity: .5 }}>✕</button>
+                )}
+                <input ref={uploadInputRef} type="file" accept=".pdf,.txt,.csv,.doc,.docx" style={{ display: 'none' }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f); e.target.value = ''; }} />
+                <button onClick={() => uploadInputRef.current?.click()} aria-label="Upload document"
+                  style={{ width: 28, height: 28, borderRadius: 9, background: 'rgba(13,31,36,.06)', color: c.ink, display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: '.82rem', border: 'none', cursor: 'pointer', opacity: .7 }}>📎</button>
+                <button onClick={handleMicClick} aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+                  style={{ width: 28, height: 28, borderRadius: 9, background: isRecording ? c.rose : c.jade, color: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: '.82rem', border: 'none', cursor: 'pointer' }}>🎙</button>
+                {queryText.trim() && (
+                  <button onClick={() => handleTextQuery(queryText.trim())}
+                    style={{ width: 28, height: 28, borderRadius: 9, background: c.jade, color: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: '1rem', border: 'none', cursor: 'pointer', fontWeight: 700 }}>→</button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB BAR */}
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 72, background: 'rgba(251,249,244,.92)', backdropFilter: 'blur(12px)', borderTop: '1px solid rgba(13,31,36,.10)', display: 'flex', alignItems: 'center', justifyContent: 'space-around', paddingBottom: 8, zIndex: 15 }}>
+            {TABS.map(t => {
+              const on = tab === t.id && !view && historyView !== 'thread';
+              return (
+                <button key={t.id} onClick={() => {
+                  if (t.id === 'upload') {
+                    router.push('/upload');
+                  } else if (t.id === 'family_chat') {
+                    router.push('/family');
+                  } else {
+                    setTab(t.id as any);
+                  }
+                }}
+                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, fontFamily: mono, fontSize: '.56rem', letterSpacing: '.06em', textTransform: 'uppercase', background: 'none', border: 'none', cursor: 'pointer', color: on ? c.jadeD : c.ink, opacity: on ? 1 : 0.42 }}>
+                  <span style={{ fontSize: '1.1rem' }}>{t.icon}</span>
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+
+        </div>
+      </div>
+
+      <p style={{ maxWidth: 560, margin: '26px auto 0', textAlign: 'center', fontFamily: mono, fontSize: '.6rem', color: c.mist, opacity: .38, lineHeight: 1.7 }}>
+        Illustrative interactive prototype. PAL provides health information and is not a substitute for professional medical advice, diagnosis, or treatment. All names and data shown are fictional.
+      </p>
+
+      {/* Action toast */}
+      {actionToast && (
+        <div style={{ position: 'fixed', bottom: 88, left: '50%', transform: 'translateX(-50%)', background: c.deep, color: c.paper, fontFamily: mono, fontSize: '.72rem', padding: '10px 18px', borderRadius: 12, boxShadow: '0 4px 20px rgba(0,0,0,.35)', zIndex: 100, whiteSpace: 'nowrap', maxWidth: '90vw', textAlign: 'center' }}>
+          {actionToast}
+        </div>
+      )}
+
+      {/* Sarvam Voice Call Modal */}
+      {showVoiceCall && (
+        <VoiceCall
+          patientId={personKey}
+          onClose={() => setShowVoiceCall(false)}
+        />
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.yarn/
+
+# Gradle build outputs
+android/.gradle/
+android/app/build/
+android/build/
+
+# Android signing — NEVER commit keystores or passwords
+*.keystore
+*.jks
+android/app/release/
+android/local.properties
+
+# Environment — contains API keys and secrets
+.env
+.env.local
+.env.production
+
+# React Native generated
+android/app/src/main/assets/index.android.bundle
+android/app/src/main/assets/index.android.bundle.map
+
+# Metro bundler cache
+.metro-health-check*
+__pycache__/
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# TypeScript build
+*.tsbuildinfo

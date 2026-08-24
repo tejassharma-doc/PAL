@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PAL Health launcher icon — foreground layer (sits on top of the jade background).
+  Uses an adaptive icon foreground: 108dp × 108dp total canvas, safe zone 18–90dp.
+  The "P" letter is drawn as a filled path with an even-odd counter (hollow bowl).
+  fillType="evenOdd" is supported from API 24+, which matches our minSdk.
+
+  To replace with a custom brand mark:
+    Android Studio → right-click res/ → New → Image Asset → select your SVG/PNG.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!--
+      P letter path (viewport 108×108):
+        Stem    : x=35–50, y=24–84  (15dp wide, 60dp tall)
+        Bowl    : arcs from (50,24) rightward to ~x=76, returns to (50,54)
+        Counter : inner hollow carved by even-odd sub-path M50,32 … Z
+    -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="
+            M35,84 L35,24 L50,24
+            C76,24 76,54 50,54
+            L50,84 Z
+            M50,32
+            C70,32 70,46 50,46
+            Z" />
+</vector>

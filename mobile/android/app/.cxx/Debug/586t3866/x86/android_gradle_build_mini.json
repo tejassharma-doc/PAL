@@ -1,0 +1,31 @@
+{
+  "buildFiles": [
+    "D:\\Paulson\\PAL\\AndroidResize\\node_modules\\react-native\\ReactAndroid\\cmake-utils\\default-app-setup\\CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "C:\\Users\\admin\\AppData\\Local\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+      "-C",
+      "D:\\Paulson\\PAL\\AndroidResize\\android\\app\\.cxx\\Debug\\586t3866\\x86",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "C:\\Users\\admin\\AppData\\Local\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+    "-C",
+    "D:\\Paulson\\PAL\\AndroidResize\\android\\app\\.cxx\\Debug\\586t3866\\x86",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "appmodules::@6890427a1f51a3e7e1df": {
+      "artifactName": "appmodules",
+      "abi": "x86",
+      "output": "D:\\Paulson\\PAL\\AndroidResize\\android\\app\\build\\intermediates\\cxx\\Debug\\586t3866\\obj\\x86\\libappmodules.so",
+      "runtimeFiles": [
+        "C:\\Users\\admin\\.gradle\\caches\\8.10.2\\transforms\\a1e2468accb68cc53a53c12267e3cf67\\transformed\\jetified-fbjni-0.6.0\\prefab\\modules\\fbjni\\libs\\android.x86\\libfbjni.so",
+        "C:\\Users\\admin\\.gradle\\caches\\8.10.2\\transforms\\260b15d586b79bef3fde9d722ca6cb13\\transformed\\jetified-react-android-0.76.9-debug\\prefab\\modules\\jsi\\libs\\android.x86\\libjsi.so",
+        "C:\\Users\\admin\\.gradle\\caches\\8.10.2\\transforms\\260b15d586b79bef3fde9d722ca6cb13\\transformed\\jetified-react-android-0.76.9-debug\\prefab\\modules\\reactnative\\libs\\android.x86\\libreactnative.so"
+      ]
+    }
+  }
+}

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    AndroidManifest.xml — declares the PAL Health app's components, permissions,
+    and entry points to the Android OS.
+
+    Permissions explained:
+    - INTERNET:              Required for all API calls (PAL backend, MDT, search)
+    - CAMERA:                Required for react-native-image-picker camera capture
+    - READ_MEDIA_IMAGES:     Android 13+ media picker (replaces READ_EXTERNAL_STORAGE)
+    - READ_EXTERNAL_STORAGE: Android ≤12 fallback for file picker
+    - VIBRATE:               Optional — used for haptic feedback on safety banners
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Network -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Camera + gallery — required for MDT document upload feature -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <!-- Misc -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <application
+        android:name=".MainApplication"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:allowBackup="false"
+        android:theme="@style/AppTheme"
+        android:supportsRtl="true"
+        android:hardwareAccelerated="true"
+        android:largeHeap="true"
+        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/network_security_config">
+
+        <!--
+            MainActivity — the single-activity host for React Native.
+            All navigation between screens happens inside React Native;
+            Android sees only one Activity.
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:label="@string/app_name"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Deep link: pal://install?ref=DR_xyz for doctor attribution -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="pal" />
+            </intent-filter>
+
+            <!-- HTTPS deep link: https://pal.health/install?ref=... -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="pal.health" android:pathPrefix="/install" />
+            </intent-filter>
+        </activity>
+
+    </application>
+</manifest>

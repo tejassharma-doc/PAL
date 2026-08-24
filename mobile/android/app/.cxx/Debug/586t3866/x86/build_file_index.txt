@@ -1,0 +1,1 @@
+D:\Paulson\PAL\AndroidResize\node_modules\react-native\ReactAndroid\cmake-utils\default-app-setup\CMakeLists.txt
