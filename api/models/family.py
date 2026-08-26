@@ -40,6 +40,7 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, UUIDMixin, TimestampMixin
+from .chat import ChatRoom  # Import for FK resolution
 
 
 # ── Enums ────────────────────────────────────────────────────────────────────

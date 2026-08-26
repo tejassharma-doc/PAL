@@ -117,7 +117,7 @@ services:
       dockerfile: Dockerfile
     container_name: pal-mdt
     environment:
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY} 
     ports:
       - "8090:8080"
     volumes:

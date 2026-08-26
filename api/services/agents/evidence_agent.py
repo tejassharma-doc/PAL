@@ -72,11 +72,10 @@ class EvidenceAgent:
             evidence_section = "\nRetrieved literature:\n" + json.dumps(articles, indent=2)
         else:
             evidence_section = "\nNo PubMed results retrieved for this query."
-	
-	history_section = ""
-	if conversation_history:
-    		history_section = f"\n**Previous Conversation:**\n{conversation_history}\n\nUse this context to understand what the patient is asking about.\n"
 
+        history_section = ""
+        if conversation_history:
+            history_section = f"\n**Previous conversation:**\n{conversation_history}\n\nUse this context to understand what the patient is asking about.\n"
 
         system = EVIDENCE_SYSTEM + multilingual_suffix(multilingual_lang)
         response = await self.ai_client.messages.create(

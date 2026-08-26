@@ -11,31 +11,31 @@ from sqlalchemy import select
 from pydantic import BaseModel
 
 from database import get_db
-from auth import get_current_user_unified as get_current_user
+from auth import get_current_user
 from services.user_service import get_patient_by_auth_user
 from models import User, Conversation, ConversationTurn
-from models.phone_user import PhoneUser
 from phi import PHIAudit, AuditEvent
 from services.hindsight import Hindsight
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 
-@router.get("/{tenant_id}/{member_id}")
+@router.get("")
 async def list_conversations(
-    tenant_id: uuid.UUID,
-    member_id: uuid.UUID,
-    current_user: Union[PhoneUser, User] = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all active conversation threads for a member."""
-    # Self-access only (or valid consent grant — enforced via phi_guard in production)
-    if user.id != member_id:
-        raise HTTPException(status_code=403, detail="PHI access requires consent grant.")
+    """List all active conversation threads for the current user's patient."""
+    # Get patient from authenticated user
+    patient = await get_patient_by_auth_user(user, db)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    patient_id = patient.id
+    tenant_id = None  # Tenant concept removed
 
     stmt = select(Conversation).where(
-        Conversation.tenant_id == tenant_id,
-        Conversation.member_id == member_id,
+        Conversation.member_id == patient_id,
         Conversation.active == True,
     ).order_by(Conversation.updated_at.desc())
     result = await db.execute(stmt)
@@ -55,21 +55,34 @@ async def list_conversations(
     }
 
 
-@router.get("/{tenant_id}/{member_id}/{conversation_id}/turns")
+@router.get("/{conversation_id}/turns")
 async def get_turns(
-    tenant_id: uuid.UUID,
-    member_id: uuid.UUID,
     conversation_id: uuid.UUID,
-    current_user: Union[PhoneUser, User] = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if user.id != member_id:
-        raise HTTPException(status_code=403, detail="PHI access requires consent grant.")
+    """Get all turns (messages) for a specific conversation."""
+    # Get patient from authenticated user
+    patient = await get_patient_by_auth_user(user, db)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    patient_id = patient.id
+
+    # Verify conversation belongs to this patient
+    conv_stmt = select(Conversation).where(
+        Conversation.id == conversation_id,
+        Conversation.member_id == patient_id,
+    )
+    conv_result = await db.execute(conv_stmt)
+    conv = conv_result.scalar_one_or_none()
+
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found or access denied")
 
     stmt = select(ConversationTurn).where(
         ConversationTurn.conversation_id == conversation_id,
-        ConversationTurn.tenant_id == tenant_id,
-        ConversationTurn.member_id == member_id,
+        ConversationTurn.member_id == patient_id,
     ).order_by(ConversationTurn.created_at)
     result = await db.execute(stmt)
     turns = result.scalars().all()
@@ -89,22 +102,36 @@ async def get_turns(
     }
 
 
-@router.delete("/{tenant_id}/{member_id}/{conversation_id}")
+@router.delete("/{conversation_id}")
 async def delete_conversation(
-    tenant_id: uuid.UUID,
-    member_id: uuid.UUID,
     conversation_id: uuid.UUID,
-    current_user: Union[PhoneUser, User] = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Real cascading delete: messages + embeddings + Hindsight entries. Audited.
     Immediate effect; no soft-delete visible to user after this call.
     """
-    if user.id != member_id:
-        raise HTTPException(status_code=403, detail="Only the record owner can delete their conversations.")
+    # Get patient from authenticated user
+    patient = await get_patient_by_auth_user(user, db)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
 
-    hindsight = Hindsight(db, tenant_id, member_id)
+    patient_id = patient.id
+    tenant_id = None  # Tenant concept removed
+
+    # Verify conversation belongs to this patient
+    conv_stmt = select(Conversation).where(
+        Conversation.id == conversation_id,
+        Conversation.member_id == patient_id,
+    )
+    conv_result = await db.execute(conv_stmt)
+    conv = conv_result.scalar_one_or_none()
+
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found or access denied")
+
+    hindsight = Hindsight(db, tenant_id, patient_id)
     await hindsight.purge_thread(conversation_id)
 
     audit = PHIAudit(db)
@@ -112,7 +139,7 @@ async def delete_conversation(
         event_type="conversation_deleted",
         tenant_id=tenant_id,
         actor_user_id=user.id,
-        subject_member_id=member_id,
+        subject_member_id=patient_id,
         conversation_id=conversation_id,
         detail={"purged": True},
     ))
@@ -120,26 +147,28 @@ async def delete_conversation(
     return {"status": "deleted", "conversation_id": str(conversation_id)}
 
 
-@router.delete("/{tenant_id}/{member_id}/all")
+@router.delete("/all")
 async def delete_all_conversations(
-    tenant_id: uuid.UUID,
-    member_id: uuid.UUID,
-    current_user: Union[PhoneUser, User] = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete all conversation history for a member."""
-    if user.id != member_id:
-        raise HTTPException(status_code=403, detail="Only the record owner can delete their history.")
+    """Delete all conversation history for the current user's patient."""
+    # Get patient from authenticated user
+    patient = await get_patient_by_auth_user(user, db)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    patient_id = patient.id
+    tenant_id = None  # Tenant concept removed
 
     stmt = select(Conversation).where(
-        Conversation.tenant_id == tenant_id,
-        Conversation.member_id == member_id,
+        Conversation.member_id == patient_id,
         Conversation.active == True,
     )
     result = await db.execute(stmt)
     convs = result.scalars().all()
 
-    hindsight = Hindsight(db, tenant_id, member_id)
+    hindsight = Hindsight(db, tenant_id, patient_id)
     for conv in convs:
         await hindsight.purge_thread(conv.id)
 
@@ -148,7 +177,7 @@ async def delete_all_conversations(
         event_type="all_conversations_deleted",
         tenant_id=tenant_id,
         actor_user_id=user.id,
-        subject_member_id=member_id,
+        subject_member_id=patient_id,
         detail={"count": len(convs)},
     ))
 

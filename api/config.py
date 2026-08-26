@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     docehr_url: str = ""       # e.g. http://docehr.internal  (REST)
     docehr_mcp_url: str = ""   # e.g. https://docehr.internal/mcp  (MCP)
 
+    # bioRxiv MCP integration (Medical Research Papers)
+    biorxiv_mcp_enabled: bool = False
+    biorxiv_mcp_url: str = ""  # e.g. http://biorxiv-mcp:3010/mcp (internal) or https://biorxiv-mcp.domain.com/mcp (external)
+    biorxiv_mailto: str = ""   # Required by bioRxiv API (contact email)
+
     # Document upload
     upload_dir: str = "./uploads"
 

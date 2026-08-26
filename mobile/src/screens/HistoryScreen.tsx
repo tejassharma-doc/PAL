@@ -1,43 +1,69 @@
 import React, { useEffect, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, Pressable, ActivityIndicator } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, Pressable, ActivityIndicator, RefreshControl } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { useIsFocused } from '@react-navigation/native'
 import { PAL, FONT, RADIUS, SPACE } from '../theme'
 import { listConversations, ConversationSummary } from '../lib/api'
-
-const MOCK: ConversationSummary[] = [
-  {
-    id: '1', title: 'Cholesterol and diet',
-    created_at: '2026-06-20T09:00:00Z', updated_at: '2026-06-20T09:15:00Z',
-  },
-  {
-    id: '2', title: 'Metformin side effects',
-    created_at: '2026-06-15T14:00:00Z', updated_at: '2026-06-15T14:20:00Z',
-  },
-  {
-    id: '3', title: 'Blood pressure monitoring',
-    created_at: '2026-06-10T11:00:00Z', updated_at: '2026-06-10T11:10:00Z',
-  },
-]
 
 function formatDate(iso: string) {
   const d = new Date(iso)
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+function formatTime(iso: string) {
+  const d = new Date(iso)
+  return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+}
+
 export default function HistoryScreen() {
   const [convs, setConvs] = useState<ConversationSummary[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const isFocused = useIsFocused()
+
+  const loadConversations = () => {
+    setLoading(true)
+    listConversations()
+      .then(c => {
+        console.log('✅ Loaded conversations from backend:', c.length, JSON.stringify(c, null, 2))
+        setConvs(c)
+      })
+      .catch(err => {
+        console.error('❌ Error loading conversations:', err)
+        setConvs([])
+      })
+      .finally(() => setLoading(false))
+  }
+
+  const onRefresh = () => {
+    setRefreshing(true)
+    listConversations()
+      .then(c => {
+        console.log('🔄 Refreshed conversations:', c.length)
+        setConvs(c)
+      })
+      .catch(err => {
+        console.error('❌ Error refreshing:', err)
+        setConvs([])
+      })
+      .finally(() => setRefreshing(false))
+  }
 
   useEffect(() => {
-    listConversations()
-      .then(c => setConvs(c.length ? c : MOCK))
-      .catch(() => setConvs(MOCK))
-      .finally(() => setLoading(false))
-  }, [])
+    if (isFocused) {
+      loadConversations()
+    }
+  }, [isFocused])
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={PAL.jade} />
+        }
+      >
         <Text style={styles.heading}>History</Text>
         <Text style={styles.sub}>Your previous conversations</Text>
 
@@ -53,11 +79,16 @@ export default function HistoryScreen() {
         {convs.map((c, i) => (
           <Pressable key={c.id} style={styles.card}>
             <View style={styles.iconWrap}>
-              <Text style={styles.iconText}>{(i + 1).toString()}</Text>
+              <Text style={styles.iconText}>💬</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>{c.title ?? 'Conversation'}</Text>
-              <Text style={styles.cardDate}>{formatDate(c.updated_at)}</Text>
+              <Text style={styles.cardTitle} numberOfLines={2}>
+                {c.title ?? 'Conversation'}
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.cardDate}>{formatDate(c.updated_at)}</Text>
+                <Text style={styles.cardTime}>{formatTime(c.updated_at)}</Text>
+              </View>
             </View>
             <Text style={styles.arrow}>→</Text>
           </Pressable>
@@ -90,9 +121,10 @@ const styles = StyleSheet.create({
     backgroundColor: PAL.jadeFaint,
     alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  iconText: { fontFamily: FONT.mono, fontSize: 13, color: PAL.jade, fontWeight: '700' },
-  cardTitle: { fontSize: 14, fontWeight: '600', color: PAL.textDark, marginBottom: 3 },
+  iconText: { fontFamily: FONT.mono, fontSize: 18, color: PAL.jade },
+  cardTitle: { fontSize: 14, fontWeight: '600', color: PAL.textDark, marginBottom: 4 },
   cardDate: { fontFamily: FONT.mono, fontSize: 10, color: PAL.textMuted },
+  cardTime: { fontFamily: FONT.mono, fontSize: 10, color: PAL.jade },
   arrow: { fontFamily: FONT.mono, fontSize: 14, color: PAL.jade },
   empty: { alignItems: 'center', marginTop: 60 },
   emptyTitle: {

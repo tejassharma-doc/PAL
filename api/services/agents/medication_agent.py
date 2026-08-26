@@ -30,9 +30,10 @@ async def _call_claude(
         meds = [f for f in record_context.get("facts", []) if f.get("type") == "medication"]
         if meds:
             context_section = f"\nPatient's current medications (retrieved slice):\n{json.dumps(meds, indent=2)}"
+
     history_section = ""
     if conversation_history:
-    	history_section = f"\n**Previous Conversation:**\n{conversation_history}\n\nUse this context to understand what the patient is asking about or confirming.\n"
+        history_section = f"\n**Previous conversation:**\n{conversation_history}\n\nUse this context to understand what the patient is asking about or confirming.\n"
 
     system = MEDICATION_SYSTEM + multilingual_suffix(multilingual_lang)
     response = await ai_client.messages.create(

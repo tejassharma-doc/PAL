@@ -17,6 +17,7 @@ from models import User, Conversation, ConversationTurn
 from services.llm_vertex import get_vertex_client
 from services.mcp_client import get_mcp_client
 from services.fastmcp_client import get_fastmcp_client
+from services.hindsight import Hindsight
 from config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -218,14 +219,35 @@ async def chat_with_hermes(
     try:
         logger.info(f"Hermes chat request from user {user.id}: {request.query[:100]}")
 
+        # Get or create conversation ID
+        conversation_id = request.conversation_id or str(uuid.uuid4())
+        conversation_uuid = uuid.UUID(conversation_id)
+        patient_uuid = uuid.UUID(request.patient_id)
+
+        # Get conversation history from Hindsight
+        tenant_id = None  # Tenant concept removed
+        hindsight = Hindsight(db, tenant_id, patient_uuid)
+        conversation_history = await hindsight.get_summary(conversation_uuid)
+
         # Get FastMCP client with tool definitions
         fastmcp_client = get_fastmcp_client()
 
         # Get tools from FastMCP server (includes external MCP tools)
         tools = await fastmcp_client.get_tool_definitions()
 
+        # Build conversation context section
+        history_context = ""
+        if conversation_history:
+            history_context = f"""
+
+**PREVIOUS CONVERSATION:**
+{conversation_history}
+
+Use this context to understand what the patient is referring to. If they say "that", "it", or "what I asked before", refer to the conversation above.
+"""
+
         # Build system prompt
-        system_prompt = f"""You are PAL Health Assistant, an AI medical assistant with access to patient data and external doctor/appointment systems.
+        system_prompt = f"""You are PAL Health Assistant, an AI medical assistant with access to patient data and external doctor/appointment systems.{history_context}
 
 AVAILABLE TOOLS:
 
@@ -303,18 +325,21 @@ Patient ID for this conversation: {request.patient_id}
                 detail=f"AI service error: {str(e)}"
             )
 
-        # Generate or retrieve conversation ID
-        conversation_id = request.conversation_id or str(uuid.uuid4())
-        conversation_uuid = uuid.UUID(conversation_id)
-
         # Store conversation in database
         await store_conversation(
             db=db,
             conversation_id=conversation_uuid,
             user=user,
-            patient_id=uuid.UUID(request.patient_id),
+            patient_id=patient_uuid,
             query=request.query,
             answer=answer
+        )
+
+        # Update Hindsight summary with this Q&A
+        await hindsight.update_summary(
+            query=request.query,
+            answer=answer,
+            conversation_id=conversation_uuid,
         )
 
         logger.info(f"Hermes chat response generated: {len(answer)} chars")

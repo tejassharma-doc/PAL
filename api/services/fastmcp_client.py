@@ -1,8 +1,9 @@
 """
-FastMCP Client - Bridge to both MCP servers
+FastMCP Client - Bridge to multiple MCP servers
 Connects to:
 1. FastMCP server (http://fastmcp:8002) - Patient data tools
 2. External MCP-DocEHR (from config DOCEHR_MCP_URL) - Doctor/appointment tools
+3. bioRxiv MCP (from config BIORXIV_MCP_URL) - Medical research paper tools
 """
 import logging
 import httpx
@@ -19,21 +20,43 @@ logger = logging.getLogger(__name__)
 # MCP Server URLs
 FASTMCP_SERVER_URL = "http://fastmcp:8002"  # Internal docker network
 
+# bioRxiv tools - for research paper lookups
+BIORXIV_TOOLS = [
+    "biorxiv_search_preprints",
+    "biorxiv_get_preprint",
+    "biorxiv_get_fulltext",
+    "biorxiv_list_recent",
+    "biorxiv_get_published_version",
+    "biorxiv_list_categories"
+]
+
 
 class FastMCPClient:
-    """Bridge client connecting to both FastMCP and external MCP servers"""
+    """Bridge client connecting to FastMCP, DocEHR, and bioRxiv MCP servers"""
 
     def __init__(self):
         settings = get_settings()
         self.fastmcp_url = FASTMCP_SERVER_URL
+
+        # DocEHR MCP
         self.external_mcp_url = settings.docehr_mcp_url
         self.external_mcp_enabled = settings.docehr_enabled and bool(settings.docehr_mcp_url)
+
+        # bioRxiv MCP
+        self.biorxiv_mcp_url = getattr(settings, 'biorxiv_mcp_url', None)
+        self.biorxiv_mcp_enabled = getattr(settings, 'biorxiv_mcp_enabled', False) and bool(self.biorxiv_mcp_url)
+
         self.timeout = 30.0
 
         if self.external_mcp_enabled:
-            logger.info(f"External MCP enabled: {self.external_mcp_url}")
+            logger.info(f"MCP-DocEHR enabled: {self.external_mcp_url}")
         else:
-            logger.info("External MCP disabled")
+            logger.info("MCP-DocEHR disabled")
+
+        if self.biorxiv_mcp_enabled:
+            logger.info(f"MCP-bioRxiv enabled: {self.biorxiv_mcp_url}")
+        else:
+            logger.info("MCP-bioRxiv disabled")
 
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any], db: AsyncSession) -> Any:
         """
@@ -54,6 +77,14 @@ class FastMCPClient:
                 result = await self._call_fastmcp_tool(tool_name, arguments)
                 logger.info(f"FastMCP: Got response from {tool_name}")
                 return result
+
+            # Check if it's a bioRxiv research tool
+            elif tool_name in BIORXIV_TOOLS:
+                logger.info(f"MCP-bioRxiv: Calling {tool_name}")
+                result = await self._call_biorxiv_tool(tool_name, arguments)
+                logger.info(f"MCP-bioRxiv: Got response from {tool_name}")
+                return result
+
             else:
                 # External MCP tool (doctor/appointment) - needs ID translation
                 logger.info(f"MCP-DocEHR: Calling {tool_name} with args: {arguments}")
@@ -403,21 +434,128 @@ class FastMCPClient:
             logger.error(f"MCP-DocEHR: Unexpected error fetching tools: {type(e).__name__}: {e}")
             return []
 
+    async def _call_biorxiv_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
+        """Call a tool on the bioRxiv MCP server"""
+        if not self.biorxiv_mcp_enabled:
+            logger.error("MCP-bioRxiv: bioRxiv MCP is not enabled")
+            raise Exception("bioRxiv MCP is not configured")
+
+        url = f"{self.biorxiv_mcp_url}/tools/call"
+        payload = {"name": tool_name, "arguments": arguments}
+
+        try:
+            logger.info(f"MCP-bioRxiv: POST {url}")
+            logger.info(f"MCP-bioRxiv: Arguments: {arguments}")
+
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(url, json=payload)
+                logger.info(f"MCP-bioRxiv: Response status: {response.status_code}")
+
+                if response.status_code != 200:
+                    logger.error(f"MCP-bioRxiv: HTTP {response.status_code} error from {url}")
+                    logger.error(f"MCP-bioRxiv: Response body: {response.text[:500]}")
+
+                response.raise_for_status()
+                result = response.json()
+
+                # Extract content from response
+                if isinstance(result, dict) and "content" in result:
+                    return result["content"]
+                return result
+
+        except httpx.TimeoutException as e:
+            logger.error(f"MCP-bioRxiv: Timeout calling {tool_name}: {e}")
+            raise Exception(f"bioRxiv MCP timeout: {e}")
+        except httpx.HTTPStatusError as e:
+            logger.error(f"MCP-bioRxiv: HTTP error calling {tool_name}: {e.response.status_code}")
+            logger.error(f"MCP-bioRxiv: Error response: {e.response.text[:500]}")
+            raise Exception(f"bioRxiv MCP HTTP error {e.response.status_code}")
+        except httpx.RequestError as e:
+            logger.error(f"MCP-bioRxiv: Connection error calling {tool_name}: {e}")
+            raise Exception(f"bioRxiv MCP connection error: {e}")
+        except Exception as e:
+            logger.error(f"MCP-bioRxiv: Unexpected error calling {tool_name}: {e}")
+            raise
+
+    async def _fetch_biorxiv_tools(self) -> List[Dict[str, Any]]:
+        """Fetch tool definitions from bioRxiv MCP server"""
+        if not self.biorxiv_mcp_enabled:
+            logger.info("MCP-bioRxiv: Disabled, skipping bioRxiv tools")
+            return []
+
+        url = f"{self.biorxiv_mcp_url}/tools/list"
+
+        try:
+            logger.info(f"MCP-bioRxiv: Fetching tools from {url}")
+
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(url)
+                logger.info(f"MCP-bioRxiv: Tools list response status: {response.status_code}")
+
+                if response.status_code != 200:
+                    logger.error(f"MCP-bioRxiv: HTTP {response.status_code} error fetching tools")
+                    logger.error(f"MCP-bioRxiv: Response body: {response.text[:500]}")
+                    return []
+
+                response.raise_for_status()
+                result = response.json()
+
+                # Extract tools from MCP response
+                if isinstance(result, dict) and "tools" in result:
+                    tools = result["tools"]
+                elif isinstance(result, list):
+                    tools = result
+                else:
+                    logger.warning(f"MCP-bioRxiv: Unexpected response format: {result}")
+                    return []
+
+                logger.info(f"MCP-bioRxiv: Successfully fetched {len(tools)} tools")
+                logger.debug(f"MCP-bioRxiv: Tool names: {[t.get('name') for t in tools]}")
+
+                # Convert MCP tool format to OpenAI function calling format
+                openai_tools = []
+                for tool in tools:
+                    openai_tools.append({
+                        "type": "function",
+                        "function": {
+                            "name": tool.get("name"),
+                            "description": tool.get("description", ""),
+                            "parameters": tool.get("inputSchema", {})
+                        }
+                    })
+
+                return openai_tools
+
+        except httpx.TimeoutException as e:
+            logger.error(f"MCP-bioRxiv: Timeout fetching tools: {e}")
+            return []
+        except httpx.HTTPStatusError as e:
+            logger.error(f"MCP-bioRxiv: HTTP error fetching tools: {e.response.status_code}")
+            logger.error(f"MCP-bioRxiv: Error response: {e.response.text[:500]}")
+            return []
+        except httpx.RequestError as e:
+            logger.error(f"MCP-bioRxiv: Connection error fetching tools: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"MCP-bioRxiv: Unexpected error fetching tools: {e}")
+            return []
+
     async def get_tool_definitions(self) -> List[Dict[str, Any]]:
         """
         Get OpenAI-compatible tool definitions for Gemma
-        Combines FastMCP tools + external MCP-DocEHR tools
+        Combines FastMCP tools + external MCP-DocEHR tools + bioRxiv tools
 
         Returns:
             List of tool definitions in OpenAI function calling format
         """
-        # Fetch tools from both MCP servers (fresh each time, no caching)
+        # Fetch tools from all MCP servers (fresh each time, no caching)
         fastmcp_tools = await self._fetch_fastmcp_tools()
         external_tools = await self._fetch_external_tools()
+        biorxiv_tools = await self._fetch_biorxiv_tools()
 
         # Combine all tools
-        all_tools = fastmcp_tools + external_tools
-        logger.info(f"Total tools available: {len(all_tools)} (FastMCP: {len(fastmcp_tools)}, DocEHR: {len(external_tools)})")
+        all_tools = fastmcp_tools + external_tools + biorxiv_tools
+        logger.info(f"Total tools available: {len(all_tools)} (FastMCP: {len(fastmcp_tools)}, DocEHR: {len(external_tools)}, bioRxiv: {len(biorxiv_tools)})")
 
         return all_tools
 

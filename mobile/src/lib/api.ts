@@ -189,9 +189,7 @@ export async function getHealthFacts(): Promise<HealthFact[]> {
 // ── Conversations ──────────────────────────────────────────────────────────────
 
 export async function listConversations(): Promise<ConversationSummary[]> {
-  const memberId = await getMemberId()
-  if (!memberId) return []
-  const res = await apiFetch(`/conversations/${DEFAULT_TENANT_ID}/${memberId}`)
+  const res = await apiFetch('/conversations')
   if (!res.ok) return []
   const data = await res.json()
   return (data.conversations ?? []) as ConversationSummary[]

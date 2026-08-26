@@ -55,13 +55,18 @@ async def synthesize(
     record_section = ""
     if record_context:
         record_section = f"Personal record context (retrieved slice):\n{json.dumps(record_context, indent=2)}"
+
     history_section = ""
     if conversation_history:
-	history_section = f""" **Previous conversation context: **
+        history_section = f"""**Previous conversation context:**
 {conversation_history}
+
+Use this context to maintain continuity. If the user is confirming something from a previous turn, understand what they're confirming.
+"""
+
     prompt = SYNTHESIZER_PROMPT_TEMPLATE.format(
         query=query,
-	conversation_history = history_section
+        conversation_history_section=history_section,
         agent_results_json=json.dumps(agent_results, indent=2, default=str),
         record_context_section=record_section,
     )

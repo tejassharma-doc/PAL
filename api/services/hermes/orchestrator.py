@@ -301,14 +301,14 @@ class HermesOrchestrator:
         )
 
         # Stage 6 — Synthesizer (Sonnet; bumped to second-opinion path if requested)
-	conversation_history = await self._hindsight.get_summary(self.conversation_id)
+        conversation_history = await self._hindsight.get_summary(self.conversation_id)
         answer = await synthesize(
             query=query,
             agent_results=agent_results,
             plan=plan_decision,
             ai_client=ai_client,
             record_context=record_context,
-	    conversation_history = conversation_history,
+            conversation_history=conversation_history,
             is_second_opinion=is_second_opinion,
             multilingual_lang=multilingual_lang,
         )
@@ -399,6 +399,9 @@ class HermesOrchestrator:
         multilingual_lang: Optional[str] = None,
     ) -> dict[str, dict]:
         """Fan out to agents in parallel; collect results."""
+        # Get conversation history for all agents
+        conversation_history = await self._hindsight.get_summary(self.conversation_id)
+
         agent_map = {
             AgentName.records: RecordsAgent(self.db, self.tenant_id, self.member_id),
             AgentName.medication: MedicationAgent(ai_client),
@@ -413,6 +416,7 @@ class HermesOrchestrator:
             kwargs: dict = {
                 "query": query,
                 "record_context": record_context,
+                "conversation_history": conversation_history,
                 "is_second_opinion": is_second_opinion,
             }
             # RecordsAgent has no AI call — no multilingual_lang or slots needed

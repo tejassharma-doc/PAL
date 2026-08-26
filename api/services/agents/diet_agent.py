@@ -34,10 +34,9 @@ class DietAgent:
             if labs:
                 context_section = f"\nRelevant labs/vitals:\n{json.dumps(labs, indent=2)}"
 
-	history_section = ""
-	if conversation_history:
-    		history_section = f"\n**Previous Conversation:**\n{conversation_history}\n\nUse this context to understand what the dietary advice the paient is asking about or confirming.\n"
-
+        history_section = ""
+        if conversation_history:
+            history_section = f"\n**Previous conversation:**\n{conversation_history}\n\nUse this context to understand what dietary advice the patient is asking about or confirming.\n"
 
         system = DIET_SYSTEM + multilingual_suffix(multilingual_lang)
         response = await self.ai_client.messages.create(

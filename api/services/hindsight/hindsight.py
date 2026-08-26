@@ -8,6 +8,7 @@ Core rule: retrieve and summarise; never resend everything every turn.
 - Deletion of a thread purges its Hindsight entries.
 """
 import uuid
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -15,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 
 from models import HealthFact, ConversationTurn, Conversation
+
+logger = logging.getLogger(__name__)
 
 
 class Hindsight:
@@ -93,7 +96,11 @@ class Hindsight:
         combined = f"{current}\n\n{new_entry}".strip()
         # Keep last ~2000 chars of rolling summary
         conv.hindsight_summary = combined[-2000:]
-        conv.hindsight_updated_at = datetime.now(timezone.utc)
+        conv.hindsight_updated_at = datetime.utcnow()  # Use timezone-naive datetime for PostgreSQL
+
+        # Commit the changes to database
+        await self.db.commit()
+        logger.info(f"Hindsight: Updated summary for conversation {conversation_id} (length: {len(conv.hindsight_summary)} chars)")
 
     async def get_summary(self, conversation_id: Optional[uuid.UUID]) -> str:
         """
@@ -102,14 +109,18 @@ class Hindsight:
         Returns empty string when no conversation or summary exists.
         """
         if not conversation_id:
+            logger.debug("Hindsight: get_summary called with no conversation_id")
             return ""
         stmt = select(Conversation).where(Conversation.id == conversation_id)
         result = await self.db.execute(stmt)
         conv = result.scalar_one_or_none()
         if not conv or not conv.hindsight_summary:
+            logger.debug(f"Hindsight: No summary found for conversation {conversation_id}")
             return ""
         # Cap at 500 chars so the on-device model prepend stays within 128-token window
-        return conv.hindsight_summary[-500:]
+        summary = conv.hindsight_summary[-500:]
+        logger.info(f"Hindsight: Retrieved summary for conversation {conversation_id} (length: {len(summary)} chars)")
+        return summary
 
     async def purge_thread(self, conversation_id: uuid.UUID) -> None:
         """
@@ -136,6 +147,6 @@ class Hindsight:
         # Cascade delete all turns + null out summary
         conv.hindsight_summary = None
         conv.hindsight_updated_at = None
-        conv.deleted_at = datetime.now(timezone.utc)
+        conv.deleted_at = datetime.utcnow()  # Use timezone-naive datetime for PostgreSQL
         conv.active = False
         # Turns cascade via ORM relationship (ondelete=CASCADE)

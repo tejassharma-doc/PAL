@@ -330,7 +330,7 @@ class AppointmentAgent:
         self,
         query: str,
         record_context: Optional[dict] = None,
-	conversation_history:str,
+        conversation_history: str = "",
         is_second_opinion: bool = False,
         multilingual_lang: Optional[str] = None,
         extracted_slots: Optional[dict] = None,
@@ -368,11 +368,11 @@ class AppointmentAgent:
         session_id: str,
         secret_key: str,
     ) -> dict:
-	user_content = ""
-	if conversation_history:
-    		history_section = f"\n**Previous Conversation:**\n{conversation_history}\n\nUse this context to understand what the patient is confirming or refering.\n\n"
+        user_content = ""
+        if conversation_history:
+            user_content = f"**Previous conversation:**\n{conversation_history}\n\nUse this to understand what the patient is confirming or referring to.\n\n"
 
-        user_content = f"Query: {query}"
+        user_content += f"Query: {query}"
         if slots:
             user_content += (
                 f"\n\nPre-extracted slots (use as-is, add any missing fields from query):\n"
