@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 export const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001'
 
 // Android emulator → host localhost.  Change to your LAN IP for device testing.
-const API_BASE = __DEV__ ? 'http://10.0.2.2:8000' : 'https://api.palhealth.app'
+const API_BASE = __DEV__ ? 'http://10.0.2.2:8000' : 'https://palcare.life/api'
 
 async function getToken(): Promise<string | null> {
   return AsyncStorage.getItem('pal_token')
