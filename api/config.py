@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     biorxiv_mcp_url: str = ""  # e.g. http://biorxiv-mcp:3010/mcp (internal) or https://biorxiv-mcp.domain.com/mcp (external)
     biorxiv_mailto: str = ""   # Required by bioRxiv API (contact email)
 
+    # PubMed MCP integration (PubMed Medical Literature)
+    pubmed_mcp_enabled: bool = False
+    pubmed_mcp_url: str = ""  # e.g. http://pubmed-mcp:3011/mcp (internal) or https://pubmed-mcp.domain.com/mcp (external)
+    pubmed_email: str = ""     # Required by PubMed API (NCBI policy)
+    pubmed_tool: str = "PAL"   # Tool name for PubMed API
+
     # Document upload
     upload_dir: str = "./uploads"
 

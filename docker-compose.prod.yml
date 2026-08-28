@@ -70,11 +70,11 @@ services:
       context: ./web
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: https://pal-agent.medmode.org
+        NEXT_PUBLIC_API_URL: https://palcare.life
     container_name: pal-prod-web
     env_file: .env.production
     environment:
-      NEXT_PUBLIC_API_URL: https://pal-agent.medmode.org
+      NEXT_PUBLIC_API_URL: https://palcare.life
       API_INTERNAL_URL: http://api:8000
       NODE_ENV: production
     ports:
@@ -167,6 +167,32 @@ services:
       - "3010:3010"  # bioRxiv MCP endpoint
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3010/mcp || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - pal-network
+
+  # PubMed MCP Server (PubMed Medical Literature Search)
+  # NOTE: This is configured for external MCP server
+  # Set PUBMED_MCP_URL_EXTERNAL in .env.production to the external server URL
+  # Example: https://pubmed-mcp.your-server.com/mcp or http://YOUR_IP:3011/mcp
+  pubmed-mcp:
+    image: aeghnnsw/pubmed-mcp:latest
+    container_name: pal-prod-pubmed-mcp
+    environment:
+      MCP_TRANSPORT_TYPE: http
+      MCP_HTTP_PORT: 3011
+      MCP_HTTP_ENDPOINT_PATH: /mcp
+      # PubMed requires email for API access (NCBI policy)
+      PUBMED_EMAIL: ${PUBMED_EMAIL:-admin@palcare.life}
+      PUBMED_TOOL: ${PUBMED_TOOL:-PAL}
+    ports:
+      - "3011:3011"  # PubMed MCP endpoint
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3011/mcp || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
