@@ -186,6 +186,39 @@ async def process_patient(data: Dict[str, Any], db: AsyncSession) -> Optional[UU
         logger.warning("[Patient] Missing ID and phone, skipping")
         return None
 
+    # Find or create phone_user by phone number
+    phone_user_id = None
+    if phone:
+        # Clean phone number (remove +91 if present)
+        clean_phone = phone.replace('+', '').replace(' ', '').replace('-', '')
+        if clean_phone.startswith('91') and len(clean_phone) == 12:
+            clean_phone = clean_phone[2:]
+
+        # Find existing phone_user
+        result = await db.execute(
+            text("SELECT id FROM phone_users WHERE phone_number = :phone LIMIT 1"),
+            {"phone": clean_phone}
+        )
+        row = result.fetchone()
+
+        if row:
+            phone_user_id = row[0]
+            logger.info(f"[Patient] Found existing phone_user: {phone_user_id} for phone: {clean_phone}")
+        else:
+            # Create new phone_user
+            result = await db.execute(
+                text("""
+                    INSERT INTO phone_users (id, phone_number, country_code, is_verified, is_active)
+                    VALUES (gen_random_uuid(), :phone, '+91', true, true)
+                    RETURNING id
+                """),
+                {"phone": clean_phone}
+            )
+            row = result.fetchone()
+            phone_user_id = row[0] if row else None
+            logger.info(f"[Patient] Created new phone_user: {phone_user_id} for phone: {clean_phone}")
+            await db.flush()
+
     # Try to find existing patient by external_id
     patient_id = None
     if external_id:
@@ -217,6 +250,7 @@ async def process_patient(data: Dict[str, Any], db: AsyncSession) -> Optional[UU
     # Prepare data
     fields = {
         "external_id": str(external_id) if external_id else None,
+        "phone_user_id": phone_user_id,  # ✅ CRITICAL: Link to phone_user
         "full_name": data.get("fullName"),
         "phone": phone,
         "email": data.get("email"),
@@ -242,7 +276,7 @@ async def process_patient(data: Dict[str, Any], db: AsyncSession) -> Optional[UU
             query = f"UPDATE patients SET {set_clause}, updated_at = NOW() WHERE id = :patient_id"
             fields["patient_id"] = patient_id
             await db.execute(text(query), fields)
-        logger.info(f"[Patient] Updated: {patient_id}")
+        logger.info(f"[Patient] Updated: {patient_id} (linked to phone_user_id: {phone_user_id})")
     else:
         # Insert new
         columns = ["id"] + [k for k, v in fields.items() if v is not None]
@@ -255,7 +289,7 @@ async def process_patient(data: Dict[str, Any], db: AsyncSession) -> Optional[UU
         result = await db.execute(text(query), {k: v for k, v in fields.items() if v is not None})
         row = result.fetchone()
         patient_id = row[0] if row else None
-        logger.info(f"[Patient] Created: {patient_id}")
+        logger.info(f"[Patient] Created: {patient_id} (linked to phone_user_id: {phone_user_id})")
 
     await db.flush()
     return patient_id
