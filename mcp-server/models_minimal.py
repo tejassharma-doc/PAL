@@ -50,6 +50,7 @@ class PhoneUser(Base, UUIDMixin, TimestampMixin):
 class Patient(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "patients"
 
+    phone_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
     clinic_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
     mrn: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     abha_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
