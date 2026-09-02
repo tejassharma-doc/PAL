@@ -118,9 +118,15 @@ export default function LoginPage() {
     try {
       const response = await verifyLoginOTP(phone, code)
 
-      // Successfully logged in - redirect to home
-      console.log('Phone login successful')
-      router.push('/')
+      // Check if user needs to complete patient profile
+      if (response.requires_onboarding || !response.patient_id) {
+        console.log('Phone login successful - redirecting to onboarding')
+        router.push('/onboarding')
+      } else {
+        // User already has patient profile - go to home
+        console.log('Phone login successful - user has profile')
+        router.push('/')
+      }
     } catch (err: any) {
       setError(err.message || 'Invalid OTP. Please try again.')
       // Clear OTP on error

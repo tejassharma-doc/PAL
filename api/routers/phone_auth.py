@@ -197,9 +197,15 @@ async def verify_phone_otp(
         phone_number=phone_user.phone_number
     )
 
-    print(f"[PHONE AUTH] User {phone_user.id} logged in successfully")
+    # Check if patient profile exists
+    has_patient_profile = patient is not None
+    requires_onboarding = not has_patient_profile
 
-    return {
+    print(f"[PHONE AUTH] User {phone_user.id} logged in successfully")
+    print(f"[PHONE AUTH] Has patient profile: {has_patient_profile}")
+    print(f"[PHONE AUTH] Requires onboarding: {requires_onboarding}")
+
+    response_data = {
         "access_token": token,
         "token_type": "bearer",
         "user": {
@@ -209,5 +215,20 @@ async def verify_phone_otp(
         },
         "session_id": str(phone_user.id),
         "patient_id": str(patient.id) if patient else None,
-        "requires_onboarding": False
+        "requires_onboarding": requires_onboarding,
+        "has_patient_profile": has_patient_profile
     }
+
+    # If patient exists, include basic patient info
+    if patient:
+        response_data["patient"] = {
+            "id": str(patient.id),
+            "full_name": patient.full_name,
+            "phone": patient.phone,
+            "email": patient.email,
+            "date_of_birth": str(patient.date_of_birth) if patient.date_of_birth else None,
+            "gender": patient.gender,
+            "blood_group": patient.blood_group
+        }
+
+    return response_data
