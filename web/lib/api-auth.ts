@@ -12,6 +12,9 @@ export const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001'
 export function saveAuth(token: string, user: any, sessionId: string, patientId?: string) {
   if (typeof window === 'undefined') return
 
+  // Clear old patient_id first to avoid stale data
+  localStorage.removeItem('pal_patient_id')
+
   localStorage.setItem('pal_token', token)
   localStorage.setItem('pal_user_id', user.id)
   localStorage.setItem('pal_session_id', sessionId)
@@ -23,6 +26,9 @@ export function saveAuth(token: string, user: any, sessionId: string, patientId?
 
   if (patientId) {
     localStorage.setItem('pal_patient_id', patientId)
+    console.log('[AUTH] Saved patient_id:', patientId)
+  } else {
+    console.log('[AUTH] No patient_id provided - user needs onboarding')
   }
 }
 
@@ -192,6 +198,14 @@ export async function verifyLoginOTP(
   if (!res.ok) {
     throw new Error(json.detail || 'OTP verification failed')
   }
+
+  // Log what we received from backend
+  console.log('[OTP VERIFY] Response:', {
+    user_id: json.user?.id,
+    patient_id: json.patient_id,
+    requires_onboarding: json.requires_onboarding,
+    has_patient_profile: json.has_patient_profile
+  })
 
   // Save auth data
   saveAuth(json.access_token, json.user, json.session_id, json.patient_id)

@@ -201,9 +201,14 @@ async def verify_phone_otp(
     has_patient_profile = patient is not None
     requires_onboarding = not has_patient_profile
 
-    print(f"[PHONE AUTH] User {phone_user.id} logged in successfully")
+    print(f"[PHONE AUTH] ========================================")
+    print(f"[PHONE AUTH] Phone: {phone}")
+    print(f"[PHONE AUTH] PhoneUser ID: {phone_user.id}")
+    print(f"[PHONE AUTH] Patient ID: {patient.id if patient else 'NONE'}")
+    print(f"[PHONE AUTH] Patient Name: {patient.full_name if patient else 'NONE'}")
     print(f"[PHONE AUTH] Has patient profile: {has_patient_profile}")
     print(f"[PHONE AUTH] Requires onboarding: {requires_onboarding}")
+    print(f"[PHONE AUTH] ========================================")
 
     response_data = {
         "access_token": token,
