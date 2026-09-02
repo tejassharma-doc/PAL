@@ -365,6 +365,7 @@ async def upsert_patient(
                     abha_id = :abha_id,
                     abha_address = :abha_address,
                     clinic_id = :clinic_id,
+                    phone_user_id = :phone_user_id,
                     updated_at = NOW()
                 WHERE id = :id
             """),
@@ -380,7 +381,8 @@ async def upsert_patient(
                 "mrn": patient_data.get("mrn"),
                 "abha_id": patient_data.get("abhaId"),
                 "abha_address": patient_data.get("abhaAddress"),
-                "clinic_id": clinic_id
+                "clinic_id": clinic_id,
+                "phone_user_id": phone_user_id
             }
         )
         await db.flush()
@@ -417,6 +419,7 @@ async def upsert_patient(
         abha_id=patient_data.get("abhaId"),
         abha_address=patient_data.get("abhaAddress"),
         clinic_id=uuid.UUID(clinic_id) if clinic_id else None,
+        phone_user_id=uuid.UUID(phone_user_id) if phone_user_id else None,
         is_active=True
     )
     db.add(patient)
