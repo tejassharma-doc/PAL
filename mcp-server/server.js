@@ -41,10 +41,10 @@ app.use(express.json());
 
 // --- Auth middleware ---
 app.use((req, res, next) => {
-  // Skip authentication for public endpoints
+  // Skip authentication ONLY for health check endpoint
   if (req.path === "/health") return next();
-  if (req.path === "/api/v1/webhook") return next();
-  
+
+  // ✅ SECURITY FIX: All other endpoints (including webhook) require API key authentication
   if (!API_KEY) return res.status(500).json({ error: "Server misconfigured: PAL_API_KEY not set" });
   if (req.get("X-API-Key") !== API_KEY) return res.status(401).json({ error: "Invalid or missing X-API-Key" });
   next();

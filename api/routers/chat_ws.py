@@ -96,6 +96,10 @@ async def chat_socket(websocket: WebSocket, token: str = Query(default="")) -> N
         await websocket.close(code=WS_CLOSE_UNAUTHORIZED)
         return
 
+    # ✅ SECURITY FIX (HIGH-008): Accept connection for authenticated users
+    # Token validated above - safe to accept connection now
+    await websocket.accept()
+
     user_id = str(user.id)
     await manager.connect(websocket, user_id)
 

@@ -1,7 +1,11 @@
-# Environment variables
+# Environment variables - NEVER commit production secrets
 .env
 .env.local
 .env.*.local
+.env.production
+.env.staging
+.env.*.production
+.env.*.staging
 
 # Documentation files (temporary/generated docs)
 AUTH_JWT_IMPLEMENTATION.md

@@ -12,7 +12,11 @@ from models import Patient, Appointment, Prescription, LabTest
 from models.patient_document import PatientDocument
 from models.clinical_output import ClinicalOutput
 from auth import get_current_user
+from auth_unified import get_current_user_unified
 from models.user import User
+from models.phone_user import PhoneUser
+from dependencies.authz import verify_patient_ownership
+from typing import Union
 
 router = APIRouter(prefix="/records", tags=["records"])
 
@@ -32,19 +36,13 @@ class AppointmentRecord(BaseModel):
 @router.get("/patient/{patient_id}")
 async def get_patient_records(
     patient_id: str,
-    user: User = Depends(get_current_user),
+    user: Union[PhoneUser, User] = Depends(get_current_user_unified),
     db: AsyncSession = Depends(get_db)
 ):
     """Get all records for a patient"""
 
-    # Verify patient exists
-    patient_result = await db.execute(
-        select(Patient).where(Patient.id == patient_id)
-    )
-    patient = patient_result.scalar_one_or_none()
-
-    if not patient:
-        raise HTTPException(status_code=404, detail="Patient not found")
+    # ✅ SECURITY FIX: Verify user owns or has permission for this patient record
+    patient = await verify_patient_ownership(patient_id, user, db)
 
     # Get Appointments
     appointments_result = await db.execute(

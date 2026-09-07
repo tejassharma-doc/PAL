@@ -36,6 +36,12 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/next.config.js ./
 COPY --from=builder /app/package.json ./
 
+# ✅ SECURITY FIX (HIGH-007): Set ownership to node user
+RUN chown -R node:node /app
+
+# ✅ SECURITY FIX (HIGH-007): Switch to non-root user
+USER node
+
 EXPOSE 3000
 
 CMD ["npm", "start"]

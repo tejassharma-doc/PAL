@@ -3,46 +3,88 @@ from typing import Optional, Union
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, validator
 from datetime import date, datetime
 import uuid
+import re
 
 from database import get_db
 from models import Patient
 from models.user import User
 from models.phone_user import PhoneUser
 from auth_unified import get_current_user_unified
+from dependencies.authz import verify_patient_ownership
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 
 
+# ✅ SECURITY FIX (HIGH-006): Typed schema for emergency contact
+class EmergencyContact(BaseModel):
+    """Emergency contact information"""
+    name: str = Field(..., max_length=100, min_length=1)
+    relationship: str = Field(..., max_length=50)
+    phone: str = Field(..., min_length=10, max_length=15)
+    email: Optional[str] = None
+
+    @validator('phone')
+    def validate_phone(cls, v):
+        # Remove spaces and special characters
+        cleaned = re.sub(r'[^\d]', '', v)
+        if len(cleaned) < 10 or len(cleaned) > 15:
+            raise ValueError('Phone must be 10-15 digits')
+        return v
+
+
 class CreatePatientRequest(BaseModel):
-    """Create patient profile"""
+    """Create patient profile with enhanced validation"""
     # Personal Information - MANDATORY
-    full_name: str
-    phone: str
-    date_of_birth: str  # YYYY-MM-DD - MANDATORY
-    gender: str
-    blood_group: str
-    address: str
+    full_name: str = Field(..., max_length=255, min_length=1)
+    phone: str = Field(..., min_length=10, max_length=15)
+    date_of_birth: str = Field(..., description="YYYY-MM-DD format")
+    gender: str = Field(..., max_length=20)
+    blood_group: str = Field(..., max_length=10)
+    address: str = Field(..., max_length=1000)
 
     # Healthcare IDs - OPTIONAL
-    mrn: Optional[str] = None
-    abha_id: Optional[str] = None
-    abha_address: Optional[str] = None
+    mrn: Optional[str] = Field(None, max_length=100)
+    abha_id: Optional[str] = Field(None, max_length=100)
+    abha_address: Optional[str] = Field(None, max_length=255)
 
     # Medical Information - MANDATORY (can be "NA")
-    allergies: str
-    chronic_conditions: str
-    current_medications: str
+    allergies: str = Field(..., max_length=500)
+    chronic_conditions: str = Field(..., max_length=1000)
+    current_medications: str = Field(..., max_length=1000)
 
-    # Emergency Contact - MANDATORY (dict with name, relationship, phone)
-    emergency_contact: dict
+    # Emergency Contact - MANDATORY (typed schema)
+    emergency_contact: EmergencyContact  # ✅ SECURITY FIX: Typed instead of dict
 
     # System fields - OPTIONAL
-    email: Optional[str] = None  # Not collected in form, auto-filled from user email
-    photo_url: Optional[str] = None
+    email: Optional[EmailStr] = None
+    photo_url: Optional[str] = Field(None, max_length=500)
     is_active: bool = True
+
+    # ✅ SECURITY FIX (HIGH-006): Input validators
+    @validator('phone')
+    def validate_phone(cls, v):
+        # Remove spaces and special characters
+        cleaned = re.sub(r'[^\d]', '', v)
+        if len(cleaned) < 10 or len(cleaned) > 15:
+            raise ValueError('Phone must be 10-15 digits')
+        return v
+
+    @validator('gender')
+    def validate_gender(cls, v):
+        allowed = ['male', 'female', 'other', 'prefer_not_to_say']
+        if v.lower() not in allowed:
+            raise ValueError(f'Gender must be one of: {", ".join(allowed)}')
+        return v.lower()
+
+    @validator('blood_group')
+    def validate_blood_group(cls, v):
+        allowed = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'unknown']
+        if v not in allowed:
+            raise ValueError(f'Blood group must be one of: {", ".join(allowed)}')
+        return v
 
 
 @router.post("")
@@ -86,7 +128,7 @@ async def create_patient(
         allergies=req.allergies,
         chronic_conditions=req.chronic_conditions,
         current_medications=req.current_medications,
-        emergency_contact=req.emergency_contact,
+        emergency_contact=req.emergency_contact.dict(),  # ✅ Convert Pydantic model to dict
         is_active=req.is_active,
         phone_user_id=user.id if isinstance(user, PhoneUser) else None
     )
@@ -118,7 +160,6 @@ async def update_patient(
 
     import logging
     logger = logging.getLogger(__name__)
-    logger.info(f"Updating patient {patient_id} with data: {req.dict()}")
 
     # Get existing patient
     result = await db.execute(select(Patient).where(Patient.id == patient_id))
@@ -150,7 +191,7 @@ async def update_patient(
             allergies=req.allergies,
             chronic_conditions=req.chronic_conditions,
             current_medications=req.current_medications,
-            emergency_contact=req.emergency_contact,
+            emergency_contact=req.emergency_contact.dict(),  # ✅ Convert Pydantic model to dict
             is_active=req.is_active if req.is_active is not None else True,
             phone_user_id=user.id if isinstance(user, PhoneUser) else None
         )
@@ -168,6 +209,9 @@ async def update_patient(
             "blood_group": patient.blood_group,
             "created": True
         }
+
+    # ✅ SECURITY FIX: Verify user owns this patient record before updating
+    await verify_patient_ownership(patient_id, user, db)
 
     # Parse date of birth
     try:
@@ -189,7 +233,7 @@ async def update_patient(
     patient.allergies = req.allergies
     patient.chronic_conditions = req.chronic_conditions
     patient.current_medications = req.current_medications
-    patient.emergency_contact = req.emergency_contact
+    patient.emergency_contact = req.emergency_contact.dict()  # ✅ Convert Pydantic model to dict
     patient.is_active = req.is_active
 
     await db.commit()
@@ -223,11 +267,8 @@ async def get_patient(
 ):
     """Get patient by ID"""
 
-    result = await db.execute(select(Patient).where(Patient.id == patient_id))
-    patient = result.scalar_one_or_none()
-
-    if not patient:
-        raise HTTPException(status_code=404, detail="Patient not found")
+    # ✅ SECURITY FIX: Verify user owns or has permission for this patient record
+    patient = await verify_patient_ownership(patient_id, user, db)
 
     return {
         "id": str(patient.id),

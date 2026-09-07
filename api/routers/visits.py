@@ -14,6 +14,7 @@ from auth import get_current_user_unified as get_current_user
 from services.user_service import get_patient_by_auth_user
 from models.user import User
 from models.phone_user import PhoneUser
+from dependencies.authz import verify_patient_ownership
 
 router = APIRouter(prefix="/visits", tags=["visits"])
 
@@ -47,14 +48,8 @@ async def get_patient_visits(
 ):
     """Get all visits (appointments) for a patient with clinical outputs and lab tests"""
 
-    # Verify patient exists
-    patient_result = await db.execute(
-        select(Patient).where(Patient.id == patient_id)
-    )
-    patient = patient_result.scalar_one_or_none()
-
-    if not patient:
-        raise HTTPException(status_code=404, detail="Patient not found")
+    # ✅ SECURITY FIX: Verify user owns or has permission for this patient record
+    patient = await verify_patient_ownership(patient_id, current_user, db)
 
     # Get appointments
     appointments_result = await db.execute(

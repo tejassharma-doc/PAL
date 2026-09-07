@@ -1,5 +1,8 @@
 FROM python:3.12-slim
 
+# ✅ SECURITY FIX (HIGH-007): Create non-root user
+RUN groupadd -r mcpapp && useradd -r -g mcpapp mcpapp
+
 WORKDIR /app
 
 # Install curl for healthcheck
@@ -17,6 +20,12 @@ COPY webhook_helper.py .
 COPY webhook_processor.py .
 COPY clinical_output_processor.py .
 COPY models_minimal.py .
+
+# Set ownership to non-root user
+RUN chown -R mcpapp:mcpapp /app
+
+# ✅ SECURITY FIX (HIGH-007): Switch to non-root user
+USER mcpapp
 
 EXPOSE 3001
 

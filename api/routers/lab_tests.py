@@ -12,6 +12,7 @@ from models import LabTest, Patient, User
 from models.phone_user import PhoneUser
 from auth import get_current_user_unified as get_current_user
 from services.user_service import get_patient_by_auth_user
+from dependencies.authz import verify_patient_ownership
 
 router = APIRouter(prefix="/lab-tests", tags=["lab-tests"])
 
@@ -80,14 +81,13 @@ async def get_patient_lab_tests(
 ):
     """Get all lab tests for a patient - SECURITY: Only returns logged-in user's own tests"""
 
-    # SECURITY: Ignore patient_id from URL, always use current_user.id (phone_user_id)
-    # This ensures users can only access their own records
-    user_id = current_user.id
+    # ✅ SECURITY FIX: Verify user owns or has permission for this patient record
+    patient = await verify_patient_ownership(patient_id, current_user, db)
 
-    # Get all lab tests for this user (patient_id = phone_user_id)
+    # Get all lab tests for this verified patient
     lab_tests_result = await db.execute(
         select(LabTest)
-        .where(LabTest.patient_id == patient.id)  # Use verified patient.id
+        .where(LabTest.patient_id == patient.id)
         .order_by(desc(LabTest.ordered_date))
     )
     lab_tests = lab_tests_result.scalars().all()

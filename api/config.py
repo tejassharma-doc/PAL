@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     # App
     app_name: str = "PAL"
     environment: Literal["development", "production"] = "development"
-    debug: bool = True
+    debug: bool = False  # ✅ Default to False - override in .env for development
 
     # Semantic cache — embedding model for query similarity lookup
     # all-MiniLM-L6-v2 (22 MB, English); paraphrase-multilingual-MiniLM-L12-v2 (470 MB, 100+ langs)

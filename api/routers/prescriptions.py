@@ -12,6 +12,7 @@ from models.prescription import Prescription
 from models.clinical_output import ClinicalOutput
 from auth import get_current_user_unified as get_current_user
 from services.user_service import get_patient_by_auth_user
+from dependencies.authz import verify_patient_ownership
 
 router = APIRouter(prefix="/prescriptions", tags=["prescriptions"])
 
@@ -40,14 +41,8 @@ async def get_latest_prescription(
 ):
     """Get the latest prescription for a patient with clinical output (SOAP notes)"""
 
-    # Verify patient exists
-    patient_result = await db.execute(
-        select(Patient).where(Patient.id == patient_id)
-    )
-    patient = patient_result.scalar_one_or_none()
-
-    if not patient:
-        raise HTTPException(status_code=404, detail="Patient not found")
+    # ✅ SECURITY FIX: Verify user owns or has permission for this patient record
+    patient = await verify_patient_ownership(patient_id, current_user, db)
 
     # Get latest prescription
     prescription_result = await db.execute(
@@ -103,14 +98,8 @@ async def get_all_prescriptions(
 ):
     """Get all prescriptions for a patient"""
 
-    # Verify patient exists
-    patient_result = await db.execute(
-        select(Patient).where(Patient.id == patient_id)
-    )
-    patient = patient_result.scalar_one_or_none()
-
-    if not patient:
-        raise HTTPException(status_code=404, detail="Patient not found")
+    # ✅ SECURITY FIX: Verify user owns or has permission for this patient record
+    patient = await verify_patient_ownership(patient_id, current_user, db)
 
     # Get all prescriptions
     prescriptions_result = await db.execute(

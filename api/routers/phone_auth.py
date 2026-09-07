@@ -3,9 +3,11 @@ Phone OTP Authentication Endpoints
 Auto-creates users on first login
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from database import get_db
 from models.phone_user import PhoneUser
 from models.user import OTPSession
@@ -14,9 +16,15 @@ from services.otp import generate_otp, hash_otp, verify_otp_hash, otp_expiry
 from auth_unified import create_phone_token
 from pydantic import BaseModel
 from datetime import datetime, timedelta, timezone
+from config import get_settings
 import secrets
+import logging
 
 router = APIRouter(prefix="/phone/auth", tags=["phone-auth"])
+logger = logging.getLogger(__name__)
+
+# ✅ SECURITY FIX (HIGH-004): Rate limiter instance
+limiter = Limiter(key_func=get_remote_address)
 
 
 def clean_phone_number(phone: str) -> str:
@@ -56,14 +64,16 @@ class OTPVerify(BaseModel):
     otp_code: str
 
 @router.post("/request")
+@limiter.limit("3/hour")  # ✅ SECURITY FIX (HIGH-004): Max 3 OTP requests per hour per IP
 async def request_phone_otp(
+    request: Request,
     req: OTPRequest,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Request OTP for phone login.
     Auto-creates user if doesn't exist.
-    Dev mode: prints OTP to console.
+    Rate limited to 3 requests per hour per IP to prevent abuse.
     """
     # Clean phone number to exactly 10 digits
     phone = clean_phone_number(req.phone)
@@ -84,7 +94,11 @@ async def request_phone_otp(
         )
         db.add(phone_user)
         await db.flush()
-        print(f"[PHONE AUTH] Created new user: {phone_user.id} for phone {phone}")
+        # Redact PHI - show only last 4 digits
+        settings = get_settings()
+        if settings.environment == "development" and settings.debug:
+            redacted_phone = f"***{phone[-4:]}" if len(phone) >= 4 else "***"
+            logger.debug(f"Created new user for phone ending in {redacted_phone}")
 
     # Generate OTP
     otp_code = generate_otp()
@@ -113,27 +127,33 @@ async def request_phone_otp(
     db.add(otp_session)
     await db.commit()
 
-    # DEV MODE: Print OTP to console
-    print(f"\n{'='*50}")
-    print(f"[OTP] Phone: {phone}")
-    print(f"[OTP] Code: {otp_code}")
-    print(f"[OTP] Expires: {expires_at}")
-    print(f"{'='*50}\n")
-
-    return {
+    # Prepare response
+    settings = get_settings()
+    response = {
         "message": "OTP sent successfully",
-        "dev_otp": otp_code,
-        "expires_in": {}
+        "expires_in": int((expires_at - datetime.now(timezone.utc)).total_seconds())
     }
 
+    # Only include dev_otp in development environment (NEVER in production)
+    if settings.environment == "development" and settings.debug:
+        response["dev_otp"] = otp_code
+        # Redact PHI - show only last 4 digits
+        redacted_phone = f"***{phone[-4:]}" if len(phone) >= 4 else "***"
+        logger.debug(f"OTP requested for phone ending in {redacted_phone}")
+
+    return response
+
 @router.post("/verify")
+@limiter.limit("10/hour")  # ✅ SECURITY FIX (HIGH-004): Max 10 verification attempts per hour per IP
 async def verify_phone_otp(
+    request: Request,
     req: OTPVerify,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Verify OTP and login user.
     Returns JWT token and user info.
+    Rate limited to 10 attempts per hour per IP to prevent brute force.
     """
     # Clean phone number to exactly 10 digits
     phone = clean_phone_number(req.phone)
@@ -201,14 +221,12 @@ async def verify_phone_otp(
     has_patient_profile = patient is not None
     requires_onboarding = not has_patient_profile
 
-    print(f"[PHONE AUTH] ========================================")
-    print(f"[PHONE AUTH] Phone: {phone}")
-    print(f"[PHONE AUTH] PhoneUser ID: {phone_user.id}")
-    print(f"[PHONE AUTH] Patient ID: {patient.id if patient else 'NONE'}")
-    print(f"[PHONE AUTH] Patient Name: {patient.full_name if patient else 'NONE'}")
-    print(f"[PHONE AUTH] Has patient profile: {has_patient_profile}")
-    print(f"[PHONE AUTH] Requires onboarding: {requires_onboarding}")
-    print(f"[PHONE AUTH] ========================================")
+    # Audit logging (no PHI in console logs)
+    settings = get_settings()
+    if settings.environment == "development" and settings.debug:
+        # Redact PHI - show only last 4 digits of phone
+        redacted_phone = f"***{phone[-4:]}" if len(phone) >= 4 else "***"
+        logger.debug(f"Phone login success: ending in {redacted_phone}, has_profile={has_patient_profile}")
 
     response_data = {
         "access_token": token,
