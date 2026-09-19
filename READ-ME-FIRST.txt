@@ -1,0 +1,78 @@
+PAL — clinical layer, drug label route, PubMed configuration
+============================================================
+
+WHAT THIS IS
+  A working tree of tejassharma-doc/PAL @ 60485bb with our work applied.
+  CLINICAL-LAYER.patch is the same change as a diff against that commit, if
+  you would rather apply it to your own clone than use this tree.
+
+BEFORE ANYTHING ELSE — two things that are not ours, and are urgent
+  1. Live API keys, the database password and the token-signing key are in
+     your git history. Rotate every one of them, then scrub the history.
+  2. A 735 KB database export with real patient records, phone numbers and
+     email addresses is committed in the repository. Same cleanup.
+  Details and exact filenames are in PAL-Overview.pdf.
+
+WHAT IS DELIBERATELY NOT IN THIS ZIP
+  .git, every real .env file, every database dump, and the Android NDK build
+  cache. Shipping the first three would spread the exposure above. None of
+  them is source code; the tree is complete without them. .env.example IS
+  included — it is the file that documents what can be configured.
+
+SEE IT WORK  (no network, no database, ~2 seconds)
+  cd api && python scripts/walkthrough.py
+
+  Replays an eleven-turn patient conversation through the shipped code and
+  prints which stage fired at each turn: a diagnosis question, three brand
+  names, the three questions it must refuse, a condition it must not look up,
+  a question in Hindi, and an emergency. Turns marked EXIT never reached a
+  model. Add --live to use the real pharmacies and the real PubMed.
+
+RUN THE TESTS  (no network, no database)
+  cd api && python -m pytest tests/ --ignore=tests/integration -q
+  -> 250 passed
+
+  tests/test_audit_regressions.py is worth reading on its own: one test per
+  defect found when the new code was deliberately attacked, each named after
+  the defect rather than the function.
+
+DEPLOY
+  cp .env.example .env     # the PubMed and drug-route block is at the end.
+                           # All of it is optional and every option is
+                           # documented with what it does — you should not
+                           # need to read the source to configure this.
+  docker compose up -d --build
+
+  Both compose files already pass the whole env file through to the API
+  container (env_file:), so no compose change is needed.
+
+  docker compose exec api python scripts/pubmed_setup.py --check
+      Prints every PubMed setting, where each value came from, then makes one
+      live request. Never prints the API key itself — only whether one is set
+      and how long it is, so the output is safe to paste into a ticket.
+
+  Worth setting for a real deployment:
+      PUBMED_EMAIL    NCBI asks for a contact so they can email you before
+                      blocking you.
+      NCBI_API_KEY    Free; raises the rate limit from 3 to 10 requests/sec.
+  Everything else has a working default. Nothing published before the year
+  2000 is retrieved; change that with PUBMED_MIN_YEAR.
+
+CHECK THE LIVE SOURCES  (needs internet)
+  cd api
+  python scripts/verify_pubmed_live.py      # human-studies filter + year floor
+  python scripts/verify_pharmacy_live.py    # the drug label route
+
+SWITCHES
+  DRUG_LABEL_LOOKUP_ENABLED=false   turns the drug card route off entirely;
+                                    turns are then answered exactly as they
+                                    were before it existed.
+
+THE DOCUMENTS
+  PAL-Overview.pdf          non-technical: how a question flows through the
+                            system, what the audit found, and the four
+                            decisions that are yours rather than engineering's.
+  PAL-Developer-Guide.pdf   technical: architecture, deployment, every change,
+                            every defect found, and what is still open.
+
+NOTHING HAS BEEN PUSHED. The branch and the commit are yours to make.

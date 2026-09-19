@@ -1,0 +1,26 @@
+loinc_num,long_common_name,component,system,scale_typ,method_typ,common_test_rank,core_analyte,predicted_synonyms
+718-7,Hemoglobin,Hemoglobin,Blood,Qn,,1,Hemoglobin,"Hb,HGB"
+789-8,Erythrocytes,Erythrocytes,Blood,Qn,,2,RBC,"Red Blood Cells,RBC Count"
+785-6,MCH,MCH,Blood,Qn,,3,MCH,"Mean Corpuscular Hemoglobin"
+786-4,MCHC,MCHC,Blood,Qn,,4,MCHC,"Mean Corpuscular Hemoglobin Concentration"
+787-2,MCV,MCV,Blood,Qn,,5,MCV,"Mean Cell Volume"
+788-0,RDW,RDW,Blood,Qn,,6,RDW,"Red Cell Distribution Width"
+6690-2,Leukocytes,Leukocytes,Blood,Qn,,7,WBC,"White Blood Cells,WBC Count"
+777-3,Platelets,Platelets,Blood,Qn,,8,Platelets,"Platelet Count"
+2093-3,Cholesterol,Cholesterol,Blood,Qn,,9,Cholesterol,"Total Cholesterol"
+2085-9,HDL Cholesterol,HDL Cholesterol,Blood,Qn,,10,HDL,"High Density Lipoprotein"
+2089-1,LDL Cholesterol,LDL Cholesterol,Blood,Qn,,11,LDL,"Low Density Lipoprotein"
+2571-8,Triglyceride,Triglyceride,Blood,Qn,,12,Triglycerides,TG
+1742-6,ALT,Alanine aminotransferase,Blood,Qn,,13,ALT,"SGPT,Alanine Transaminase"
+1920-8,AST,Aspartate aminotransferase,Blood,Qn,,14,AST,"SGOT,Aspartate Transaminase"
+1975-2,Bilirubin.total,Bilirubin.total,Blood,Qn,,15,Total Bilirubin,"T.Bili"
+2160-0,Creatinine,Creatinine,Blood,Qn,,16,Creatinine,"Creat,S.Creatinine"
+3094-0,Urea nitrogen,Urea nitrogen,Blood,Qn,,17,BUN,"Blood Urea Nitrogen"
+2951-2,Sodium,Sodium,Blood,Qn,,18,Sodium,Na
+2823-3,Potassium,Potassium,Blood,Qn,,19,Potassium,K
+2075-0,Chloride,Chloride,Blood,Qn,,20,Chloride,Cl
+3016-3,TSH,Thyrotropin,Blood,Qn,,21,TSH,"Thyroid Stimulating Hormone"
+3026-2,Thyroxine (T4),Thyroxine,Blood,Qn,,22,T4,"Total T4"
+3053-6,Triiodothyronine (T3),Triiodothyronine,Blood,Qn,,23,T3,"Total T3"
+2339-0,Glucose,Glucose,Blood,Qn,,24,Glucose,"Blood Sugar,Blood Glucose"
+4548-4,Hemoglobin A1c,Hemoglobin A1c,Blood,Qn,,25,HbA1c,"Glycated Hemoglobin"

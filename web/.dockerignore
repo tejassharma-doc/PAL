@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.gitignore
+.env*
+*.save
+*.backup*
+*.bak
+Dockerfile*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.tsbuildinfo

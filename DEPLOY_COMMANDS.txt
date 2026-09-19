@@ -1,0 +1,159 @@
+================================================================================
+PAL Production Deployment - DocEHR MCP Update
+Copy and paste these commands into PuTTY terminal
+================================================================================
+
+Server: ubuntu@34.93.245.214
+Passphrase: docmode
+
+================================================================================
+STEP-BY-STEP COMMANDS (Copy each section separately)
+================================================================================
+
+# ============================================================================
+# STEP 1: Navigate to PAL directory
+# ============================================================================
+cd /home/ubuntu/PAL
+pwd
+
+# ============================================================================
+# STEP 2: Create backups
+# ============================================================================
+cp .env .env.backup-$(date +%Y%m%d_%H%M%S)
+cp .env.production .env.production.backup-$(date +%Y%m%d_%H%M%S)
+ls -la .env*.backup*
+
+# ============================================================================
+# STEP 3: Update .env file
+# ============================================================================
+sed -i 's|DOCEHR_MCP_URL=.*|DOCEHR_MCP_URL=https://mcp-doc-ehr.medmode.org|g' .env
+echo ""
+echo "=== Checking .env ==="
+grep DOCEHR .env
+
+# ============================================================================
+# STEP 4: Update .env.production file
+# ============================================================================
+if ! grep -q "DOCEHR_MCP_URL" .env.production; then
+    echo "" >> .env.production
+    echo "# DocEHR Integration (External MCP Server)" >> .env.production
+    echo "DOCEHR_ENABLED=true" >> .env.production
+    echo "DOCEHR_MCP_URL=https://mcp-doc-ehr.medmode.org" >> .env.production
+    echo "✓ Added DOCEHR configuration to .env.production"
+else
+    sed -i 's|DOCEHR_MCP_URL=.*|DOCEHR_MCP_URL=https://mcp-doc-ehr.medmode.org|g' .env.production
+    echo "✓ Updated DOCEHR_MCP_URL in .env.production"
+fi
+echo ""
+echo "=== Checking .env.production ==="
+grep -A 2 "DocEHR Integration" .env.production
+
+# ============================================================================
+# STEP 5: Rebuild API container
+# ============================================================================
+docker-compose -f docker-compose.prod.yml build api
+
+# ============================================================================
+# STEP 6: Restart API container
+# ============================================================================
+docker-compose -f docker-compose.prod.yml up -d api
+
+# ============================================================================
+# STEP 7: Wait for container to start
+# ============================================================================
+echo "Waiting 10 seconds for container to initialize..."
+sleep 10
+
+# ============================================================================
+# STEP 8: Verify container is running
+# ============================================================================
+docker-compose -f docker-compose.prod.yml ps api
+
+# ============================================================================
+# STEP 9: Check API logs for MCP-DocEHR
+# ============================================================================
+docker-compose -f docker-compose.prod.yml logs --tail=100 api | grep -i "MCP-DocEHR"
+
+# ============================================================================
+# STEP 10: Test MCP endpoint
+# ============================================================================
+curl -s https://mcp-doc-ehr.medmode.org/tools/list | head -30
+
+# ============================================================================
+# STEP 11: Verify environment variables in container
+# ============================================================================
+docker exec -it pal-prod-api env | grep DOCEHR
+
+
+================================================================================
+OPTIONAL: Monitor logs in real-time
+================================================================================
+# Follow logs (press Ctrl+C to stop)
+docker-compose -f docker-compose.prod.yml logs -f api | grep -i MCP-DocEHR
+
+
+================================================================================
+ROLLBACK COMMANDS (only if needed)
+================================================================================
+
+# Find backups
+ls -lt .env*.backup* | head -2
+
+# Restore backups (replace timestamp with actual backup file)
+cp .env.backup-YYYYMMDD_HHMMSS .env
+cp .env.production.backup-YYYYMMDD_HHMMSS .env.production
+
+# Rebuild and restart
+docker-compose -f docker-compose.prod.yml build api
+docker-compose -f docker-compose.prod.yml up -d api
+
+
+================================================================================
+VERIFICATION CHECKLIST
+================================================================================
+
+✓ Backups created
+✓ .env updated (DOCEHR_MCP_URL=https://mcp-doc-ehr.medmode.org)
+✓ .env.production updated
+✓ API container rebuilt
+✓ API container restarted (Status: Up)
+✓ Logs show: "External MCP enabled: https://mcp-doc-ehr.medmode.org"
+✓ Logs show: "Successfully fetched X tools"
+✓ MCP endpoint responds (curl test successful)
+✓ Container environment has DOCEHR_ENABLED=true
+
+
+================================================================================
+Expected Output Examples
+================================================================================
+
+After STEP 3 (grep DOCEHR .env):
+---
+# === DOCEHR INTEGRATION ===
+# External DocEHR MCP endpoint
+DOCEHR_ENABLED=true
+DOCEHR_MCP_URL=https://mcp-doc-ehr.medmode.org
+---
+
+After STEP 4 (grep DocEHR .env.production):
+---
+# DocEHR Integration (External MCP Server)
+DOCEHR_ENABLED=true
+DOCEHR_MCP_URL=https://mcp-doc-ehr.medmode.org
+---
+
+After STEP 8 (ps api):
+---
+     Name                   Command              State           Ports
+--------------------------------------------------------------------------------
+pal-prod-api   uvicorn main:app --host ...   Up      0.0.0.0:8001->8000/tcp
+---
+
+After STEP 9 (logs):
+---
+api | INFO:     MCP-DocEHR: External MCP enabled: https://mcp-doc-ehr.medmode.org
+api | INFO:     MCP-DocEHR: Fetching tools from https://mcp-doc-ehr.medmode.org/tools/list
+api | INFO:     MCP-DocEHR: Successfully fetched 5 tools
+---
+
+================================================================================

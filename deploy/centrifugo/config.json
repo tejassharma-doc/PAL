@@ -1,0 +1,80 @@
+{
+  "_comment_security": [
+    "Channel permissions, verified empirically against Centrifugo v5.4.9 by",
+    "api/tests/test_centrifugo.py — do not relax these without re-running it.",
+    "",
+    "  allow_subscribe_for_client: false (the DEFAULT, stated here explicitly)",
+    "     A client cannot subscribe to room:* or user:* on its own. It must",
+    "     present a subscription token minted by PAL, and PAL only mints one",
+    "     after services.chat.authz.is_room_member() passes. This is what",
+    "     preserves the RBAC/PHI guarantees after the migration off /ws/chat.",
+    "",
+    "  publish: false",
+    "     Clients may never publish directly. Messages go REST -> FastAPI",
+    "     (persist + authorize + PHI-redact) -> server API publish. A client",
+    "     cannot inject an unpersisted or unredacted frame into a family hub.",
+    "",
+    "  presence: true on room only",
+    "     Replaces the Redis room_members:* set the native manager kept.",
+    "",
+    "Replace token_hmac_secret_key and api_key with real secrets. They must",
+    "match CENTRIFUGO_TOKEN_HMAC_SECRET and CENTRIFUGO_API_KEY in api/.env."
+  ],
+
+  "token_hmac_secret_key": "aca5a052a0faf8cf9adc661896a0cb51461d201b6b4ba06e8dc1ae12421d25bd",
+  "api_key": "c027c156d1f28172c354be892fa8fccc17dcbff143e940fecd1deb49b9581e1b",
+
+  "allowed_origins": [
+    "http://localhost:3000",
+    "http://localhost:3002",
+    "https://app.pal.health",
+    "https://pal-agent.medmode.org",
+    "http://pal-agent.medmode.org"
+  ],
+
+  "client_channel_limit": 16,
+  "client_queue_max_size": 1048576,
+  "client_expired_close_delay": "25s",
+  "client_stale_close_delay": "25s",
+
+  "namespaces": [
+    {
+      "name": "room",
+      "presence": true,
+      "join_leave": true,
+      "force_push_join_leave": false,
+      "allow_subscribe_for_client": false,
+      "history_size": 0,
+      "history_ttl": "0s"
+    },
+    {
+      "name": "user",
+      "presence": false,
+      "join_leave": false,
+      "allow_subscribe_for_client": false,
+      "history_size": 0,
+      "history_ttl": "0s"
+    }
+  ],
+
+  "_comment_scale": [
+    "For 1M+ concurrent connections:",
+    "  1. Run several Centrifugo nodes behind a WS-capable load balancer and",
+    "     set an engine so they form one cluster:",
+    "       \"engine\": \"redis\", \"redis_address\": \"redis://redis:6379/3\"",
+    "     (or the Redis Cluster / Sentinel variants). Sticky sessions are NOT",
+    "     required — any node can serve any user.",
+    "  2. Raise file-descriptor limits: ulimit -n 1000000 per node.",
+    "  3. PAL's API pods stay stateless; they only make short HTTP calls to",
+    "     /api/publish, so the FastAPI DB pool is no longer coupled to the",
+    "     number of open sockets. That coupling was the real ceiling before.",
+    "  4. Prefer /api/broadcast over N publishes when fanning one payload to",
+    "     many channels (services.chat.centrifugo.broadcast does this)."
+  ],
+
+  "engine": "memory",
+
+  "log_level": "info",
+  "prometheus": true,
+  "health": true
+}

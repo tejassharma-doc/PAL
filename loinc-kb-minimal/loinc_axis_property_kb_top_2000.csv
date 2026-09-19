@@ -1,0 +1,12 @@
+unit,canonical_property,canonical_synonyms
+g/dL,MCnc,"Mass Concentration"
+10*3/uL,NCnc,"Number Concentration"
+fL,Vol,"Volume"
+pg,Mass,"Mass"
+%,MFr,"Mass Fraction"
+mg/dL,MCnc,"Mass Concentration"
+mmol/L,SCnc,"Substance Concentration"
+mEq/L,SCnc,"Substance Concentration"
+mIU/L,ACnc,"Arbitrary Concentration"
+ng/mL,MCnc,"Mass Concentration"
+U/L,CCnc,"Catalytic Concentration"

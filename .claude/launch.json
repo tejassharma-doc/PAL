@@ -1,0 +1,20 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "PAL Web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "${workspaceFolder}/web",
+      "port": 3003,
+      "autoPort": true
+    },
+    {
+      "name": "PAL API",
+      "runtimeExecutable": "uvicorn",
+      "runtimeArgs": ["main:app", "--reload", "--port", "8000"],
+      "cwd": "${workspaceFolder}/api",
+      "port": 8000
+    }
+  ]
+}

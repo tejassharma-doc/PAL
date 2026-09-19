@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        AppTheme — base application theme.
+        We use NoActionBar because React Navigation renders its own header.
+        The status bar is set to transparent so React Native can control it.
+    -->
+    <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <!-- Prevents the white flash before React Native renders -->
+        <item name="android:windowBackground">@color/white</item>
+        <item name="android:windowSoftInputMode">adjustResize</item>
+        <!-- Status bar color controlled by React Native (transparent = RN owns it) -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+    <color name="white">#FFFFFF</color>
+</resources>

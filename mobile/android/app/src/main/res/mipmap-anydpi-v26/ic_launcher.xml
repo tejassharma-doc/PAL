@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive launcher icon — API 26+ (Android 8.0+).
+  Covers ~97% of active Android devices (minSdk=24 means only API 24–25 need PNG fallbacks).
+  For PNG fallbacks, run: python scripts/generate_icons.py
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

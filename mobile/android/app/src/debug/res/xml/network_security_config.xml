@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    DEBUG-ONLY override of network_security_config.xml.
+    Allows cleartext HTTP to any host so Metro and a LAN backend
+    (physical device → dev machine IP) work during development.
+    Release builds use the strict config in src/main/res/xml/.
+    (The "192.168.0.0" domain entry in the main config does NOT allowlist
+    a range — domain entries are exact hostnames, not CIDR blocks.)
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

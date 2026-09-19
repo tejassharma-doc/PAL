@@ -1,0 +1,4 @@
+# Additions for the Sarvam voice stack — merge into api/requirements.txt
+httpx[http2]>=0.27
+websockets>=12.0
+PyJWT[crypto]>=2.8

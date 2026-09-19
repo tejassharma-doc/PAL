@@ -1,0 +1,19 @@
+// Android settings.gradle — defines which Gradle modules (sub-projects) to include in the build.
+// The "app" module maps to the android/app/ directory.
+
+pluginManagement {
+    includeBuild("../node_modules/@react-native/gradle-plugin")
+}
+
+plugins {
+    id("com.facebook.react.settings")
+}
+
+// React Native autolinking — scans node_modules and wires native libraries automatically.
+extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
+    println "DEBUG: Autolinking libraries..."
+    ex.autolinkLibrariesFromCommand()
+}
+
+rootProject.name = "PALHealth"
+include(":app")

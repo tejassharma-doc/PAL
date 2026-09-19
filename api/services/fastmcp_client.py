@@ -1,0 +1,880 @@
+"""
+FastMCP Client - Bridge to multiple MCP servers
+Connects to:
+1. FastMCP server (http://fastmcp:8002) - Patient data tools
+2. External MCP-DocEHR (from config DOCEHR_MCP_URL) - Doctor/appointment tools
+3. bioRxiv MCP (from config BIORXIV_MCP_URL) - Medical research paper tools
+4. PubMed - served directly via NCBI E-utilities (clinical/pubmed.py), no external server required
+"""
+import logging
+import json
+import httpx
+from typing import Any, Dict, List, Optional
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from config import get_settings
+from models.patient import Patient
+from models.doctor import Doctor
+from models.clinic import Clinic
+
+logger = logging.getLogger(__name__)
+
+# MCP Server URLs
+FASTMCP_SERVER_URL = "http://fastmcp:8002"  # Internal docker network
+
+# ---------------------------------------------------------------------------
+# bioRxiv human-relevance guardrail
+#
+# bioRxiv has no MeSH Terms, so we use two layers:
+#   1. Query augmentation  — append human-relevant terms before sending the
+#      search to the MCP server, biasing results toward clinical/human work.
+#   2. Post-filter         — drop articles whose title+abstract carry animal-
+#      model signals but no human signals.  Conservative by design: only the
+#      clearly non-human articles are dropped, so a human study that mentions
+#      an animal model in passing is kept.
+# ---------------------------------------------------------------------------
+
+_BIORXIV_HUMAN_SIGNALS = (
+    "human", "humans", "patient", "patients", "clinical",
+    "participant", "participants", "volunteer", "volunteers",
+    "cohort", "randomized", "randomised", "trial", "trials",
+    "person", "persons", "people",
+)
+
+# Anything here without a human signal → drop.  Kept short and unambiguous to
+# avoid false positives (e.g. "rat" alone excluded "rat poison" studies that
+# actually enrolled humans).
+_BIORXIV_ANIMAL_SIGNALS = (
+    "mouse", "mice", "murine",
+    "zebrafish", "drosophila", "c. elegans",
+    "xenograft", "hek293", "hela",
+)
+
+
+def _word_in(text: str, word: str) -> bool:
+    """True when *word* appears as a whole word in *text* (already lowercased)."""
+    idx = text.find(word)
+    while idx >= 0:
+        before_ok = idx == 0 or not text[idx - 1].isalpha()
+        after_ok = (idx + len(word) >= len(text)) or not text[idx + len(word)].isalpha()
+        if before_ok and after_ok:
+            return True
+        idx = text.find(word, idx + 1)
+    return False
+
+
+def _augment_biorxiv_query(query: str) -> str:
+    """Append a human-relevance clause unless the query already expresses one."""
+    lower = query.lower()
+    if any(_word_in(lower, t) for t in ("human", "patient", "clinical", "cohort", "trial")):
+        return query
+    return f"{query} (human OR patients OR clinical)"
+
+
+def _article_text(article: dict) -> str:
+    """Concatenate title and abstract fields from a bioRxiv article dict."""
+    parts = []
+    for key in ("title", "abstract", "rel_title", "rel_abs"):
+        val = article.get(key, "")
+        if isinstance(val, str):
+            parts.append(val)
+    return " ".join(parts).lower()
+
+
+def _is_animal_only(text: str) -> bool:
+    """True when the article text has animal signals but no human signals."""
+    has_animal = any(_word_in(text, t) for t in _BIORXIV_ANIMAL_SIGNALS)
+    if not has_animal:
+        return False
+    has_human = any(_word_in(text, t) for t in _BIORXIV_HUMAN_SIGNALS)
+    return not has_human
+
+
+def _filter_biorxiv_for_humans(result: Any) -> Any:
+    """
+    Post-filter a bioRxiv MCP result to human-relevant preprints.
+    Handles list results and dicts with a recognised collection key.
+    Unknown shapes are passed through unchanged.
+    """
+    articles: List[Any] | None = None
+    wrapper_key: str | None = None
+
+    if isinstance(result, list):
+        articles = result
+    elif isinstance(result, dict):
+        for key in ("results", "collection", "articles", "preprints", "data"):
+            if isinstance(result.get(key), list):
+                articles = result[key]
+                wrapper_key = key
+                break
+
+    if articles is None:
+        logger.debug("MCP-bioRxiv: unknown result shape, skipping human filter")
+        return result
+
+    before = len(articles)
+    kept = [
+        a for a in articles
+        if not isinstance(a, dict) or not _is_animal_only(_article_text(a))
+    ]
+    dropped = before - len(kept)
+    if dropped:
+        logger.info(
+            "MCP-bioRxiv: human guardrail dropped %d/%d non-human preprint(s)",
+            dropped, before,
+        )
+
+    if wrapper_key is not None:
+        return {**result, wrapper_key: kept}
+    return kept
+
+# bioRxiv tools - for research paper lookups
+BIORXIV_TOOLS = [
+    "biorxiv_search_preprints",
+    "biorxiv_get_preprint",
+    "biorxiv_get_fulltext",
+    "biorxiv_list_recent",
+    "biorxiv_get_published_version",
+    "biorxiv_list_categories"
+]
+
+# PubMed tools - served directly via NCBI E-utilities (clinical/pubmed.py)
+PUBMED_TOOLS = [
+    "pubmed_search",
+    "pubmed_search_advanced"
+]
+
+
+class FastMCPClient:
+    """Bridge client connecting to FastMCP, DocEHR, bioRxiv, and PubMed MCP servers"""
+
+    def __init__(self):
+        settings = get_settings()
+        self.fastmcp_url = FASTMCP_SERVER_URL
+
+        # DocEHR MCP
+        self.external_mcp_url = settings.docehr_mcp_url
+        self.external_mcp_enabled = settings.docehr_enabled and bool(settings.docehr_mcp_url)
+
+        # bioRxiv MCP
+        self.biorxiv_mcp_url = getattr(settings, 'biorxiv_mcp_url', None)
+        self.biorxiv_mcp_enabled = getattr(settings, 'biorxiv_mcp_enabled', False) and bool(self.biorxiv_mcp_url)
+
+        self.timeout = 30.0
+
+        if self.external_mcp_enabled:
+            logger.info(f"MCP-DocEHR enabled: {self.external_mcp_url}")
+        else:
+            logger.info("MCP-DocEHR disabled")
+
+        if self.biorxiv_mcp_enabled:
+            logger.info(f"MCP-bioRxiv enabled: {self.biorxiv_mcp_url}")
+        else:
+            logger.info("MCP-bioRxiv disabled")
+
+    async def call_tool(self, tool_name: str, arguments: Dict[str, Any], db: AsyncSession) -> Any:
+        """
+        Route tool calls to appropriate MCP server
+
+        Args:
+            tool_name: Name of the tool
+            arguments: Tool arguments as dict
+            db: Database session (for external MCP ID translation)
+
+        Returns:
+            Tool result from MCP server
+        """
+        try:
+            # Check if it's a local FastMCP tool (patient data)
+            if tool_name in ["get_patient_info", "get_patient_records", "get_latest_prescription", "get_lab_results", "search_patients"]:
+                logger.info(f"FastMCP: Calling {tool_name}")
+                result = await self._call_fastmcp_tool(tool_name, arguments)
+                logger.info(f"FastMCP: Got response from {tool_name}")
+                return result
+
+            # Check if it's a bioRxiv research tool
+            elif tool_name in BIORXIV_TOOLS:
+                logger.info(f"MCP-bioRxiv: Calling {tool_name}")
+                result = await self._call_biorxiv_tool(tool_name, arguments)
+                logger.info(f"MCP-bioRxiv: Got response from {tool_name}")
+                return result
+
+            # Check if it's a PubMed literature search tool
+            elif tool_name in PUBMED_TOOLS:
+                logger.info(f"PubMed-direct: Calling {tool_name}")
+                result = await self._call_pubmed_direct(tool_name, arguments)
+                logger.info(f"PubMed-direct: Got response from {tool_name}")
+                return result
+
+            else:
+                # External MCP tool (doctor/appointment) - needs ID translation
+                logger.info(f"MCP-DocEHR: Calling {tool_name} with args: {arguments}")
+                result = await self._call_external_mcp_tool(tool_name, arguments, db)
+                logger.info(f"MCP-DocEHR: Got response from {tool_name}")
+                return result
+
+        except Exception as e:
+            logger.error(f"Error calling tool {tool_name}: {e}")
+            raise
+
+    async def _call_fastmcp_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
+        """Call a tool on the FastMCP server (uses HTTP wrapper over FastMCP)"""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.fastmcp_url}/tools/call",
+                json={
+                    "name": tool_name,
+                    "arguments": arguments
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            # Extract content from response
+            if isinstance(result, dict) and "content" in result:
+                return result["content"]
+            return result
+
+    async def _translate_external_params(self, tool_name: str, arguments: Dict[str, Any], db: AsyncSession) -> Dict[str, Any]:
+        """
+        Translate PAL parameters to DocEHR external IDs
+
+        Translations:
+        - patient_id (UUID) → patient_phonenumber (phone from patients)
+        - doctor_name (string) → doctorId (external_id from doctors by name)
+        - clinic_name (string) → clinicId (external_id from clinics by name)
+        """
+        translated = {}
+
+        # Translate patient_id to phone number
+        if "patient_id" in arguments:
+            patient_id = arguments["patient_id"]
+            logger.info(f"MCP-DocEHR: Translating patient_id {patient_id} to phone number")
+
+            # Use ORM query instead of raw SQL
+            result = await db.execute(
+                select(Patient).where(Patient.id == patient_id)
+            )
+            patient = result.scalar_one_or_none()
+
+            logger.info(f"MCP-DocEHR: Patient found: {patient is not None}")
+
+            if patient:
+                logger.info(f"MCP-DocEHR: Patient phone: {patient.phone}, phone_user_id: {patient.phone_user_id}")
+
+                if patient.phone:
+                    translated["patient_phonenumber"] = patient.phone
+                    logger.info(f"MCP-DocEHR: patient_id → patient_phonenumber: {patient.phone}")
+                else:
+                    logger.error(f"MCP-DocEHR: Patient phone is null for id: {patient_id}")
+                    raise Exception(f"Patient phone number is null for id: {patient_id}")
+            else:
+                logger.error(f"MCP-DocEHR: No patient found with id: {patient_id}")
+                raise Exception(f"No patient found with id: {patient_id}")
+
+        # Translate doctor_name to external_id
+        if "doctor_name" in arguments:
+            doctor_name = arguments["doctor_name"]
+            logger.info(f"MCP-DocEHR: Translating doctor_name '{doctor_name}' to external_id")
+
+            # Use ORM query
+            result = await db.execute(
+                select(Doctor).where(Doctor.full_name.ilike(f"%{doctor_name}%"))
+            )
+            doctor = result.scalars().first()
+
+            if doctor and doctor.external_id:
+                translated["doctorId"] = doctor.external_id
+                logger.info(f"MCP-DocEHR: doctor_name '{doctor_name}' → doctorId: {doctor.external_id}")
+            else:
+                logger.error(f"MCP-DocEHR: Doctor not found with name: {doctor_name}")
+                raise Exception(f"Doctor not found with name: {doctor_name}")
+
+        # Translate clinic_name to external_id
+        if "clinic_name" in arguments:
+            clinic_name = arguments["clinic_name"]
+            logger.info(f"MCP-DocEHR: Translating clinic_name '{clinic_name}' to external_id")
+
+            # Use ORM query
+            result = await db.execute(
+                select(Clinic).where(Clinic.name.ilike(f"%{clinic_name}%"))
+            )
+            clinic = result.scalars().first()
+
+            if clinic and clinic.external_id:
+                translated["clinicId"] = clinic.external_id
+                logger.info(f"MCP-DocEHR: clinic_name '{clinic_name}' → clinicId: {clinic.external_id}")
+            else:
+                logger.error(f"MCP-DocEHR: Clinic not found with name: {clinic_name}")
+                raise Exception(f"Clinic not found with name: {clinic_name}")
+
+        # Pass through all other arguments as-is
+        for key, value in arguments.items():
+            if key not in ["patient_id", "doctor_name", "clinic_name"]:
+                translated[key] = value
+
+        logger.info(f"MCP-DocEHR: Translation complete. Original: {arguments} ? Translated: {translated}")
+        return translated
+
+    async def _call_external_mcp_tool(self, tool_name: str, arguments: Dict[str, Any], db: AsyncSession) -> Any:
+        """Call a tool on the external MCP-DocEHR server (FastMCP-style REST API)"""
+        if not self.external_mcp_enabled:
+            logger.error("MCP-DocEHR: External MCP is not enabled")
+            raise Exception("External MCP is not configured")
+
+        # TRANSLATE PAL IDs to DocEHR external IDs
+        translated_args = await self._translate_external_params(tool_name, arguments, db)
+
+        url = f"{self.external_mcp_url}/tools/call"
+        payload = {"name": tool_name, "arguments": translated_args}
+
+        try:
+            logger.info(f"MCP-DocEHR: POST {url}")
+            logger.info(f"MCP-DocEHR: Original arguments: {arguments}")
+            logger.info(f"MCP-DocEHR: Translated arguments: {translated_args}")
+
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(url, json=payload)
+
+                # Log response details
+                logger.info(f"MCP-DocEHR: Response status: {response.status_code}")
+
+                if response.status_code != 200:
+                    logger.error(f"MCP-DocEHR: HTTP {response.status_code} error from {url}")
+                    logger.error(f"MCP-DocEHR: Response body: {response.text[:500]}")
+
+                response.raise_for_status()
+                result = response.json()
+
+                # Log the full response for debugging
+                logger.debug(f"MCP-DocEHR: Response data: {result}")
+
+                # Check if the tool call itself failed
+                if isinstance(result, dict):
+                    if result.get("success") is False:
+                        logger.warning(f"MCP-DocEHR: Tool {tool_name} returned success=false: {result}")
+                    elif "content" in result and isinstance(result["content"], dict):
+                        if result["content"].get("success") is False:
+                            logger.warning(f"MCP-DocEHR: Tool {tool_name} content has success=false: {result['content']}")
+
+                # Extract content from response
+                if isinstance(result, dict) and "content" in result:
+                    return result["content"]
+                return result
+
+        except httpx.TimeoutException as e:
+            logger.error(f"MCP-DocEHR: Timeout calling {tool_name} at {url}: {e}")
+            raise Exception(f"External MCP timeout: {e}")
+        except httpx.HTTPStatusError as e:
+            logger.error(f"MCP-DocEHR: HTTP error calling {tool_name}: {e.response.status_code}")
+            logger.error(f"MCP-DocEHR: Error response: {e.response.text[:500]}")
+            raise Exception(f"External MCP HTTP error {e.response.status_code}: {e.response.text[:200]}")
+        except httpx.RequestError as e:
+            logger.error(f"MCP-DocEHR: Connection error calling {tool_name} at {url}: {e}")
+            raise Exception(f"External MCP connection error: {e}")
+        except Exception as e:
+            logger.error(f"MCP-DocEHR: Unexpected error calling {tool_name}: {type(e).__name__}: {e}")
+            raise
+
+    async def _fetch_fastmcp_tools(self) -> List[Dict[str, Any]]:
+        """Fetch tool definitions from FastMCP server"""
+        try:
+            logger.info(f"FastMCP: Fetching tools from {self.fastmcp_url}")
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(
+                    f"{self.fastmcp_url}/tools/list"
+                )
+                response.raise_for_status()
+                result = response.json()
+
+                # Extract tools from response
+                if isinstance(result, dict) and "tools" in result:
+                    tools = result["tools"]
+                elif isinstance(result, list):
+                    tools = result
+                else:
+                    logger.warning(f"FastMCP: Unexpected response format: {result}")
+                    return []
+
+                logger.info(f"FastMCP: Got {len(tools)} tools")
+
+                # Convert to OpenAI function calling format
+                openai_tools = []
+                for tool in tools:
+                    openai_tools.append({
+                        "type": "function",
+                        "function": {
+                            "name": tool.get("name"),
+                            "description": tool.get("description", ""),
+                            "parameters": tool.get("inputSchema", {})
+                        }
+                    })
+
+                return openai_tools
+
+        except Exception as e:
+            logger.error(f"FastMCP: Error fetching tools: {e}")
+            return []
+
+    async def _fetch_external_tools(self) -> List[Dict[str, Any]]:
+        """Fetch tool definitions from external MCP-DocEHR server (FastMCP-style REST API)"""
+        if not self.external_mcp_enabled:
+            logger.info("MCP-DocEHR: Disabled, skipping external tools")
+            return []
+
+        url = f"{self.external_mcp_url}/tools/list"
+
+        try:
+            logger.info(f"MCP-DocEHR: Fetching tools from {url}")
+
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(url)
+
+                logger.info(f"MCP-DocEHR: Tools list response status: {response.status_code}")
+
+                if response.status_code != 200:
+                    logger.error(f"MCP-DocEHR: HTTP {response.status_code} error fetching tools from {url}")
+                    logger.error(f"MCP-DocEHR: Response body: {response.text[:500]}")
+                    return []
+
+                response.raise_for_status()
+                result = response.json()
+
+                # Extract tools from MCP response
+                if isinstance(result, dict) and "tools" in result:
+                    tools = result["tools"]
+                elif isinstance(result, list):
+                    tools = result
+                else:
+                    logger.warning(f"MCP-DocEHR: Unexpected response format: {result}")
+                    return []
+
+                logger.info(f"MCP-DocEHR: Successfully fetched {len(tools)} tools")
+                logger.debug(f"MCP-DocEHR: Tool names: {[t.get('name') for t in tools]}")
+
+                # Convert MCP tool format to OpenAI function calling format
+                # AND modify parameter schemas to use PAL IDs instead of external IDs
+                openai_tools = []
+                for tool in tools:
+                    tool_name = tool.get("name")
+
+                    # Modify parameter schema for appointment tools to use doctor/clinic NAMES
+                    if tool_name == "get_appointment_slots":
+                        openai_tools.append({
+                            "type": "function",
+                            "function": {
+                                "name": tool_name,
+                                "description": tool.get("description", "Get available appointment slots for a doctor at a clinic"),
+                                "parameters": {
+                                    "type": "object",
+                                    "properties": {
+                                        "patient_id": {
+                                            "type": "string",
+                                            "description": "PAL internal patient UUID (current logged-in user)"
+                                        },
+                                        "doctor_name": {
+                                            "type": "string",
+                                            "description": "Doctor's full name (e.g., 'Dr. Rajesh Kumar')"
+                                        },
+                                        "clinic_name": {
+                                            "type": "string",
+                                            "description": "Clinic name (e.g., 'Apollo Clinic')"
+                                        },
+                                        "date": {
+                                            "type": "string",
+                                            "description": "Date in YYYY-MM-DD format"
+                                        }
+                                    },
+                                    "required": ["patient_id", "doctor_name", "clinic_name", "date"]
+                                }
+                            }
+                        })
+                        logger.info(f"MCP-DocEHR: Modified {tool_name} to use doctor_name and clinic_name")
+
+                    elif tool_name == "book_appointment":
+                        openai_tools.append({
+                            "type": "function",
+                            "function": {
+                                "name": tool_name,
+                                "description": tool.get("description", "Book an appointment with a doctor at a clinic"),
+                                "parameters": {
+                                    "type": "object",
+                                    "properties": {
+                                        "patient_id": {
+                                            "type": "string",
+                                            "description": "PAL internal patient UUID (current logged-in user)"
+                                        },
+                                        "doctor_name": {
+                                            "type": "string",
+                                            "description": "Doctor's full name (e.g., 'Dr. Rajesh Kumar')"
+                                        },
+                                        "clinic_name": {
+                                            "type": "string",
+                                            "description": "Clinic name (e.g., 'Apollo Clinic')"
+                                        },
+                                        "date": {
+                                            "type": "string",
+                                            "description": "Date in YYYY-MM-DD format"
+                                        },
+                                        "startTime": {
+                                            "type": "string",
+                                            "description": "Start time in HH:MM format (24-hour)"
+                                        }
+                                    },
+                                    "required": ["patient_id", "doctor_name", "clinic_name", "date", "startTime"]
+                                }
+                            }
+                        })
+                        logger.info(f"MCP-DocEHR: Modified {tool_name} to use doctor_name and clinic_name")
+
+                    else:
+                        # For other external tools, keep original schema
+                        openai_tools.append({
+                            "type": "function",
+                            "function": {
+                                "name": tool.get("name"),
+                                "description": tool.get("description", ""),
+                                "parameters": tool.get("inputSchema", {})
+                            }
+                        })
+                        logger.info(f"MCP-DocEHR: Keeping original schema for {tool_name}")
+
+                return openai_tools
+
+        except httpx.TimeoutException as e:
+            logger.error(f"MCP-DocEHR: Timeout fetching tools from {url}: {e}")
+            return []
+        except httpx.HTTPStatusError as e:
+            logger.error(f"MCP-DocEHR: HTTP error fetching tools: {e.response.status_code}")
+            logger.error(f"MCP-DocEHR: Error response: {e.response.text[:500]}")
+            return []
+        except httpx.RequestError as e:
+            logger.error(f"MCP-DocEHR: Connection error fetching tools from {url}: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"MCP-DocEHR: Unexpected error fetching tools: {type(e).__name__}: {e}")
+            return []
+
+    async def _call_biorxiv_tool(self, tool_name: str,
+                                 arguments: Dict[str, Any]) -> Any:
+        """Call a tool on the bioRxiv MCP server using Streamable HTTP JSON-RPC."""
+
+        if not self.biorxiv_mcp_enabled:
+            logger.error("MCP-bioRxiv: bioRxiv MCP is not enabled")
+            raise Exception("bioRxiv MCP is not configured")
+
+        url = self.biorxiv_mcp_url
+
+        # Layer 1 — query augmentation: bias search toward human studies
+        if tool_name == "biorxiv_search_preprints" and "query" in arguments:
+            original_query = arguments["query"]
+            augmented_query = _augment_biorxiv_query(original_query)
+            if augmented_query != original_query:
+                logger.info("MCP-bioRxiv: augmented query %r → %r", original_query, augmented_query)
+                arguments = {**arguments, "query": augmented_query}
+
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": arguments
+            }
+        }
+
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+            "MCP-Protocol-Version": "2025-06-18"
+        }
+
+        try:
+            logger.info(f"MCP-bioRxiv: Calling {tool_name} via {url}")
+            logger.info(f"MCP-bioRxiv: Arguments: {arguments}")
+
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(url,
+                                             json=payload,
+                                             headers=headers)
+
+                logger.info(
+                    f"MCP-bioRxiv: Response status: {response.status_code}")
+
+                response.raise_for_status()
+
+                content_type = response.headers.get("content-type", "")
+
+                if "text/event-stream" in content_type:
+                    result = None
+
+                    for line in response.text.splitlines():
+                        if not line.startswith("data:"):
+                            continue
+
+                        data = line[5:].strip()
+
+                        if not data:
+                            continue
+
+                        message = json.loads(data)
+
+                        # Ignore MCP notifications
+                        if message.get("method") == "notifications/message":
+                            continue
+
+                        # We want the JSON-RPC response
+                        if message.get("id") == 1:
+                            result = message
+                            break
+
+                    if result is None:
+                        raise Exception(
+                            "bioRxiv MCP: No JSON-RPC tool response found")
+                else:
+                    result = response.json()
+
+                if "error" in result:
+                    raise Exception(f"bioRxiv MCP error: {result['error']}")
+
+                # Layer 2 — post-filter: drop articles with animal-only signals
+                raw = result.get("result", result)
+                return _filter_biorxiv_for_humans(raw)
+
+        except httpx.TimeoutException as e:
+            logger.error(f"MCP-bioRxiv: Timeout calling {tool_name}: {e}")
+            raise Exception(f"bioRxiv MCP timeout: {e}")
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"MCP-bioRxiv: HTTP error calling {tool_name}: "
+                         f"{e.response.status_code}")
+            logger.error(
+                f"MCP-bioRxiv: Error response: {e.response.text[:1000]}")
+            raise Exception(f"bioRxiv MCP HTTP error {e.response.status_code}")
+
+        except httpx.RequestError as e:
+            logger.error(
+                f"MCP-bioRxiv: Connection error calling {tool_name}: {e}")
+            raise Exception(f"bioRxiv MCP connection error: {e}")
+
+        except Exception as e:
+            logger.error(
+                f"MCP-bioRxiv: Unexpected error calling {tool_name}: {e}")
+            raise
+
+
+
+    async def _fetch_biorxiv_tools(self) -> List[Dict[str, Any]]:
+        """Fetch tool definitions from bioRxiv MCP using Streamable HTTP JSON-RPC."""
+
+        if not self.biorxiv_mcp_enabled:
+            logger.info("MCP-bioRxiv: Disabled, skipping bioRxiv tools")
+            return []
+
+        url = self.biorxiv_mcp_url
+
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+            "MCP-Protocol-Version": "2025-06-18"
+        }
+
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/list",
+            "params": {}
+        }
+
+        try:
+            logger.info(f"MCP-bioRxiv: Fetching tools from {url}")
+
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(url,
+                                             json=payload,
+                                             headers=headers)
+
+                logger.info(f"MCP-bioRxiv: Tools list response status: "
+                            f"{response.status_code}")
+
+                response.raise_for_status()
+
+                content_type = response.headers.get("content-type", "")
+
+                if "text/event-stream" in content_type:
+                    result = None
+
+                    for line in response.text.splitlines():
+                        if not line.startswith("data:"):
+                            continue
+
+                        data = line[5:].strip()
+
+                        if not data:
+                            continue
+
+                        message = json.loads(data)
+
+                        # Ignore notifications
+                        if message.get("method") == "notifications/message":
+                            continue
+
+                        if message.get("id") == 1:
+                            result = message
+                            break
+
+                    if result is None:
+                        raise Exception(
+                            "bioRxiv MCP: No JSON-RPC tools/list response found"
+                        )
+                else:
+                    result = response.json()
+
+                if "error" in result:
+                    logger.error(f"MCP-bioRxiv: MCP error: {result['error']}")
+                    return []
+
+                result_data = result.get("result", result)
+                tools = result_data.get("tools", [])
+
+                logger.info(
+                    f"MCP-bioRxiv: Successfully fetched {len(tools)} tools")
+
+                openai_tools = []
+
+                for tool in tools:
+                    openai_tools.append({
+                        "type": "function",
+                        "function": {
+                            "name":
+                            tool.get("name"),
+                            "description":
+                            tool.get("description", ""),
+                            "parameters":
+                            tool.get("inputSchema", {
+                                "type": "object",
+                                "properties": {}
+                            })
+                        }
+                    })
+
+                return openai_tools
+
+        except httpx.TimeoutException as e:
+            logger.error(f"MCP-bioRxiv: Timeout fetching tools: {e}")
+            return []
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"MCP-bioRxiv: HTTP error fetching tools: "
+                         f"{e.response.status_code}")
+            logger.error(
+                f"MCP-bioRxiv: Error response: {e.response.text[:1000]}")
+            return []
+
+        except httpx.RequestError as e:
+            logger.error(f"MCP-bioRxiv: Connection error fetching tools: {e}")
+            return []
+
+        except Exception as e:
+            logger.error(f"MCP-bioRxiv: Unexpected error fetching tools: "
+                         f"{type(e).__name__}: {e}")
+            return []
+
+
+    async def _call_pubmed_direct(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
+        """Route PubMed tool calls directly through clinical/pubmed.py (NCBI E-utilities)."""
+        from services.clinical.pubmed import search_pubmed_many
+
+        try:
+            query = arguments.get("query") or arguments.get("pmid", "")
+            max_results = arguments.get("max_results", 8)
+
+            if tool_name == "pubmed_search_advanced":
+                study_filter = "high_evidence"
+            else:
+                study_filter = "humans"
+
+            logger.info(f"PubMed-direct: search_pubmed_many query={query!r} filter={study_filter} max={max_results}")
+            articles, retrieval_ok = await search_pubmed_many(
+                [query],
+                study_filter=study_filter,
+                max_results=max_results,
+            )
+
+            if not retrieval_ok:
+                logger.warning("PubMed-direct: retrieval failed for %r", query)
+                return {"error": "PubMed could not be reached", "articles": []}
+
+            return [article.to_citation() for article in articles]
+
+        except Exception as e:
+            logger.error(f"PubMed-direct: Unexpected error calling {tool_name}: {e}")
+            raise
+
+    def _fetch_pubmed_tools(self) -> List[Dict[str, Any]]:
+        """Return hardcoded PubMed tool schemas (no network call — served via NCBI E-utilities directly)."""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "pubmed_search",
+                    "description": "Search PubMed for peer-reviewed human studies. Returns articles with abstracts, citations, and provenance class. Only returns studies conducted in humans (humans[MeSH Terms] filter applied).",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Medical search query (e.g. 'metformin type 2 diabetes treatment')"},
+                            "max_results": {"type": "integer", "description": "Maximum number of articles to return (default 5, max 10)"}
+                        },
+                        "required": ["query"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "pubmed_search_advanced",
+                    "description": "Search PubMed for high-evidence studies only: randomized controlled trials, meta-analyses, systematic reviews, and practice guidelines. Use this for second opinions or when the strongest evidence is needed.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Medical search query"},
+                            "max_results": {"type": "integer", "description": "Maximum number of articles to return (default 5, max 10)"}
+                        },
+                        "required": ["query"]
+                    }
+                }
+            }
+        ]
+
+
+
+    async def get_tool_definitions(self) -> List[Dict[str, Any]]:
+        """
+        Get OpenAI-compatible tool definitions for Gemma.
+        Combines FastMCP tools + external MCP-DocEHR tools + bioRxiv tools +
+        PubMed tools (hardcoded schemas, served directly via NCBI E-utilities).
+
+        Returns:
+            List of tool definitions in OpenAI function calling format
+        """
+        # Fetch tools from MCP servers (fresh each time, no caching)
+        fastmcp_tools = await self._fetch_fastmcp_tools()
+        external_tools = await self._fetch_external_tools()
+        biorxiv_tools = await self._fetch_biorxiv_tools()
+        pubmed_tools = self._fetch_pubmed_tools()
+        # Combine all tools
+        all_tools = fastmcp_tools + external_tools + biorxiv_tools + pubmed_tools
+        logger.info(f"Total tools available: {len(all_tools)} (FastMCP: {len(fastmcp_tools)}, DocEHR: {len(external_tools)}, bioRxiv: {len(biorxiv_tools)}, PubMed: {len(pubmed_tools)})")
+
+        return all_tools
+
+
+# Singleton instance
+_fastmcp_client = None
+
+def get_fastmcp_client() -> FastMCPClient:
+    """Get singleton FastMCP client instance"""
+    global _fastmcp_client
+    if _fastmcp_client is None:
+        _fastmcp_client = FastMCPClient()
+    return _fastmcp_client

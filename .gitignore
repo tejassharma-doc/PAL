@@ -1,0 +1,127 @@
+# Environment variables - NEVER commit production secrets
+.env
+.env.local
+.env.*.local
+.env.production
+.env.staging
+.env.*.production
+.env.*.staging
+
+# Documentation files (temporary/generated docs)
+AUTH_JWT_IMPLEMENTATION.md
+AUTH_SYSTEM_V2.md
+BACKEND_FRONTEND_STATUS.md
+COMPLETE_IMPLEMENTATION_GUIDE.md
+COMPLETE_SETUP.md
+DATABASE_SCHEMA_UPDATED.md
+DATABASE_UPDATE_COMPLETE.md
+DIAGNOSIS.md
+FINAL_PROFILE_IMPLEMENTATION.md
+FRONTEND_BACKEND_MAPPING.md
+IMPORTANT_USER_TABLE_WARNING.md
+ISSUE_RESOLVED_DATE_FIX.md
+LOGIN_REDIRECT_SETUP.md
+PAL_BUILD_DOCUMENT.md
+PHILOSOPHY.md
+PRIVACY.md
+PROFILE_FLOW_UPDATED.md
+*.md
+
+
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Node.js / Next.js
+**/node_modules/
+mobile/android/app/build/
+mobile/android/.gradle/
+mobile/android/build/
+mobile/android/app/.cxx/
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.tsbuildinfo
+next-env.d.ts
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Docker volumes (don't commit data)
+postgres-data/
+pgadmin-data/
+
+# Backup files
+*.bak
+*.backup
+
+# Android build files (if applicable)
+Pal\ Android\ claude/
+*.apk
+*.aab
+*.keystore
+
+# SSL certificates
+ssl/
+*.crt
+*.key
+*.pem
+
+Pal Android claude/
+
+# --- secret and data hygiene ---------------------------------------------
+# These were committed with live values. Untracked here so they stop leaking
+# forward; the values already in git history must be ROTATED, and the history
+# scrubbed separately (git filter-repo / BFG). Removing them from the index
+# does not remove them from history.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Database dumps. backup_family_plan_*.sql carried rows from patients,
+# phone_users, health_facts, prescriptions and conversation_turns — patient
+# data in a git repository.
+*.sql.gz
+backup_*.sql
+pal_backup.sql
