@@ -197,14 +197,8 @@ async def create_plan(
     primary_patient_id: Optional[uuid.UUID] = None,
     tenant_id: Optional[uuid.UUID] = None,
 ) -> FamilyPlan:
-    """Create a plan and seat the primary holder as admin. Idempotent-ish:
-    returns the existing plan if this user already owns one."""
-    existing = (
-        await db.execute(select(FamilyPlan).where(FamilyPlan.primary_user_id == primary_user_id))
-    ).scalar_one_or_none()
-    if existing:
-        return existing
-
+    """Create a new plan and seat the primary holder as admin.
+    A user may own up to MAX_PLANS_PER_USER plans."""
     # Cap check: creating a plan consumes one of the user's slots.
     await assert_can_join_another_plan(db, primary_user_id)
 
@@ -561,60 +555,32 @@ async def accept_invite(
 async def remove_member(
     db: AsyncSession, *, plan: FamilyPlan, member: FamilyMember, actor_user_id: uuid.UUID
 ) -> None:
-    """Soft-remove a seat and cascade-revoke every grant in both directions.
+    """Hard-remove a seat from the database.
 
-    Both directions matters: removing an adult child must revoke the access
-    they held over a parent AND any access the parent held over them.
+    Cascade order:
+      1. Remove from hub chat room (chat_room_members row)
+      2. Invalidate membership cache + unsubscribe live Centrifugo socket
+      3. Delete the family_member row — DB cascades delete
+         family_access_grants and family_payment_requests automatically
+         (both have ON DELETE CASCADE on subject_member_id).
     """
-    now = datetime.now(timezone.utc)
-    member.status = FamilyMemberStatus.removed.value
-    member.removed_at = now
-
-    await db.execute(
-        text(
-            """
-            UPDATE family_access_grants
-            SET status = 'revoked', revoked_at = NOW(),
-                revoked_by_user_id = :actor,
-                revocation_reason = 'member_removed_from_plan'
-            WHERE status IN ('granted', 'pending')
-              AND ( subject_member_id = :member_id
-                    OR (grantee_user_id = :user_id AND family_plan_id = :plan_id) )
-            """
-        ),
-        {
-            "actor": actor_user_id,
-            "member_id": member.id,
-            "user_id": member.user_id,
-            "plan_id": plan.id,
-        },
-    )
-    if member.user_id:
+    if member.user_id and plan.hub_room_id:
         await db.execute(
             text(
                 """
-                UPDATE chat_room_members SET left_at = NOW()
-                WHERE room_id = :room_id AND user_id = :user_id AND left_at IS NULL
+                DELETE FROM chat_room_members
+                WHERE room_id = :room_id AND user_id = :user_id
                 """
             ),
             {"room_id": plan.hub_room_id, "user_id": member.user_id},
         )
-        if plan.hub_room_id:
-            # THREE things have to happen for a removal to be real, and they
-            # are three different layers:
-            #
-            #  1. the DB row  — done above; stops the next authorisation
-            #  2. the CACHE   — or is_room_member() keeps saying yes for up to
-            #                   one TTL, which would make the cache a security
-            #                   regression rather than an optimisation
-            #  3. the SOCKET  — subscription tokens are short-lived, but
-            #                   "short-lived" is not "gone"; without an
-            #                   unsubscribe the removed member keeps receiving
-            #                   live hub traffic until their token expires
-            await chat_cache.invalidate(str(plan.hub_room_id), str(member.user_id))
-            await centrifugo.unsubscribe_user(
-                member.user_id, centrifugo.room_channel(plan.hub_room_id)
-            )
+        # Invalidate before the commit so no request sneaks through the stale cache.
+        await chat_cache.invalidate(str(plan.hub_room_id), str(member.user_id))
+        await centrifugo.unsubscribe_user(
+            member.user_id, centrifugo.room_channel(plan.hub_room_id)
+        )
+
+    await db.delete(member)
     await db.flush()
 
 

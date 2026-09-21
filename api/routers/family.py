@@ -325,6 +325,7 @@ async def get_members(
 @router.post("/members", status_code=status.HTTP_201_CREATED, dependencies=[Depends(_require_enabled)])
 async def invite(
     body: InviteIn,
+    plan_id: Optional[uuid.UUID] = Query(default=None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -333,7 +334,7 @@ async def invite(
     The seat exists immediately, so the admin can start coordinating before the
     invitee installs the app. The seat carries no access rights.
     """
-    plan, member = await _ctx(db, user)
+    plan, member = await _ctx(db, user, plan_id)
     if not policy.can_manage_plan(member, plan, user.id):
         raise HTTPException(status_code=403, detail="Only the plan admin can invite")
 
@@ -393,6 +394,7 @@ async def accept(
 async def update_member(
     member_id: uuid.UUID,
     body: UpdateMemberIn,
+    plan_id: Optional[uuid.UUID] = Query(default=None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -401,7 +403,7 @@ async def update_member(
     Note the asymmetry: an admin can NOT raise someone else's
     ``hub_share_level``. Only the subject can decide to be more visible.
     """
-    plan, me = await _ctx(db, user)
+    plan, me = await _ctx(db, user, plan_id)
     target = (
         await db.execute(
             select(FamilyMember).where(
@@ -453,10 +455,11 @@ async def update_member(
 @router.delete("/members/{member_id}", dependencies=[Depends(_require_enabled)])
 async def delete_member(
     member_id: uuid.UUID,
+    plan_id: Optional[uuid.UUID] = Query(default=None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    plan, me = await _ctx(db, user)
+    plan, me = await _ctx(db, user, plan_id)
     if not policy.can_manage_plan(me, plan, user.id):
         raise HTTPException(status_code=403, detail="Only the plan admin can remove members")
 
