@@ -246,8 +246,27 @@ async def chat_with_hermes(
 Use this context to understand what the patient is referring to. If they say "that", "it", or "what I asked before", refer to the conversation above.
 """
 
+        # Detect which optional tool groups are available
+        has_biorxiv = any(
+            t.get("function", {}).get("name", "").startswith("biorxiv_")
+            for t in tools
+        )
+
+        literature_tools_section = """
+MEDICAL LITERATURE TOOLS:
+- pubmed_search: Search PubMed for peer-reviewed human clinical studies. Use for any medical or health question.
+- pubmed_search_advanced: Search PubMed for high-evidence studies only (RCTs, meta-analyses, systematic reviews, practice guidelines). Use when the strongest evidence is needed or for a second opinion."""
+
+        if has_biorxiv:
+            literature_tools_section += """
+- biorxiv_search_preprints: Search bioRxiv/medRxiv for the latest medical preprints. Use alongside PubMed to surface cutting-edge research not yet in peer-reviewed journals."""
+
+        biorxiv_rule = (
+            "and biorxiv_search_preprints " if has_biorxiv else ""
+        )
+
         # Build system prompt
-        system_prompt = f"""You are PAL Health Assistant, an AI medical assistant with access to patient data and external doctor/appointment systems.{history_context}
+        system_prompt = f"""You are PAL Health Assistant, an AI medical assistant with access to patient data, appointment systems, and medical literature databases.{history_context}
 
 AVAILABLE TOOLS:
 
@@ -261,13 +280,23 @@ DOCTOR & APPOINTMENT TOOLS (MCP-DocEHR):
 - Tools for checking doctor availability and booking appointments
 - Use these when user asks about doctors, appointments, or availability
 - ALWAYS confirm booking details with user before making a reservation
+{literature_tools_section}
 
 IMPORTANT RULES:
 1. When asked about patient medical data, use patient data tools with patient_id: {request.patient_id}
 2. When asked about doctor availability or booking appointments, use the MCP-DocEHR tools
 3. BEFORE booking any appointment, ALWAYS confirm: doctor name, date, time, and reason with the user
-4. Use tool results to answer - never make up information
+4. Use tool results to answer - never make up or guess information
 5. Be concise and helpful
+
+CRITICAL — MEDICAL & HEALTH QUESTIONS REQUIRE LITERATURE RETRIEVAL:
+For ANY question about a medication, treatment, symptom, diagnosis, health condition, or clinical topic:
+  a. You MUST call pubmed_search {biorxiv_rule}BEFORE composing your answer.
+  b. Call pubmed_search_advanced as well when the user asks for strong evidence, guidelines, or a second opinion.
+  c. Synthesise findings from ALL retrieved sources into a single, coherent answer.
+  d. Cite each article you used: title, journal (or "bioRxiv preprint"), year, and URL.
+  e. NEVER answer a medical question from your training knowledge alone — always retrieve first.
+  f. If retrieval returns no results, say so explicitly rather than answering from memory.
 
 Patient ID for this conversation: {request.patient_id}
 """
@@ -282,41 +311,47 @@ Patient ID for this conversation: {request.patient_id}
         vertex_client = get_vertex_client()
 
         try:
-            response = await vertex_client.generate_with_tools(messages, tools)
+            MAX_TOOL_ROUNDS = 6
+            answer = None
 
-            # Check if Gemma wants to call tools
-            message = response.choices[0].message
+            for round_num in range(MAX_TOOL_ROUNDS):
+                response = await vertex_client.generate_with_tools(messages, tools)
+                message = response.choices[0].message
 
-            if message.tool_calls:
-                logger.info(f"Gemma requested {len(message.tool_calls)} tool calls")
+                if not message.tool_calls:
+                    answer = message.content
+                    break
 
-                # Execute tool calls
+                logger.info(
+                    f"Round {round_num + 1}: Gemma requested "
+                    f"{len(message.tool_calls)} tool call(s): "
+                    f"{[tc.function.name for tc in message.tool_calls]}"
+                )
+
+                # Append assistant turn with all tool calls for this round
+                messages.append({
+                    "role": "assistant",
+                    "content": message.content,
+                    "tool_calls": [tc.dict() for tc in message.tool_calls],
+                })
+
+                # Execute every tool call and append each result
                 for tool_call in message.tool_calls:
                     tool_name = tool_call.function.name
                     tool_args = json.loads(tool_call.function.arguments)
-
-                    # Call FastMCP for patient data operations
-                    logger.info(f"Calling MCP tool: {tool_name} with args: {tool_args}")
+                    logger.info(f"Calling tool: {tool_name} args={tool_args}")
                     tool_result = await fastmcp_client.call_tool(tool_name, tool_args, db)
-
-                    # Add tool result to conversation
-                    messages.append({
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [tool_call.dict()]
-                    })
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
-                        "content": json.dumps(tool_result)
+                        "content": json.dumps(tool_result),
                     })
 
-                # Call Gemma again with tool results
+            if answer is None:
+                # Hit the round cap — do one final call to get a plain answer
+                logger.warning("Hit MAX_TOOL_ROUNDS cap, forcing final answer")
                 response = await vertex_client.generate_with_tools(messages, tools)
-                answer = response.choices[0].message.content
-            else:
-                # No tool calls, use direct response
-                answer = message.content
+                answer = response.choices[0].message.content or ""
 
         except Exception as e:
             logger.error(f"Error calling Vertex AI with tools: {str(e)}")
