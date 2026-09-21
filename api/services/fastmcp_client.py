@@ -144,6 +144,24 @@ PUBMED_TOOLS = [
     "pubmed_search_advanced"
 ]
 
+# Honorific prefixes that the LLM may include in a doctor name but that are
+# never stored in the doctors table.  Stripped before the ilike lookup so that
+# "Dr. Rajesh Kumar", "Dr Rajesh Kumar" and "Rajesh Kumar" all resolve to the
+# same row.
+_DOCTOR_PREFIXES = (
+    "dr. ", "dr ", "prof. ", "prof ", "doctor ", "professor ",
+    "mr. ", "mr ", "ms. ", "ms ", "mrs. ", "mrs ",
+)
+
+
+def _strip_doctor_prefix(name: str) -> str:
+    """Return *name* with any leading honorific prefix removed."""
+    lower = name.lower().lstrip()
+    for prefix in _DOCTOR_PREFIXES:
+        if lower.startswith(prefix):
+            return name.lstrip()[len(prefix):].strip()
+    return name.strip()
+
 
 class FastMCPClient:
     """Bridge client connecting to FastMCP, DocEHR, bioRxiv, and PubMed MCP servers"""
@@ -275,11 +293,15 @@ class FastMCPClient:
         # Translate doctor_name to external_id
         if "doctor_name" in arguments:
             doctor_name = arguments["doctor_name"]
-            logger.info(f"MCP-DocEHR: Translating doctor_name '{doctor_name}' to external_id")
+            search_name = _strip_doctor_prefix(doctor_name)
+            logger.info(
+                f"MCP-DocEHR: Translating doctor_name '{doctor_name}' "
+                f"(searching as '{search_name}') to external_id"
+            )
 
-            # Use ORM query
+            # Use ORM query — match on name without honorific prefix
             result = await db.execute(
-                select(Doctor).where(Doctor.full_name.ilike(f"%{doctor_name}%"))
+                select(Doctor).where(Doctor.full_name.ilike(f"%{search_name}%"))
             )
             doctor = result.scalars().first()
 
