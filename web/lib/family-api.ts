@@ -179,6 +179,14 @@ export async function updateFamilyPlan(params: {
   await unwrap(res, 'Update family plan');
 }
 
+export async function deleteFamilyPlan(planId: string): Promise<void> {
+  const res = await fetch(`/api/family/plan?plan_id=${planId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  await unwrap(res, 'Delete group');
+}
+
 // ── members ──────────────────────────────────────────────────────────────────
 export async function listPlanMembers(planId?: string): Promise<FamilyPlanMember[]> {
   const url = planId ? `/api/family/members?plan_id=${planId}` : '/api/family/members';

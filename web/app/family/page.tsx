@@ -15,6 +15,7 @@ import {
   approveAccess,
   chatUnreadCount,
   createFamilyPlan,
+  deleteFamilyPlan,
   denyAccess,
   getFamilyPlans,
   listAccessRequests,
@@ -165,6 +166,7 @@ export default function FamilyPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -228,6 +230,20 @@ export default function FamilyPage() {
   async function handleCreate(name: string, displayName: string) {
     await createFamilyPlan({ name, display_name: displayName });
     await load();
+  }
+
+  async function handleDelete(planId: string, name: string) {
+    if (!confirm(`Delete "${name}"? This will permanently remove the group and all its messages.`)) return;
+    setDeletingId(planId);
+    try {
+      await deleteFamilyPlan(planId);
+      setPlans(ps => ps.filter(p => p.plan_id !== planId));
+      setCanJoinMore(true);
+      setToast(`"${name}" deleted`);
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : 'Could not delete group');
+    }
+    setDeletingId(null);
   }
 
   return (
@@ -298,40 +314,71 @@ export default function FamilyPage() {
             {plans.map(p => {
               const unread = unreadMap[p.plan_id] ?? 0;
               return (
-                <button
+                <div
                   key={p.plan_id}
-                  onClick={() => router.push(`/family/hub?planId=${p.plan_id}`)}
                   style={{
-                    width: '100%', textAlign: 'left', cursor: 'pointer',
-                    background: '#fff', border: '1px solid var(--line)',
+                    width: '100%', background: '#fff', border: '1px solid var(--line)',
                     borderRadius: 14, padding: '13px 14px',
                     display: 'flex', alignItems: 'center', gap: 13,
                   }}
                 >
-                  <GroupAvatar name={p.name} isAdmin={p.is_admin} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--ink)', marginBottom: 3 }}>
-                      {p.name}
-                    </p>
-                    <p style={{ fontFamily: 'var(--mono)', fontSize: '0.6rem', color: 'rgba(13,31,36,.45)' }}>
-                      {p.member_count} member{p.member_count !== 1 ? 's' : ''}
-                      {p.is_admin ? ' · admin' : ''}
-                    </p>
+                  {/* tappable main area → navigates to hub */}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => router.push(`/family/hub?planId=${p.plan_id}`)}
+                    onKeyDown={e => e.key === 'Enter' && router.push(`/family/hub?planId=${p.plan_id}`)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 13, flex: 1, minWidth: 0, cursor: 'pointer' }}
+                  >
+                    <GroupAvatar name={p.name} isAdmin={p.is_admin} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--ink)', marginBottom: 3 }}>
+                        {p.name}
+                      </p>
+                      <p style={{ fontFamily: 'var(--mono)', fontSize: '0.6rem', color: 'rgba(13,31,36,.45)' }}>
+                        {p.member_count} member{p.member_count !== 1 ? 's' : ''}
+                        {p.is_admin ? ' · admin' : ''}
+                      </p>
+                    </div>
+                    {unread > 0 && (
+                      <span style={{
+                        minWidth: 20, height: 20, borderRadius: 10,
+                        background: '#c2675e', color: '#fff',
+                        fontFamily: 'var(--mono)', fontSize: '0.55rem', fontWeight: 700,
+                        display: 'grid', placeItems: 'center', padding: '0 5px', flexShrink: 0,
+                      }}>
+                        {unread}
+                      </span>
+                    )}
+                    <svg width="7" height="12" viewBox="0 0 7 12" fill="none" style={{ flexShrink: 0, opacity: 0.3 }}>
+                      <path d="M1 1l5 5-5 5" stroke="var(--ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
                   </div>
-                  {unread > 0 && (
-                    <span style={{
-                      minWidth: 20, height: 20, borderRadius: 10,
-                      background: '#c2675e', color: '#fff',
-                      fontFamily: 'var(--mono)', fontSize: '0.55rem', fontWeight: 700,
-                      display: 'grid', placeItems: 'center', padding: '0 5px', flexShrink: 0,
-                    }}>
-                      {unread}
-                    </span>
+
+                  {/* admin delete button */}
+                  {p.is_admin && (
+                    <button
+                      onClick={() => handleDelete(p.plan_id, p.name)}
+                      disabled={deletingId === p.plan_id}
+                      aria-label={`Delete ${p.name}`}
+                      style={{
+                        flexShrink: 0, background: 'none',
+                        border: '1px solid rgba(194,103,94,.3)', borderRadius: 9,
+                        padding: '6px 8px', cursor: 'pointer',
+                        color: 'rgba(194,103,94,.7)',
+                        opacity: deletingId === p.plan_id ? 0.4 : 1,
+                      }}
+                    >
+                      {deletingId === p.plan_id ? (
+                        <span style={{ fontSize: 11 }}>…</span>
+                      ) : (
+                        <svg width="13" height="14" viewBox="0 0 13 14" fill="none">
+                          <path d="M1 3.5h11M4.5 3.5V2.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1M10.5 3.5l-.5 8a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1l-.5-8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
+                    </button>
                   )}
-                  <svg width="7" height="12" viewBox="0 0 7 12" fill="none" style={{ flexShrink: 0, opacity: 0.3 }}>
-                    <path d="M1 1l5 5-5 5" stroke="var(--ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </button>
+                </div>
               );
             })}
           </div>

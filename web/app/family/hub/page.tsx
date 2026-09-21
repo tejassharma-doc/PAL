@@ -27,6 +27,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import PhoneShell from '@/components/layout/PhoneShell';
 import TabBar from '@/components/layout/TabBar';
 import {
+  deleteFamilyPlan,
   getHub,
   getRoomMessages,
   listPlanMembers,
@@ -222,16 +223,19 @@ function MembersPanel({
   isAdmin,
   onClose,
   onMemberRemoved,
+  onGroupDeleted,
 }: {
   planId: string;
   isAdmin: boolean;
   onClose: () => void;
   onMemberRemoved: () => void;
+  onGroupDeleted: () => void;
 }) {
   const router = useRouter();
   const [members, setMembers] = useState<FamilyPlanMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -258,6 +262,18 @@ function MembersPanel({
       setToast(e instanceof Error ? e.message : 'Could not remove member');
     }
     setRemovingId(null);
+  }
+
+  async function handleDeleteGroup() {
+    if (!confirm('Delete this group permanently? All messages will be lost.')) return;
+    setDeleting(true);
+    try {
+      await deleteFamilyPlan(planId);
+      onGroupDeleted();
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : 'Could not delete group');
+      setDeleting(false);
+    }
   }
 
   return (
@@ -351,6 +367,24 @@ function MembersPanel({
             </div>
           ))}
         </div>
+
+        {/* delete group button — admin only */}
+        {isAdmin && (
+          <div style={{ padding: '14px 16px 4px', borderTop: '1px solid var(--line)' }}>
+            <button
+              onClick={handleDeleteGroup}
+              disabled={deleting}
+              style={{
+                width: '100%', background: 'none',
+                border: '1px solid rgba(194,103,94,.4)', borderRadius: 12,
+                padding: '11px 0', color: '#c2675e', fontSize: 13,
+                fontWeight: 600, cursor: 'pointer', opacity: deleting ? 0.5 : 1,
+              }}
+            >
+              {deleting ? 'Deleting…' : 'Delete Group'}
+            </button>
+          </div>
+        )}
       </div>
 
       {toast && (
@@ -521,7 +555,15 @@ function HubPageInner() {
         >
           ←
         </button>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        {/* group name — tap to open members panel */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setShowMembers(true)}
+          onKeyDown={e => e.key === 'Enter' && setShowMembers(true)}
+          aria-label="View group members"
+          style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
+        >
           <p style={{ fontFamily: 'var(--mono)', fontSize: '0.55rem', letterSpacing: '0.12em', textTransform: 'uppercase', opacity: 0.45 }}>
             Care Hub
           </p>
@@ -648,7 +690,8 @@ function HubPageInner() {
           planId={planId}
           isAdmin={isAdmin}
           onClose={() => setShowMembers(false)}
-          onMemberRemoved={() => { /* member count badge on the back button would refresh on next visit */ }}
+          onMemberRemoved={() => { /* member count refreshes on next visit to the group list */ }}
+          onGroupDeleted={() => router.replace('/family')}
         />
       )}
     </PhoneShell>

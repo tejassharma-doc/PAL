@@ -277,6 +277,23 @@ async def update_plan(
     return {"updated": True}
 
 
+@router.delete("/plan", dependencies=[Depends(_require_enabled)])
+async def delete_plan(
+    plan_id: Optional[uuid.UUID] = Query(default=None),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    plan, member = await _ctx(db, user, plan_id)
+    if not policy.can_manage_plan(member, plan, user.id):
+        raise HTTPException(status_code=403, detail="Only the plan admin can delete the group")
+    if plan.primary_user_id != user.id:
+        raise HTTPException(status_code=403, detail="Only the group creator can delete it")
+    plan_id_str = str(plan.id)
+    await service.delete_plan(db, plan=plan, actor_user_id=user.id)
+    await db.commit()
+    return {"deleted": True, "plan_id": plan_id_str}
+
+
 # ── members ──────────────────────────────────────────────────────────────────
 @router.get("/members", response_model=list[MemberOut], dependencies=[Depends(_require_enabled)])
 async def get_members(

@@ -584,6 +584,34 @@ async def remove_member(
     await db.flush()
 
 
+async def delete_plan(
+    db: AsyncSession, *, plan: FamilyPlan, actor_user_id: uuid.UUID
+) -> None:
+    """Hard-delete a family plan and everything that belongs to it.
+
+    Cascade order:
+      1. Collect active member user IDs (for cache + socket cleanup before rows vanish)
+      2. Delete the hub chat room → DB cascades: chat_room_members, chat_messages,
+         read receipts, reactions. The family_plans.hub_room_id FK is SET NULL by the DB.
+      3. Invalidate Redis membership caches + unsubscribe live Centrifugo sockets
+      4. Delete the family_plan row → DB cascades: family_members, family_access_grants,
+         family_payment_requests.
+    """
+    members = await list_members(db, plan.id)
+    user_ids = [m.user_id for m in members if m.user_id]
+
+    hub_room_id = plan.hub_room_id
+    if hub_room_id:
+        await db.execute(text("DELETE FROM chat_rooms WHERE id = :id"), {"id": hub_room_id})
+        channel = centrifugo.room_channel(hub_room_id)
+        for uid in user_ids:
+            await chat_cache.invalidate(str(hub_room_id), str(uid))
+            await centrifugo.unsubscribe_user(uid, channel)
+
+    await db.delete(plan)
+    await db.flush()
+
+
 # ── consent handshake ────────────────────────────────────────────────────────
 async def request_access(
     db: AsyncSession,
