@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PhoneShell from '@/components/layout/PhoneShell';
 import {
+  acceptInvite,
   approveAccess,
   chatUnreadCount,
   createFamilyPlan,
@@ -153,6 +154,99 @@ function CreateGroupModal({
   );
 }
 
+/* ── join group modal ───────────────────────────────────────────────────── */
+function JoinGroupModal({
+  onClose,
+  onJoined,
+}: {
+  onClose: () => void;
+  onJoined: () => void;
+}) {
+  const [phone, setPhone] = useState('');
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit() {
+    const ph = phone.trim();
+    const cd = code.trim().toUpperCase();
+    if (!ph || !cd) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await acceptInvite(ph, cd);
+      onJoined();
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Invalid code or phone number');
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div style={{
+      position: 'absolute', inset: 0, background: 'rgba(13,31,36,.55)',
+      display: 'flex', alignItems: 'flex-end', zIndex: 60,
+    }}>
+      <div style={{
+        background: '#fff', borderRadius: '20px 20px 0 0',
+        padding: '22px 18px 36px', width: '100%',
+      }}>
+        <p style={{ fontFamily: 'var(--serif)', fontSize: '1.3rem', fontWeight: 300, marginBottom: 6 }}>
+          Join a group
+        </p>
+        <p style={{ fontFamily: 'var(--mono)', fontSize: '0.6rem', color: 'rgba(13,31,36,.45)', lineHeight: 1.6, marginBottom: 18 }}>
+          Ask the group admin for an invite code, then enter it below.
+        </p>
+        <input
+          placeholder="Your phone number (e.g. +919876543210)"
+          value={phone}
+          onChange={e => setPhone(e.target.value)}
+          type="tel"
+          style={{
+            width: '100%', padding: '12px 14px', borderRadius: 12,
+            border: '1px solid var(--line-2)', fontSize: 14,
+            fontFamily: 'inherit', marginBottom: 10, boxSizing: 'border-box',
+          }}
+        />
+        <input
+          placeholder="Invite code (e.g. A3X9K2)"
+          value={code}
+          onChange={e => setCode(e.target.value.toUpperCase())}
+          maxLength={10}
+          style={{
+            width: '100%', padding: '12px 14px', borderRadius: 12,
+            border: '1px solid var(--line-2)', fontSize: 14,
+            fontFamily: 'var(--mono)', letterSpacing: '0.12em',
+            marginBottom: 16, boxSizing: 'border-box',
+          }}
+        />
+        {err && <p style={{ color: '#c2675e', fontSize: 12.5, marginBottom: 10 }}>{err}</p>}
+        <button
+          onClick={submit}
+          disabled={busy || !phone.trim() || !code.trim()}
+          style={{
+            width: '100%', background: '#37b59b', color: '#0c2429', border: 'none',
+            borderRadius: 13, padding: '13px 0', fontSize: 15, fontWeight: 600,
+            cursor: 'pointer', opacity: busy ? 0.6 : 1,
+          }}
+        >
+          {busy ? 'Joining…' : 'Join group'}
+        </button>
+        <button
+          onClick={onClose}
+          style={{
+            width: '100%', background: 'none', border: 'none',
+            color: 'rgba(13,31,36,.45)', fontSize: 13, marginTop: 10, cursor: 'pointer',
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ── page ───────────────────────────────────────────────────────────────── */
 export default function FamilyPage() {
   const router = useRouter();
@@ -166,6 +260,7 @@ export default function FamilyPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showJoin, setShowJoin] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -267,6 +362,26 @@ export default function FamilyPage() {
             Groups
           </h2>
         </div>
+        {/* Join with code */}
+        <button
+          onClick={() => setShowJoin(true)}
+          style={{
+            width: 36, height: 36, borderRadius: 11,
+            border: '1.5px solid rgba(90,143,168,.55)',
+            background: 'rgba(90,143,168,.08)', color: '#33607a',
+            display: 'grid', placeItems: 'center', cursor: 'pointer',
+          }}
+          aria-label="Join group with code"
+          title="Join with invite code"
+        >
+          {/* key icon */}
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <circle cx="6" cy="7" r="3.2" stroke="currentColor" strokeWidth="1.4"/>
+            <path d="M8.5 9l5 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+            <path d="M11.5 11l1-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+          </svg>
+        </button>
+        {/* Create new group */}
         {canJoinMore && (
           <button
             onClick={() => setShowCreate(true)}
@@ -276,6 +391,7 @@ export default function FamilyPage() {
               display: 'grid', placeItems: 'center', cursor: 'pointer',
             }}
             aria-label="Create new group"
+            title="Create a group"
           >
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
               <path d="M7.5 3v9M3 7.5h9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
@@ -384,28 +500,62 @@ export default function FamilyPage() {
           </div>
         )}
 
-        {/* Create group prompt when list is empty */}
-        {!loading && canJoinMore && (
-          <button
-            onClick={() => setShowCreate(true)}
-            style={{
-              width: '100%', background: 'transparent', borderRadius: 14,
-              border: '1.5px dashed var(--mist)', padding: '20px 14px',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-              cursor: 'pointer', color: 'rgba(13,31,36,0.4)',
-            }}
-          >
-            <div style={{
-              width: 32, height: 32, borderRadius: 10, flexShrink: 0,
-              border: '1.5px dashed var(--mist)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M7 3v8M3 7h8" stroke="rgba(13,31,36,0.35)" strokeWidth="1.6" strokeLinecap="round"/>
-              </svg>
-            </div>
-            <span style={{ fontSize: 13, fontWeight: 500 }}>Create a group</span>
-          </button>
+        {/* Create / Join action tiles */}
+        {!loading && (
+          <div style={{ display: 'flex', gap: 10, marginTop: plans.length > 0 ? 8 : 0 }}>
+            {/* Create */}
+            {canJoinMore && (
+              <button
+                onClick={() => setShowCreate(true)}
+                style={{
+                  flex: 1, background: 'rgba(55,181,155,.07)',
+                  border: '1.5px dashed rgba(55,181,155,.5)', borderRadius: 14,
+                  padding: '18px 10px', cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                }}
+              >
+                <div style={{
+                  width: 36, height: 36, borderRadius: 11,
+                  background: 'rgba(55,181,155,.12)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M8 3v10M3 8h10" stroke="#37b59b" strokeWidth="1.8" strokeLinecap="round"/>
+                  </svg>
+                </div>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--jade-deep)' }}>Create group</span>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: '0.55rem', color: 'rgba(13,31,36,.38)', lineHeight: 1.5, textAlign: 'center' }}>
+                  Start a new family group
+                </span>
+              </button>
+            )}
+            {/* Join */}
+            <button
+              onClick={() => setShowJoin(true)}
+              style={{
+                flex: 1, background: 'rgba(90,143,168,.07)',
+                border: '1.5px dashed rgba(90,143,168,.45)', borderRadius: 14,
+                padding: '18px 10px', cursor: 'pointer',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+              }}
+            >
+              <div style={{
+                width: 36, height: 36, borderRadius: 11,
+                background: 'rgba(90,143,168,.12)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <circle cx="6.5" cy="7" r="3.2" stroke="#5a8fa8" strokeWidth="1.4"/>
+                  <path d="M9 9.5l4.5 4" stroke="#5a8fa8" strokeWidth="1.4" strokeLinecap="round"/>
+                  <path d="M11.8 11.2l1-1" stroke="#5a8fa8" strokeWidth="1.4" strokeLinecap="round"/>
+                </svg>
+              </div>
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: '#33607a' }}>Join with code</span>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: '0.55rem', color: 'rgba(13,31,36,.38)', lineHeight: 1.5, textAlign: 'center' }}>
+                Use an invite code
+              </span>
+            </button>
+          </div>
         )}
 
         {/* Pending consent requests */}
@@ -511,6 +661,17 @@ export default function FamilyPage() {
         <CreateGroupModal
           onClose={() => setShowCreate(false)}
           onCreate={handleCreate}
+        />
+      )}
+
+      {/* Join group modal */}
+      {showJoin && (
+        <JoinGroupModal
+          onClose={() => setShowJoin(false)}
+          onJoined={() => {
+            load();
+            setToast('You joined the group!');
+          }}
         />
       )}
     </PhoneShell>
