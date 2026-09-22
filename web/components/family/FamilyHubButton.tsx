@@ -22,7 +22,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { chatUnreadCount, getFamilyPlan, getFamilyPlans, type FamilyPlanListItem } from '@/lib/family-api';
+import { getFamilyPlan, getFamilyPlans, listConversations, type FamilyPlanListItem } from '@/lib/family-api';
 import { CHAT_READ_EVENT } from '@/lib/chatSocket';
 import { useChatSocket, type ChatFrame } from '@/lib/useChatSocket';
 
@@ -128,7 +128,7 @@ export default function FamilyHubButton({
   const [available, setAvailable] = useState<boolean>(forceVisible);
   const [unread, setUnread] = useState<number>(initialUnread ?? 0);
   const [showPanel, setShowPanel] = useState(false);
-  const [plans, setPlans] = useState<FamilyPlanListItem[]>([]);
+  const [plansWithUnread, setPlansWithUnread] = useState<FamilyPlanListItem[]>([]);
   const [panelLoading, setPanelLoading] = useState(false);
   const mounted = useRef(true);
 
@@ -137,10 +137,16 @@ export default function FamilyHubButton({
 
   const refresh = useCallback(async () => {
     try {
-      const n = await chatUnreadCount();
-      if (mounted.current) setUnread(n);
+      const [planData, conversations] = await Promise.all([getFamilyPlans(), listConversations()]);
+      if (!mounted.current) return;
+      const roomUnread = new Map(conversations.map(c => [c.room_id, c.unread_count]));
+      const withUnread = planData.plans.filter(p =>
+        p.hub_room_id && (roomUnread.get(p.hub_room_id) ?? 0) > 0
+      );
+      setUnread(withUnread.length);
+      setPlansWithUnread(withUnread);
     } catch {
-      /* leave the last known count */
+      /* leave last known */
     }
   }, []);
 
@@ -200,22 +206,30 @@ export default function FamilyHubButton({
 
   async function handleClick() {
     if (showPanel) { setShowPanel(false); return; }
-    setUnread(0);
+
+    // If there are groups with unread, navigate or show panel from cached data.
+    if (plansWithUnread.length === 1) {
+      setUnread(0);
+      router.push(`/family/hub?planId=${plansWithUnread[0].plan_id}`);
+      return;
+    }
+    if (plansWithUnread.length > 1) {
+      setShowPanel(true);
+      return;
+    }
+
+    // No unread — fall back: single group → hub, multiple → family list.
     setPanelLoading(true);
-    setShowPanel(true);
     try {
       const data = await getFamilyPlans();
       if (!mounted.current) return;
-      const active = data.plans;
-      if (active.length === 1) {
-        // Single group — navigate immediately, skip the panel.
-        setShowPanel(false);
-        router.push(`/family/hub?planId=${active[0].plan_id}`);
+      if (data.plans.length === 1) {
+        router.push(`/family/hub?planId=${data.plans[0].plan_id}`);
         return;
       }
-      setPlans(active);
+      router.push('/family');
     } catch {
-      setPlans([]);
+      router.push('/family');
     } finally {
       if (mounted.current) setPanelLoading(false);
     }
@@ -284,9 +298,10 @@ export default function FamilyHubButton({
               background: 'rgba(13,31,36,.35)',
             }}
           />
-          {/* sheet */}
+          {/* sheet — constrained to the phone shell width (322px inner) */}
           <div style={{
-            position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 201,
+            position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)',
+            width: 322, zIndex: 201,
             background: '#fbf9f4', borderRadius: '20px 20px 0 0',
             padding: '0 0 40px', maxHeight: '60vh',
             display: 'flex', flexDirection: 'column',
@@ -316,18 +331,18 @@ export default function FamilyHubButton({
                 <p style={{ fontFamily: "'Space Mono',monospace", fontSize: '0.6rem', opacity: 0.4, textAlign: 'center', marginTop: 24 }}>
                   Loading…
                 </p>
-              ) : plans.length === 0 ? (
+              ) : plansWithUnread.length === 0 ? (
                 <p style={{ fontFamily: "'Space Mono',monospace", fontSize: '0.6rem', opacity: 0.4, textAlign: 'center', marginTop: 24 }}>
-                  No groups yet
+                  No new messages
                 </p>
-              ) : plans.map(p => {
-                const hasUnread = unread > 0 && p.hub_room_id;
+              ) : plansWithUnread.map(p => {
                 const ini = p.name.split(' ').map((w: string) => w[0] ?? '').join('').slice(0, 2).toUpperCase();
                 return (
                   <button
                     key={p.plan_id}
                     onClick={() => {
                       setShowPanel(false);
+                      setUnread(0);
                       router.push(`/family/hub?planId=${p.plan_id}`);
                     }}
                     style={{
@@ -359,13 +374,11 @@ export default function FamilyHubButton({
                         {p.is_admin ? ' · admin' : ''}
                       </p>
                     </div>
-                    {/* unread indicator */}
-                    {hasUnread && (
-                      <span style={{
-                        width: 10, height: 10, borderRadius: 5,
-                        background: '#c2675e', flexShrink: 0,
-                      }} />
-                    )}
+                    {/* unread dot — always shown since every item in this list has unread */}
+                    <span style={{
+                      width: 10, height: 10, borderRadius: 5,
+                      background: '#c2675e', flexShrink: 0,
+                    }} />
                     {/* chevron */}
                     <svg width="6" height="11" viewBox="0 0 6 11" fill="none" style={{ flexShrink: 0, opacity: 0.28 }}>
                       <path d="M1 1l4 4.5L1 10" stroke="#0d1f24" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
