@@ -13,8 +13,8 @@
  * allows three attempts, mirroring PAL's existing OTP flow.
  */
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import PhoneShell from '@/components/layout/PhoneShell';
 import TabBar from '@/components/layout/TabBar';
 import {
@@ -59,8 +59,13 @@ const labelStyle: React.CSSProperties = {
   display: 'block',
 };
 
-export default function FamilyInvitePage() {
+function FamilyInviteInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // planId from URL — tells us which group to add the member to.
+  // Without it we fall back to the user's first/only plan (legacy path).
+  const planId = searchParams.get('planId') ?? undefined;
+
   const [mode, setMode] = useState<Mode>('invite');
   const [plan, setPlan] = useState<FamilyPlanInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,23 +87,25 @@ export default function FamilyInvitePage() {
   const [joinCode, setJoinCode] = useState('');
 
   useEffect(() => {
-    getFamilyPlan()
+    // Load the specific group if planId given, else the user's default plan.
+    getFamilyPlan(planId)
       .then(p => {
         setPlan(p);
         if (!p) setMode('join');
       })
       .catch(() => setPlan(null))
       .finally(() => setLoading(false));
-  }, []);
+  }, [planId]);
 
   async function ensurePlan(): Promise<boolean> {
     if (plan) return true;
+    // No planId — create a fresh plan (first-time user flow).
     try {
       const nm = typeof window !== 'undefined'
         ? localStorage.getItem('pal_user_name') || localStorage.getItem('pal_full_name') || 'Me'
         : 'Me';
       await createFamilyPlan({ name: `${nm}'s Family`, display_name: nm });
-      invalidateFamilyPlanCache();   // so the AppBar Hub button appears at once
+      invalidateFamilyPlanCache();
       const p = await getFamilyPlan();
       setPlan(p);
       return !!p;
@@ -118,6 +125,7 @@ export default function FamilyInvitePage() {
     setBusy(true);
     if (await ensurePlan()) {
       try {
+        // Pass planId so the member is added to the correct group, not the default one.
         const r = await inviteMember({
           display_name: name.trim(),
           phone: phone.replace(/[\s-]/g, ''),
@@ -125,7 +133,7 @@ export default function FamilyInvitePage() {
           role,
           date_of_birth: dob || undefined,
           is_billing_delegate: delegate,
-        });
+        }, planId);
         setIssuedCode(r.invite_code);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not send the invitation');
@@ -150,6 +158,7 @@ export default function FamilyInvitePage() {
   return (
     <PhoneShell>
       <div style={{ height: 28 }} />
+
 
       <div style={{
         padding: '10px 18px 10px', flexShrink: 0, borderBottom: '1px solid var(--line)',
@@ -296,7 +305,7 @@ export default function FamilyInvitePage() {
                   Invite another
                 </button>
                 <button
-                  onClick={() => router.push('/family')}
+                  onClick={() => router.push(planId ? `/family/hub?planId=${planId}` : '/family')}
                   style={{
                     background: '#37b59b', color: '#0c2429', border: 'none', borderRadius: 11,
                     padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
@@ -374,5 +383,14 @@ export default function FamilyInvitePage() {
 
       <TabBar />
     </PhoneShell>
+  );
+}
+
+/* Suspense required because FamilyInviteInner uses useSearchParams (App Router). */
+export default function FamilyInvitePage() {
+  return (
+    <Suspense fallback={null}>
+      <FamilyInviteInner />
+    </Suspense>
   );
 }
