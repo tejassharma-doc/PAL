@@ -168,8 +168,9 @@ function JoinGroupModal({
   const [err, setErr] = useState<string | null>(null);
 
   async function submit() {
-    const ph = phone.trim();
-    const cd = code.trim().toUpperCase();
+    // Normalize to E.164 — strip spaces and hyphens so it matches the stored invite.
+    const ph = phone.trim().replace(/[\s-]/g, '');
+    const cd = code.trim();
     if (!ph || !cd) return;
     setBusy(true);
     setErr(null);
@@ -199,36 +200,41 @@ function JoinGroupModal({
           Ask the group admin for an invite code, then enter it below.
         </p>
         <input
-          placeholder="Your phone number (e.g. +919876543210)"
+          placeholder="+919876543210"
           value={phone}
           onChange={e => setPhone(e.target.value)}
           type="tel"
+          inputMode="tel"
           style={{
             width: '100%', padding: '12px 14px', borderRadius: 12,
             border: '1px solid var(--line-2)', fontSize: 14,
-            fontFamily: 'inherit', marginBottom: 10, boxSizing: 'border-box',
+            fontFamily: 'inherit', marginBottom: 4, boxSizing: 'border-box',
           }}
         />
+        <p style={{ fontFamily: 'var(--mono)', fontSize: '0.55rem', color: 'rgba(13,31,36,.35)', marginBottom: 10, lineHeight: 1.5 }}>
+          Use the phone number the admin sent the code to.
+        </p>
         <input
-          placeholder="Invite code (e.g. A3X9K2)"
+          placeholder="6-digit code"
           value={code}
-          onChange={e => setCode(e.target.value.toUpperCase())}
-          maxLength={10}
+          onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+          inputMode="numeric"
+          maxLength={6}
           style={{
             width: '100%', padding: '12px 14px', borderRadius: 12,
-            border: '1px solid var(--line-2)', fontSize: 14,
-            fontFamily: 'var(--mono)', letterSpacing: '0.12em',
-            marginBottom: 16, boxSizing: 'border-box',
+            border: '1px solid var(--line-2)', fontSize: 18,
+            fontFamily: 'var(--mono)', letterSpacing: '0.22em',
+            marginBottom: 16, boxSizing: 'border-box', textAlign: 'center',
           }}
         />
         {err && <p style={{ color: '#c2675e', fontSize: 12.5, marginBottom: 10 }}>{err}</p>}
         <button
           onClick={submit}
-          disabled={busy || !phone.trim() || !code.trim()}
+          disabled={busy || !phone.trim() || code.length < 6}
           style={{
             width: '100%', background: '#37b59b', color: '#0c2429', border: 'none',
             borderRadius: 13, padding: '13px 0', fontSize: 15, fontWeight: 600,
-            cursor: 'pointer', opacity: busy ? 0.6 : 1,
+            cursor: 'pointer', opacity: (busy || !phone.trim() || code.length < 6) ? 0.5 : 1,
           }}
         >
           {busy ? 'Joining…' : 'Join group'}

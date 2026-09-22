@@ -109,6 +109,20 @@ class AcceptInviteIn(BaseModel):
     phone: str = Field(min_length=6, max_length=30)
     code: str = Field(min_length=4, max_length=10)
 
+    @field_validator("phone")
+    @classmethod
+    def _normalise_phone(cls, v: str) -> str:
+        """Strip spaces and hyphens so accept always matches the stored E.164 value."""
+        v = v.strip().replace(" ", "").replace("-", "")
+        if not v.startswith("+") or not v[1:].isdigit():
+            raise ValueError("phone must be in international format, e.g. +919876543210")
+        return v
+
+    @field_validator("code")
+    @classmethod
+    def _normalise_code(cls, v: str) -> str:
+        return v.strip()
+
 
 class UpdateMemberIn(BaseModel):
     role: Optional[Literal["admin", "adult", "dependent_adult", "minor"]] = None
