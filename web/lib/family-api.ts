@@ -24,7 +24,20 @@ function jsonHeaders(): Record<string, string> {
 async function unwrap<T>(res: Response, what: string): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error((body as Record<string, string>).detail || `${what} failed (${res.status})`);
+    const detail = (body as Record<string, unknown>).detail;
+    // FastAPI HTTPException → detail is a string.
+    // Pydantic 422 ValidationError → detail is an array of {loc, msg, type} objects.
+    let message: string;
+    if (typeof detail === 'string') {
+      message = detail;
+    } else if (Array.isArray(detail)) {
+      message = detail
+        .map((e: Record<string, unknown>) => String(e.msg ?? e.message ?? e))
+        .join('; ');
+    } else {
+      message = `${what} failed (${res.status})`;
+    }
+    throw new Error(message);
   }
   return (await res.json()) as T;
 }

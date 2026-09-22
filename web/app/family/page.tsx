@@ -162,16 +162,21 @@ function JoinGroupModal({
   onClose: () => void;
   onJoined: () => void;
 }) {
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState('+91');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   async function submit() {
-    // Normalize to E.164 — strip spaces and hyphens so it matches the stored invite.
+    // Normalize to E.164 — strip spaces and hyphens.
     const ph = phone.trim().replace(/[\s-]/g, '');
     const cd = code.trim();
-    if (!ph || !cd) return;
+    if (!ph || cd.length < 6) return;
+    // Front-end guard: must start with + and be all digits after.
+    if (!/^\+\d{6,}$/.test(ph)) {
+      setErr('Phone must be in international format, e.g. +919876543210');
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
