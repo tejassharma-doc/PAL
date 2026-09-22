@@ -22,7 +22,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { chatUnreadCount, getFamilyPlan } from '@/lib/family-api';
+import { chatUnreadCount, getFamilyPlan, getFamilyPlans, type FamilyPlanListItem } from '@/lib/family-api';
 import { CHAT_READ_EVENT } from '@/lib/chatSocket';
 import { useChatSocket, type ChatFrame } from '@/lib/useChatSocket';
 
@@ -127,6 +127,9 @@ export default function FamilyHubButton({
 
   const [available, setAvailable] = useState<boolean>(forceVisible);
   const [unread, setUnread] = useState<number>(initialUnread ?? 0);
+  const [showPanel, setShowPanel] = useState(false);
+  const [plans, setPlans] = useState<FamilyPlanListItem[]>([]);
+  const [panelLoading, setPanelLoading] = useState(false);
   const mounted = useRef(true);
 
   // The shared singleton socket — this does NOT open a second connection.
@@ -192,59 +195,202 @@ export default function FamilyHubButton({
     };
   }, [available, forceVisible, refresh]);
 
+  // Close panel when route changes (user navigated away).
+  useEffect(() => { setShowPanel(false); }, [pathname]);
+
+  async function handleClick() {
+    if (showPanel) { setShowPanel(false); return; }
+    setUnread(0);
+    setPanelLoading(true);
+    setShowPanel(true);
+    try {
+      const data = await getFamilyPlans();
+      if (!mounted.current) return;
+      const active = data.plans;
+      if (active.length === 1) {
+        // Single group — navigate immediately, skip the panel.
+        setShowPanel(false);
+        router.push(`/family/hub?planId=${active[0].plan_id}`);
+        return;
+      }
+      setPlans(active);
+    } catch {
+      setPlans([]);
+    } finally {
+      if (mounted.current) setPanelLoading(false);
+    }
+  }
+
   if (!available) return null;
 
-  const onHub = pathname === href;
-  const label = unread > 0 ? `Family Care Hub, ${unread} unread` : 'Family Care Hub';
+  const onHub = pathname.startsWith('/family/hub');
+  const label = unread > 0 ? `Family groups, ${unread} unread` : 'Family groups';
 
   return (
-    <button
-      onClick={() => {
-        setUnread(0);
-        router.push(href);
-      }}
-      aria-label={label}
-      title={label}
-      style={{
-        width: size,
-        height: size,
-        borderRadius: Math.round(size * 0.32),
-        border: onHub ? '1px solid rgba(55,181,155,.55)' : '1px solid rgba(13,31,36,.10)',
-        background: '#fff',
-        cursor: 'pointer',
-        display: 'grid',
-        placeItems: 'center',
-        position: 'relative',
-        flexShrink: 0,
-        padding: 0,
-      }}
-    >
-      <ChatBubblesIcon size={Math.round(size * 0.56)} color={onHub ? '#1f7d6b' : '#0d1f24'} />
+    <>
+      <button
+        onClick={handleClick}
+        aria-label={label}
+        title={label}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: Math.round(size * 0.32),
+          border: (onHub || showPanel) ? '1px solid rgba(55,181,155,.55)' : '1px solid rgba(13,31,36,.10)',
+          background: '#fff',
+          cursor: 'pointer',
+          display: 'grid',
+          placeItems: 'center',
+          position: 'relative',
+          flexShrink: 0,
+          padding: 0,
+        }}
+      >
+        <ChatBubblesIcon size={Math.round(size * 0.56)} color={(onHub || showPanel) ? '#1f7d6b' : '#0d1f24'} />
 
-      {unread > 0 ? (
-        <span
-          style={{
-            position: 'absolute',
-            top: -4,
-            right: -4,
-            minWidth: 16,
-            height: 16,
-            borderRadius: 8,
-            background: '#c2675e',
-            color: '#fff',
-            fontFamily: "'Space Mono', monospace",
-            fontSize: '0.54rem',
-            fontWeight: 700,
-            display: 'grid',
-            placeItems: 'center',
-            padding: unread > 9 ? '0 4px' : 0,
-            lineHeight: 1,
-          }}
-        >
-          {unread > 9 ? '9+' : unread}
-        </span>
-      ) : null}
-    </button>
+        {unread > 0 ? (
+          <span
+            style={{
+              position: 'absolute',
+              top: -4,
+              right: -4,
+              minWidth: 16,
+              height: 16,
+              borderRadius: 8,
+              background: '#c2675e',
+              color: '#fff',
+              fontFamily: "'Space Mono', monospace",
+              fontSize: '0.54rem',
+              fontWeight: 700,
+              display: 'grid',
+              placeItems: 'center',
+              padding: unread > 9 ? '0 4px' : 0,
+              lineHeight: 1,
+            }}
+          >
+            {unread > 9 ? '9+' : unread}
+          </span>
+        ) : null}
+      </button>
+
+      {/* Notification panel — fixed overlay, bottom sheet */}
+      {showPanel && (
+        <>
+          {/* backdrop */}
+          <div
+            onClick={() => setShowPanel(false)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 200,
+              background: 'rgba(13,31,36,.35)',
+            }}
+          />
+          {/* sheet */}
+          <div style={{
+            position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 201,
+            background: '#fbf9f4', borderRadius: '20px 20px 0 0',
+            padding: '0 0 40px', maxHeight: '60vh',
+            display: 'flex', flexDirection: 'column',
+            boxShadow: '0 -8px 32px rgba(0,0,0,.18)',
+          }}>
+            {/* handle */}
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 6px' }}>
+              <div style={{ width: 36, height: 4, borderRadius: 2, background: 'rgba(13,31,36,.14)' }} />
+            </div>
+
+            {/* title */}
+            <div style={{ padding: '4px 18px 14px', display: 'flex', alignItems: 'center' }}>
+              <p style={{ fontFamily: "'Newsreader', serif", fontWeight: 300, fontSize: '1.15rem', flex: 1 }}>
+                Family groups
+              </p>
+              <button
+                onClick={() => setShowPanel(false)}
+                style={{ background: 'none', border: 'none', fontSize: 20, color: 'rgba(13,31,36,.4)', cursor: 'pointer', padding: 0 }}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* content */}
+            <div style={{ overflowY: 'auto', flex: 1, padding: '0 14px' }}>
+              {panelLoading ? (
+                <p style={{ fontFamily: "'Space Mono',monospace", fontSize: '0.6rem', opacity: 0.4, textAlign: 'center', marginTop: 24 }}>
+                  Loading…
+                </p>
+              ) : plans.length === 0 ? (
+                <p style={{ fontFamily: "'Space Mono',monospace", fontSize: '0.6rem', opacity: 0.4, textAlign: 'center', marginTop: 24 }}>
+                  No groups yet
+                </p>
+              ) : plans.map(p => {
+                const hasUnread = unread > 0 && p.hub_room_id;
+                const ini = p.name.split(' ').map((w: string) => w[0] ?? '').join('').slice(0, 2).toUpperCase();
+                return (
+                  <button
+                    key={p.plan_id}
+                    onClick={() => {
+                      setShowPanel(false);
+                      router.push(`/family/hub?planId=${p.plan_id}`);
+                    }}
+                    style={{
+                      width: '100%', textAlign: 'left', cursor: 'pointer',
+                      background: '#fff', border: '1px solid var(--line, rgba(13,31,36,.1))',
+                      borderRadius: 14, padding: '12px 13px', marginBottom: 9,
+                      display: 'flex', alignItems: 'center', gap: 12,
+                    }}
+                  >
+                    {/* avatar */}
+                    <div style={{
+                      width: 42, height: 42, borderRadius: 12, flexShrink: 0,
+                      background: p.is_admin
+                        ? 'linear-gradient(150deg,#13343b,#0c2429)'
+                        : 'linear-gradient(150deg,#5a8fa8,#33607a)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: '#fff', fontWeight: 700, fontSize: 15,
+                      fontFamily: "'Newsreader',serif",
+                    }}>
+                      {ini}
+                    </div>
+                    {/* info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 14, fontWeight: 600, color: '#0d1f24', marginBottom: 2 }}>
+                        {p.name}
+                      </p>
+                      <p style={{ fontFamily: "'Space Mono',monospace", fontSize: '0.58rem', color: 'rgba(13,31,36,.42)' }}>
+                        {p.member_count} member{p.member_count !== 1 ? 's' : ''}
+                        {p.is_admin ? ' · admin' : ''}
+                      </p>
+                    </div>
+                    {/* unread indicator */}
+                    {hasUnread && (
+                      <span style={{
+                        width: 10, height: 10, borderRadius: 5,
+                        background: '#c2675e', flexShrink: 0,
+                      }} />
+                    )}
+                    {/* chevron */}
+                    <svg width="6" height="11" viewBox="0 0 6 11" fill="none" style={{ flexShrink: 0, opacity: 0.28 }}>
+                      <path d="M1 1l4 4.5L1 10" stroke="#0d1f24" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                );
+              })}
+
+              {/* view all link */}
+              <button
+                onClick={() => { setShowPanel(false); router.push('/family'); }}
+                style={{
+                  width: '100%', background: 'none', border: 'none',
+                  color: 'rgba(13,31,36,.4)', fontFamily: "'Space Mono',monospace",
+                  fontSize: '0.6rem', cursor: 'pointer', padding: '8px 0 4px',
+                  textAlign: 'center',
+                }}
+              >
+                View all groups →
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </>
   );
 }
 
