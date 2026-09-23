@@ -1,32 +1,16 @@
 'use client';
 
-/**
- * /family/invite — admin invites a member by phone; anyone can claim a seat.
- *
- * Two modes on one screen, because the same household uses both:
- *   • Invite  — the admin creates a seat tagged to a phone number and gets a
- *               6-digit code to pass on. The seat exists immediately, so care
- *               coordination can start before the invitee installs anything.
- *   • Join    — someone who received a code claims their seat.
- *
- * The code is shown exactly once. The server stores only its SHA-256 hash and
- * allows three attempts, mirroring PAL's existing OTP flow.
- */
-
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import PhoneShell from '@/components/layout/PhoneShell';
 import TabBar from '@/components/layout/TabBar';
 import {
-  acceptInvite,
   createFamilyPlan,
   getFamilyPlan,
   inviteMember,
   type FamilyPlanInfo,
 } from '@/lib/family-api';
 import { invalidateFamilyPlanCache } from '@/components/family/FamilyHubButton';
-
-type Mode = 'invite' | 'join';
 
 const RELATIONSHIPS = [
   { value: 'spouse', label: 'Spouse' },
@@ -66,13 +50,11 @@ function FamilyInviteInner() {
   // Without it we fall back to the user's first/only plan (legacy path).
   const planId = searchParams.get('planId') ?? undefined;
 
-  const [mode, setMode] = useState<Mode>('invite');
   const [plan, setPlan] = useState<FamilyPlanInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [issuedCode, setIssuedCode] = useState<string | null>(null);
-  const [joined, setJoined] = useState<string | null>(null);
 
   // invite form
   const [name, setName] = useState('');
@@ -82,17 +64,9 @@ function FamilyInviteInner() {
   const [dob, setDob] = useState('');
   const [delegate, setDelegate] = useState(false);
 
-  // join form
-  const [joinPhone, setJoinPhone] = useState('+91');
-  const [joinCode, setJoinCode] = useState('');
-
   useEffect(() => {
-    // Load the specific group if planId given, else the user's default plan.
     getFamilyPlan(planId)
-      .then(p => {
-        setPlan(p);
-        if (!p) setMode('join');
-      })
+      .then(p => setPlan(p))
       .catch(() => setPlan(null))
       .finally(() => setLoading(false));
   }, [planId]);
@@ -142,19 +116,6 @@ function FamilyInviteInner() {
     setBusy(false);
   }
 
-  async function handleJoin() {
-    setError(null);
-    setBusy(true);
-    try {
-      const r = await acceptInvite(joinPhone.replace(/[\s-]/g, ''), joinCode.trim());
-      invalidateFamilyPlanCache();   // the seat is claimed — reveal the Hub button
-      setJoined(r.note);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not join');
-    }
-    setBusy(false);
-  }
-
   return (
     <PhoneShell>
       <div style={{ height: 28 }} />
@@ -190,30 +151,8 @@ function FamilyInviteInner() {
 
         {!loading && (
           <>
-            {/* mode switch */}
-            <div style={{
-              display: 'flex', gap: 6, background: 'rgba(13,31,36,.04)',
-              borderRadius: 12, padding: 4, marginBottom: 16,
-            }}>
-              {(['invite', 'join'] as Mode[]).map(m => (
-                <button
-                  key={m}
-                  onClick={() => { setMode(m); setError(null); }}
-                  style={{
-                    flex: 1, border: 'none', borderRadius: 9, padding: '7px 0',
-                    fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
-                    background: mode === m ? '#fff' : 'transparent',
-                    color: mode === m ? 'var(--ink)' : 'rgba(13,31,36,.45)',
-                    boxShadow: mode === m ? 'var(--shadow-sm)' : 'none',
-                  }}
-                >
-                  {m === 'invite' ? 'Invite someone' : 'I have a code'}
-                </button>
-              ))}
-            </div>
-
             {/* ── INVITE ─────────────────────────────────────────────────── */}
-            {mode === 'invite' && !issuedCode && (
+            {!issuedCode && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
                 <div>
                   <label style={labelStyle}>Their name</label>
@@ -281,7 +220,7 @@ function FamilyInviteInner() {
             )}
 
             {/* invite code result */}
-            {mode === 'invite' && issuedCode && (
+            {issuedCode && (
               <div style={{
                 background: '#fff', border: '1px solid rgba(55,181,155,.45)', borderRadius: 14,
                 padding: 18, textAlign: 'center',
@@ -316,67 +255,6 @@ function FamilyInviteInner() {
               </div>
             )}
 
-            {/* ── JOIN ───────────────────────────────────────────────────── */}
-            {mode === 'join' && !joined && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
-                <div>
-                  <label style={labelStyle}>Your phone</label>
-                  <input style={inputStyle} value={joinPhone} onChange={e => setJoinPhone(e.target.value)} inputMode="tel" />
-                </div>
-                <div>
-                  <label style={labelStyle}>Invitation code</label>
-                  <input
-                    style={{ ...inputStyle, fontFamily: 'var(--mono)', letterSpacing: '0.2em', fontSize: 16 }}
-                    value={joinCode}
-                    onChange={e => setJoinCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="000000"
-                    inputMode="numeric"
-                  />
-                </div>
-
-                {error && (
-                  <p style={{ fontFamily: 'var(--mono)', fontSize: '0.6rem', color: 'var(--rose)', lineHeight: 1.6 }}>
-                    {error}
-                  </p>
-                )}
-
-                <button
-                  onClick={handleJoin}
-                  disabled={busy || joinCode.length < 4}
-                  style={{
-                    background: joinCode.length >= 4 ? '#37b59b' : 'rgba(13,31,36,.08)',
-                    color: joinCode.length >= 4 ? '#0c2429' : 'rgba(13,31,36,.35)',
-                    border: 'none', borderRadius: 12, padding: '12px 0',
-                    fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: busy ? 0.6 : 1,
-                  }}
-                >
-                  {busy ? 'Joining…' : 'Join family'}
-                </button>
-              </div>
-            )}
-
-            {mode === 'join' && joined && (
-              <div style={{
-                background: '#fff', border: '1px solid rgba(55,181,155,.45)',
-                borderRadius: 14, padding: 18, textAlign: 'center',
-              }}>
-                <p style={{ fontFamily: 'var(--serif)', fontSize: '1.2rem', fontWeight: 300, marginBottom: 8 }}>
-                  You&apos;re in.
-                </p>
-                <p style={{ fontSize: 12.5, color: 'rgba(13,31,36,.55)', lineHeight: 1.7, marginBottom: 16 }}>
-                  {joined}
-                </p>
-                <button
-                  onClick={() => router.push('/family')}
-                  style={{
-                    background: '#37b59b', color: '#0c2429', border: 'none', borderRadius: 11,
-                    padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                  }}
-                >
-                  Go to Family
-                </button>
-              </div>
-            )}
           </>
         )}
       </div>

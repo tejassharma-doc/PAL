@@ -491,9 +491,81 @@ async def receive_inutrimon_webhook(
         )
 
 
+# Invoice / Payment Confirmation Webhook - NO AUTH REQUIRED
+@app.post("/api/v1/webhook/invoice", response_model=WebhookResponse)
+async def receive_invoice_webhook(
+    request: Request,
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """
+    Receive payment/invoice confirmation from DocEHR (or any source).
+    Accepts any JSON — no schema enforced. Raw data is stored and logged.
+    Distribution into specific tables comes later once the shape is confirmed.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    headers = dict(request.headers)
+    timestamp = datetime.utcnow()
+
+    print("========== INVOICE WEBHOOK RECEIVED ==========")
+    print(f"Timestamp : {timestamp.isoformat()}")
+    print(f"Source    : {headers.get('x-webhook-source', 'unknown')}")
+    print(f"Payload   : {json.dumps(payload, indent=2)}")
+    print("==============================================")
+
+    webhook_id = None
+
+    try:
+        event_type = payload.get("event", "invoice")
+        source = headers.get("x-webhook-source") or payload.get("source", "docehr")
+
+        row = await db.fetchrow(
+            """
+            INSERT INTO webhook_events
+                (event_type, source, timestamp, payload, headers, processed)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id, timestamp, event_type
+            """,
+            event_type,
+            source,
+            timestamp,
+            json.dumps(payload),
+            json.dumps(headers),
+            False,
+        )
+
+        webhook_id = str(row["id"])
+        print(f"✅ Invoice webhook stored — id: {webhook_id}")
+
+        return WebhookResponse(
+            success=True,
+            message="Invoice webhook received and stored",
+            webhook_id=webhook_id,
+            timestamp=str(row["timestamp"]),
+            event_type=row["event_type"],
+            dataReceived=len(payload) > 0,
+        )
+
+    except Exception as error:
+        print(f"❌ Error storing invoice webhook: {error}")
+        import traceback
+        traceback.print_exc()
+
+        return WebhookResponse(
+            success=True,
+            message="Invoice webhook received (storage pending)",
+            webhook_id=webhook_id,
+            dataReceived=len(payload) > 0,
+        )
+
+
 if __name__ == "__main__":
     import uvicorn
     print(f"🚀 Starting PAL MCP API on port {PORT}")
-    print(f"📍 Webhook endpoint: http://localhost:{PORT}/api/v1/webhook")
-    print(f"📍 iNutriMon webhook: http://localhost:{PORT}/api/v1/webhook-inutrimon")
+    print(f"📍 Webhook endpoint:         http://localhost:{PORT}/api/v1/webhook")
+    print(f"📍 iNutriMon webhook:        http://localhost:{PORT}/api/v1/webhook-inutrimon")
+    print(f"📍 Invoice/payment webhook:  http://localhost:{PORT}/api/v1/webhook/invoice")
     uvicorn.run(app, host="0.0.0.0", port=PORT)

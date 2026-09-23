@@ -417,10 +417,15 @@ function HubPageInner() {
   const [showMembers, setShowMembers] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const myUserIdRef = useRef<string | null>(null);
   const chat = useChatSocket({ enabled: !!hub });
+  // Stable callbacks from the hook (useCallback([])) — safe as effect deps.
+  const { state: socketState, connected: socketConnected, onMessage, joinRoom: joinChatRoom, sendRoom: sendChatRoom, markRead: markChatRead } = chat;
 
   useEffect(() => {
-    setMyUserId(typeof window === 'undefined' ? null : localStorage.getItem('pal_user_id'));
+    const id = typeof window === 'undefined' ? null : localStorage.getItem('pal_user_id');
+    setMyUserId(id);
+    myUserIdRef.current = id;
   }, []);
 
   // Load hub + history.
@@ -458,15 +463,18 @@ function HubPageInner() {
     return () => { cancelled = true; };
   }, [planId]);
 
-  // Join room once socket is up.
+  // Join room once socket is open. Stable deps: socketConnected is a boolean,
+  // joinChatRoom is from useCallback([]), hub.room_id is set once on load.
   useEffect(() => {
-    if (chat.connected && hub) chat.joinRoom(hub.room_id);
-  }, [chat.connected, hub, chat]);
+    if (socketConnected && hub) joinChatRoom(hub.room_id);
+  }, [socketConnected, hub, joinChatRoom]);
 
-  // Live frames.
+  // Live frame handler. Runs once when hub loads (hub/onMessage/markChatRead are
+  // all stable after that). myUserIdRef is used instead of myUserId to avoid
+  // re-registering the listener every time the user id resolves from localStorage.
   useEffect(() => {
     if (!hub) return;
-    return chat.onMessage((f: ChatFrame) => {
+    return onMessage((f: ChatFrame) => {
       if (f.type !== 'room_message') return;
       if (f.room_id !== hub.room_id) return;
       const incoming: ChatMessage = {
@@ -482,12 +490,12 @@ function HubPageInner() {
         created_at: String(f.timestamp ?? new Date().toISOString()),
       };
       setMessages(prev => (prev.some(m => m.id === incoming.id) ? prev : [...prev, incoming]));
-      if (incoming.sender_id !== myUserId) {
-        chat.markRead(incoming.id);
+      if (incoming.sender_id !== myUserIdRef.current) {
+        markChatRead(incoming.id);
         announceChatRead();
       }
     });
-  }, [chat, hub, myUserId]);
+  }, [hub, onMessage, markChatRead]);
 
   // Pin to bottom.
   useEffect(() => {
@@ -501,7 +509,7 @@ function HubPageInner() {
     setSending(true);
     setDraft('');
 
-    const viaSocket = chat.connected && chat.sendRoom(hub.room_id, text);
+    const viaSocket = socketConnected && sendChatRoom(hub.room_id, text);
     if (!viaSocket) {
       try {
         await sendRoomMessageRest(hub.room_id, text);
@@ -517,7 +525,7 @@ function HubPageInner() {
       ...prev,
       {
         id: `local-${Date.now()}`,
-        sender_id: myUserId ?? 'me',
+        sender_id: myUserIdRef.current ?? 'me',
         sender_name: 'You',
         content: text,
         content_type: 'text',
@@ -529,14 +537,14 @@ function HubPageInner() {
       },
     ]);
     setSending(false);
-  }, [draft, hub, sending, chat, myUserId]);
+  }, [draft, hub, sending, socketConnected, sendChatRoom]);
 
   function handlePaid(paymentId: string) {
     listPayments().catch(() => undefined);
   }
 
   const connLabel =
-    chat.state === 'open' ? 'live' : chat.state === 'connecting' ? 'connecting…' : 'offline';
+    socketState === 'open' ? 'live' : socketState === 'connecting' ? 'connecting…' : 'offline';
 
   return (
     <PhoneShell>

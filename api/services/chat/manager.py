@@ -140,7 +140,7 @@ class ConnectionManager:
 
     # ── connection registry ──────────────────────────────────────────────────
     async def connect(self, websocket: WebSocket, user_id: str) -> None:
-        await websocket.accept()
+        # websocket is already accepted by the endpoint before calling connect()
         self._connections.setdefault(str(user_id), set()).add(websocket)
         logger.debug("chat: WS connected user=%s users=%d", user_id, len(self._connections))
 
