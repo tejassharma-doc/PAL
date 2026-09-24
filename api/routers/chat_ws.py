@@ -96,10 +96,6 @@ async def chat_socket(websocket: WebSocket, token: str = Query(default="")) -> N
         await websocket.close(code=WS_CLOSE_UNAUTHORIZED)
         return
 
-    # ✅ SECURITY FIX (HIGH-008): Accept connection for authenticated users
-    # Token validated above - safe to accept connection now
-    await websocket.accept()
-
     user_id = str(user.id)
     await manager.connect(websocket, user_id)
 
@@ -184,7 +180,7 @@ async def chat_socket(websocket: WebSocket, token: str = Query(default="")) -> N
                     await _err(websocket, "FORBIDDEN", "Not a member of this room")
                     continue
 
-                msg_id = await persist_message(
+                msg_id, created_at = await persist_message(
                     sender_id=user_id,
                     message_type="room",
                     content=content,
@@ -202,7 +198,8 @@ async def chat_socket(websocket: WebSocket, token: str = Query(default="")) -> N
                         "content": content,
                         "content_type": (msg.get("message_subtype") or "text"),
                         "reply_to_id": msg.get("reply_to_id"),
-                        "timestamp": _now_iso(),
+                        # The row's created_at, not "now" — see persist_message.
+                        "timestamp": created_at,
                         **sender,
                     },
                     exclude_user=user_id,
@@ -221,7 +218,7 @@ async def chat_socket(websocket: WebSocket, token: str = Query(default="")) -> N
                     await _err(websocket, "MESSAGE_TOO_LONG")
                     continue
 
-                msg_id = await persist_message(
+                msg_id, created_at = await persist_message(
                     sender_id=user_id,
                     message_type="dm",
                     content=content,
@@ -234,7 +231,8 @@ async def chat_socket(websocket: WebSocket, token: str = Query(default="")) -> N
                         "message_id": msg_id,
                         "from": user_id,
                         "content": content,
-                        "timestamp": _now_iso(),
+                        # The row's created_at, not "now" — see persist_message.
+                        "timestamp": created_at,
                         **sender,
                     },
                 )

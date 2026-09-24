@@ -1,15 +1,12 @@
 """PAL API — main FastAPI application."""
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
 
 from config import get_settings
 from database import init_db
-from routers import auth, auth_v2, auth_new, phone_auth, records, search, conversations, admin, follow_up, upload, appointment, analytics, credits, medical_doc, user_profile, patients, visits, lab_tests, prescriptions, hermes_chat
+from routers import auth, auth_v2, auth_new, records, search, conversations, admin, follow_up, upload, appointment, analytics, credits, medical_doc, user_profile, patients, visits, lab_tests, prescriptions, hermes_chat
 
 
 @asynccontextmanager
@@ -42,28 +39,12 @@ async def lifespan(app: FastAPI):
             import logging
             logging.getLogger(__name__).error("chat: startup failed, continuing: %s", exc)
 
-        # Membership cache — keeps is_room_member() off PostgreSQL on the
-        # subscription-token hot path. startup() never raises; if Redis is
-        # unreachable it logs and every lookup falls through to the database,
-        # which is exactly today's behaviour.
-        try:
-            from services.chat import cache as chat_cache
-            await chat_cache.startup()
-        except Exception as exc:  # noqa: BLE001
-            import logging
-            logging.getLogger(__name__).warning("chat: membership cache off: %s", exc)
-
     yield
 
     if _chat_started:
         try:
             from services.chat.manager import manager as chat_manager
             await chat_manager.shutdown()
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            from services.chat import cache as chat_cache
-            await chat_cache.shutdown()
         except Exception:  # noqa: BLE001
             pass
 
@@ -74,19 +55,12 @@ async def lifespan(app: FastAPI):
 
 settings = get_settings()
 
-# ✅ SECURITY FIX (HIGH-004): Initialize rate limiter
-limiter = Limiter(key_func=get_remote_address)
-
 app = FastAPI(
     title="PAL API",
     description="Patient-owned health record + Universal Health Search",
     version="0.1.0",
     lifespan=lifespan,
 )
-
-# Add rate limiter to app state
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -99,7 +73,6 @@ app.add_middleware(
 app.include_router(auth.router)  # Legacy auth endpoints
 app.include_router(auth_v2.router, prefix="/v2")  # Auth with sessions (old signup removed)
 app.include_router(auth_new.router, prefix="/v3")  # New signup/login with users+patients
-app.include_router(phone_auth.router)  # Phone OTP authentication (auto-creates users)
 app.include_router(user_profile.router)  # User profile and credits
 app.include_router(patients.router)  # Patient CRUD
 app.include_router(records.router)
@@ -124,7 +97,7 @@ app.include_router(medical_doc.router)
 # /notifications, /family.
 if settings.chat_enabled:
     from routers import chat as chat_rest, chat_ws, notifications as notifications_rest
-    from routers import chat_realtime
+    from routers import chat_realtime, chat_sse
     from services.chat.manager import effective_transport as _chat_transport
 
     # The native socket stays mounted so CHAT_TRANSPORT=native is a working
@@ -132,23 +105,24 @@ if settings.chat_enabled:
     app.include_router(chat_ws.router)             # WS  /ws/chat
     app.include_router(chat_rest.router)           # REST /chat/*
     app.include_router(chat_realtime.router)       # REST /chat/realtime/*
+    # SSE /chat/stream — realtime over plain HTTP, so it survives the proxies
+    # and uvicorn builds where a WebSocket upgrade silently 404s. See
+    # routers/chat_sse.py for why that failure mode is the one that matters.
+    #
+    # Gated on the SAME flag that keeps the Redis bus alive. Mounting the route
+    # while the bus is off would be worse than not mounting it: the stream
+    # would connect, look healthy, and deliver only the messages that happened
+    # to be sent by the same pod — intermittent, load-balancer-dependent loss
+    # with nothing in any log. Off means off; the client then falls cleanly
+    # through to polling.
+    if settings.chat_sse_enabled:
+        app.include_router(chat_sse.router)        # SSE  /chat/stream
     app.include_router(notifications_rest.router)  # REST /notifications/*
 
 if settings.family_plan_enabled:
     from routers import family as family_router
 
     app.include_router(family_router.router)       # REST /family/*
-
-# ── Prometheus instrumentation (OPT-IN, default off) ─────────────────────────
-# METRICS_ENABLED defaults to False, so by default this adds no middleware and
-# no route and the route table is unchanged. See deploy/observability/ and
-# SCALE_ASSESSMENT.md — the Centrifugo dashboard cannot see the two things most
-# likely to break at scale, both of which live in this process.
-_metrics_on = False
-if settings.metrics_enabled:
-    from services.observability import install_metrics
-
-    _metrics_on = install_metrics(app)   # False if prometheus_client is absent
 
 
 @app.get("/health")
@@ -164,6 +138,5 @@ async def health():
             "chat": settings.chat_enabled,
             "chat_transport": _chat_transport() if settings.chat_enabled else None,
             "family_plan": settings.family_plan_enabled,
-            "metrics": _metrics_on,
         },
     }

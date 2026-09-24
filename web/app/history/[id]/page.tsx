@@ -23,7 +23,6 @@ export default function ThreadPage() {
         person={ANIL}
         showBack
         onBack={() => router.back()}
-        badgeCount={3}
       />
 
       <div className="scr" style={{ flex: 1, overflowY: 'auto', padding: '6px 18px 92px' }}>

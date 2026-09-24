@@ -3,6 +3,7 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import FamilyHubButton from '@/components/family/FamilyHubButton';
+import { useNotificationBadge } from '@/lib/useNotificationBadge';
 
 interface Person {
   initial: string;
@@ -21,6 +22,12 @@ interface AppBarProps {
 }
 
 export default function AppBar({ person, showBack, onBack, onAvatarTap, onBell, badgeCount }: AppBarProps) {
+  // The bell's real unread count. `badgeCount` remains an explicit override so
+  // a mock or a screenshot can still force a number, but when it is not given
+  // the bell now shows what the backend actually says — it used to be a
+  // hard-coded 3 on every screen.
+  const liveBadge = useNotificationBadge();
+  const bellCount = badgeCount ?? liveBadge;
   const router = useRouter();
 
   return (
@@ -106,10 +113,10 @@ export default function AppBar({ person, showBack, onBack, onAvatarTap, onBell, 
         </button>
       </div>
 
-      {/* Right: family hub + settings gear + bell */}
+      {/* Right: Family Hub chat + settings gear + bell */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-        {/* Family Hub Button */}
-        <FamilyHubButton />
+        {/* Family Care Hub — renders nothing when the account has no family plan */}
+        <FamilyHubButton size={34} />
 
         {/* Settings gear */}
         <button
@@ -152,7 +159,7 @@ export default function AppBar({ person, showBack, onBack, onAvatarTap, onBell, 
               strokeLinejoin="round"
             />
           </svg>
-          {badgeCount && badgeCount > 0 ? (
+          {bellCount > 0 ? (
             <span style={{
               position: 'absolute',
               top: -4,
@@ -168,7 +175,7 @@ export default function AppBar({ person, showBack, onBack, onAvatarTap, onBell, 
               display: 'grid',
               placeItems: 'center',
             }}>
-              {badgeCount}
+              {bellCount > 9 ? '9+' : bellCount}
             </span>
           ) : null}
         </button>

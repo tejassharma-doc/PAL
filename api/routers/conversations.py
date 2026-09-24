@@ -47,6 +47,7 @@ async def list_conversations(
                 "id": str(c.id),
                 "title": c.title,
                 "scope_tag": c.scope_tag,
+                "hindsight_summary": c.hindsight_summary,
                 "created_at": c.created_at.isoformat(),
                 "updated_at": c.updated_at.isoformat(),
             }

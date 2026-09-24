@@ -10,6 +10,7 @@ import logging
 import secrets
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from dataclasses import dataclass
 from typing import Optional
 
 from sqlalchemy import select, text, func
@@ -30,7 +31,6 @@ from models.family import (
     HubShareLevel,
     PaymentRequestStatus,
 )
-from services.chat import cache as chat_cache
 from services.chat import centrifugo
 from services.chat.manager import manager
 from services.chat.notifications import create_notification
@@ -197,8 +197,14 @@ async def create_plan(
     primary_patient_id: Optional[uuid.UUID] = None,
     tenant_id: Optional[uuid.UUID] = None,
 ) -> FamilyPlan:
-    """Create a new plan and seat the primary holder as admin.
-    A user may own up to MAX_PLANS_PER_USER plans."""
+    """Create a plan and seat the primary holder as admin. Idempotent-ish:
+    returns the existing plan if this user already owns one."""
+    existing = (
+        await db.execute(select(FamilyPlan).where(FamilyPlan.primary_user_id == primary_user_id))
+    ).scalar_one_or_none()
+    if existing:
+        return existing
+
     # Cap check: creating a plan consumes one of the user's slots.
     await assert_can_join_another_plan(db, primary_user_id)
 
@@ -283,15 +289,7 @@ async def ensure_hub_room(db: AsyncSession, plan: FamilyPlan) -> Optional[uuid.U
         await db.flush()
 
     # Sync membership: every active seat with a claimed user account.
-    #
-    # Both statements RETURN the user ids they touched so the membership cache
-    # can be invalidated for exactly those pairs. Without it a newly added
-    # member would be denied their own hub for up to the deny TTL and — far
-    # worse — a departed member would keep passing the subscription check for
-    # up to the allow TTL. See services/chat/cache.py.
-    changed: set[str] = set()
-
-    added = await db.execute(
+    await db.execute(
         text(
             """
             INSERT INTO chat_room_members
@@ -304,15 +302,12 @@ async def ensure_hub_room(db: AsyncSession, plan: FamilyPlan) -> Optional[uuid.U
               AND fm.user_id IS NOT NULL
               AND fm.status = 'active'
             ON CONFLICT ON CONSTRAINT uq_chat_room_member DO NOTHING
-            RETURNING user_id
             """
         ),
         {"room_id": room_id, "plan_id": plan.id},
     )
-    changed.update(str(r[0]) for r in added)
-
     # Mark departed members as left rather than deleting (history keeps names).
-    departed = await db.execute(
+    await db.execute(
         text(
             """
             UPDATE chat_room_members crm
@@ -325,15 +320,10 @@ async def ensure_hub_room(db: AsyncSession, plan: FamilyPlan) -> Optional[uuid.U
                     AND fm.user_id = crm.user_id
                     AND fm.status = 'active'
               )
-            RETURNING crm.user_id
             """
         ),
         {"room_id": room_id, "plan_id": plan.id},
     )
-    changed.update(str(r[0]) for r in departed)
-
-    for uid in changed:
-        await chat_cache.invalidate(str(room_id), uid)
     await db.execute(
         text(
             """
@@ -366,7 +356,7 @@ async def post_hub_system_message(
     if not room_id:
         return None
 
-    msg_id = await persist_message(
+    msg_id, created_at = await persist_message(
         sender_id=SYSTEM_SENDER_ID,
         message_type="system",
         content=text_content,
@@ -389,7 +379,11 @@ async def post_hub_system_message(
                 "content": text_content,
                 "content_type": content_type,
                 "payload": payload,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                # The ROW's created_at, not "now". See persist_message: a
+                # stamp taken after the insert is milliseconds later than the
+                # row, and the poll cursor built from it silently skips
+                # messages written inside that gap.
+                "timestamp": created_at,
             },
         )
     except Exception as exc:  # noqa: BLE001
@@ -554,62 +548,86 @@ async def accept_invite(
 
 async def remove_member(
     db: AsyncSession, *, plan: FamilyPlan, member: FamilyMember, actor_user_id: uuid.UUID
-) -> None:
-    """Hard-remove a seat from the database.
+) -> "RevocationTask":
+    """Soft-remove a seat and cascade-revoke every grant in both directions.
 
-    Cascade order:
-      1. Remove from hub chat room (chat_room_members row)
-      2. Invalidate membership cache + unsubscribe live Centrifugo socket
-      3. Delete the family_member row — DB cascades delete
-         family_access_grants and family_payment_requests automatically
-         (both have ON DELETE CASCADE on subject_member_id).
+    Both directions matters: removing an adult child must revoke the access
+    they held over a parent AND any access the parent held over them.
     """
-    if member.user_id and plan.hub_room_id:
+    now = datetime.now(timezone.utc)
+    member.status = FamilyMemberStatus.removed.value
+    member.removed_at = now
+
+    await db.execute(
+        text(
+            """
+            UPDATE family_access_grants
+            SET status = 'revoked', revoked_at = NOW(),
+                revoked_by_user_id = :actor,
+                revocation_reason = 'member_removed_from_plan'
+            WHERE status IN ('granted', 'pending')
+              AND ( subject_member_id = :member_id
+                    OR (grantee_user_id = :user_id AND family_plan_id = :plan_id) )
+            """
+        ),
+        {
+            "actor": actor_user_id,
+            "member_id": member.id,
+            "user_id": member.user_id,
+            "plan_id": plan.id,
+        },
+    )
+    if member.user_id:
         await db.execute(
             text(
                 """
-                DELETE FROM chat_room_members
-                WHERE room_id = :room_id AND user_id = :user_id
+                UPDATE chat_room_members SET left_at = NOW()
+                WHERE room_id = :room_id AND user_id = :user_id AND left_at IS NULL
                 """
             ),
             {"room_id": plan.hub_room_id, "user_id": member.user_id},
         )
-        # Invalidate before the commit so no request sneaks through the stale cache.
-        await chat_cache.invalidate(str(plan.hub_room_id), str(member.user_id))
-        await centrifugo.unsubscribe_user(
-            member.user_id, centrifugo.room_channel(plan.hub_room_id)
-        )
-
-    await db.delete(member)
     await db.flush()
 
+    # Live revocation is deliberately NOT done here.
+    #
+    # `left_at = NOW()` above is still inside an open transaction — the router
+    # commits after this function returns. Evicting now would open a window in
+    # which the eviction has already been applied on every pod while the
+    # database still reads `left_at IS NULL`: the removed member's client
+    # reconnects (it retries on a 1s timer, and on every tab focus), the SSE
+    # endpoint re-resolves their rooms from the uncommitted state, and they are
+    # quietly re-admitted to a room they were just removed from — with the
+    # eviction already spent. They would then receive Care Hub PHI for the life
+    # of that stream.
+    #
+    # So the caller revokes AFTER commit, via `revoke_live_access` below.
+    return RevocationTask(
+        user_id=str(member.user_id) if member.user_id else None,
+        room_id=str(plan.hub_room_id) if plan.hub_room_id else None,
+    )
 
-async def delete_plan(
-    db: AsyncSession, *, plan: FamilyPlan, actor_user_id: uuid.UUID
-) -> None:
-    """Hard-delete a family plan and everything that belongs to it.
 
-    Cascade order:
-      1. Collect active member user IDs (for cache + socket cleanup before rows vanish)
-      2. Delete the hub chat room → DB cascades: chat_room_members, chat_messages,
-         read receipts, reactions. The family_plans.hub_room_id FK is SET NULL by the DB.
-      3. Invalidate Redis membership caches + unsubscribe live Centrifugo sockets
-      4. Delete the family_plan row → DB cascades: family_members, family_access_grants,
-         family_payment_requests.
+@dataclass
+class RevocationTask:
+    """What still has to be torn down once the removal is durable."""
+    user_id: Optional[str]
+    room_id: Optional[str]
+
+
+async def revoke_live_access(task: "RevocationTask") -> None:
+    """Cut off delivery to a member whose removal is now COMMITTED.
+
+    The database row is what the next authorisation check reads; it does
+    nothing to a stream that is already open. Both transports need telling:
+
+      Centrifugo  -> unsubscribe the channel
+      native/SSE  -> drop them from the manager's room set, on every pod
     """
-    members = await list_members(db, plan.id)
-    user_ids = [m.user_id for m in members if m.user_id]
-
-    hub_room_id = plan.hub_room_id
-    if hub_room_id:
-        await db.execute(text("DELETE FROM chat_rooms WHERE id = :id"), {"id": hub_room_id})
-        channel = centrifugo.room_channel(hub_room_id)
-        for uid in user_ids:
-            await chat_cache.invalidate(str(hub_room_id), str(uid))
-            await centrifugo.unsubscribe_user(uid, channel)
-
-    await db.delete(plan)
-    await db.flush()
+    if not task.user_id or not task.room_id:
+        return
+    await manager.evict_from_room(task.user_id, task.room_id)
+    await centrifugo.unsubscribe_user(task.user_id, centrifugo.room_channel(task.room_id))
 
 
 # ── consent handshake ────────────────────────────────────────────────────────

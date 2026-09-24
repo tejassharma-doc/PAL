@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     # App
     app_name: str = "PAL"
     environment: Literal["development", "production"] = "development"
-    debug: bool = False  # ✅ Default to False - override in .env for development
+    debug: bool = True
 
     # Semantic cache — embedding model for query similarity lookup
     # all-MiniLM-L6-v2 (22 MB, English); paraphrase-multilingual-MiniLM-L12-v2 (470 MB, 100+ langs)
@@ -51,31 +51,6 @@ class Settings(BaseSettings):
     docehr_enabled: bool = False
     docehr_url: str = ""       # e.g. http://docehr.internal  (REST)
     docehr_mcp_url: str = ""   # e.g. https://docehr.internal/mcp  (MCP)
-
-    # bioRxiv MCP integration (Medical Research Papers)
-    biorxiv_mcp_enabled: bool = False
-    biorxiv_mcp_url: str = ""  # e.g. http://biorxiv-mcp:3010/mcp (internal) or https://biorxiv-mcp.domain.com/mcp (external)
-    biorxiv_mailto: str = ""   # Required by bioRxiv API (contact email)
-
-    # PubMed retrieval via NCBI E-utilities (clinical/pubmed.py)
-    pubmed_email: str = ""     # Required by PubMed API (NCBI policy)
-    pubmed_tool: str = "PAL"   # Tool name for PubMed API
-
-    # --- PubMed retrieval (services/clinical/pubmed.py) ----------------------
-    # All optional. With none of them set the client still works, politely and
-    # inside NCBI's rate limit. `python scripts/pubmed_setup.py` prints what is
-    # in force, where each value came from, and what to add to .env.
-    #
-    # An API key only raises the rate limit, 3 -> 10 requests/second. Get one
-    # free at https://account.ncbi.nlm.nih.gov/settings/ .
-    ncbi_api_key: str = ""
-    # Nothing published before this year is retrieved. 2000 is the default
-    # because older work predates the trials, the guidelines and often the
-    # drugs a patient asking today is actually taking — and a 1974 paper cited
-    # beside a 2023 one reads as equally current to someone who cannot tell.
-    pubmed_min_year: int = 2000
-    pubmed_max_results: int = 8
-    pubmed_timeout_seconds: float = 12.0
 
     # Document upload
     upload_dir: str = "./uploads"
@@ -117,6 +92,21 @@ class Settings(BaseSettings):
     # keeps using the native /ws/chat socket, so flipping this on a host where
     # Centrifugo is not running yet cannot break chat.
     chat_transport: str = "centrifugo"
+    # Server-Sent Events: the transport that works without any infrastructure.
+    # Kept ON even when CHAT_TRANSPORT=centrifugo, because SSE is exactly what
+    # the browser falls back to when it cannot reach Centrifugo — and a
+    # fallback that silently delivers nothing is worse than no fallback. The
+    # cost is one extra Redis PUBLISH per message; turn it off only once
+    # Centrifugo is proven reachable for every client.
+    chat_sse_enabled: bool = True
+    # A stream is closed and the client reconnected after this long, even when
+    # nothing is wrong: authorisation is resolved when a stream OPENS, so the
+    # only honest way to keep a long-lived stream authorised is to stop it
+    # being long-lived. Reconnecting re-runs auth and re-resolves the rooms.
+    chat_sse_max_age: int = 600
+    # Between reconnects, re-check the cheap things (account still active, room
+    # set unchanged) on this cadence.
+    chat_sse_revalidate: int = 60
     # Browser/mobile-facing WebSocket endpoint.
     centrifugo_url: str = "ws://localhost:8100/connection/websocket"
     # Server-to-server HTTP API base (never exposed to clients).
@@ -125,45 +115,6 @@ class Settings(BaseSettings):
     centrifugo_token_hmac_secret: str = ""
     centrifugo_token_ttl: int = 60 * 30      # seconds; clients auto-refresh
     centrifugo_api_timeout: float = 5.0
-    # Per-user jitter on the token TTL, as a fraction. Without it, a million
-    # tokens minted during one reconnect storm all expire in the same second
-    # and reproduce the storm 30 minutes later. 0.2 spreads refreshes over a
-    # +/-6 minute window at the default TTL. Set 0.0 to disable.
-    centrifugo_token_ttl_jitter: float = 0.2
-
-    # ── Membership cache (services/chat/cache.py) ────────────────────────────
-    # is_room_member() runs on EVERY subscription token — ~1,700/s sustained at
-    # 1M users, and a measured ~230,000/s peak during a reconnect storm. This
-    # keeps that off PostgreSQL. Revocation stays immediate because every
-    # membership change invalidates explicitly rather than waiting for a TTL.
-    #
-    # Deny TTL is deliberately much shorter than allow TTL: a stale deny costs
-    # a user a few seconds of access they should have; a stale allow is a PHI
-    # incident.
-    chat_membership_cache_enabled: bool = True
-    chat_membership_cache_ttl: int = 60          # seconds, cached ALLOW
-    chat_membership_cache_deny_ttl: int = 10     # seconds, cached DENY
-
-    # Identity cache for the THREE realtime token endpoints only (see
-    # services/chat/principal.py). Measured: PAL's shared get_current_user does
-    # a users lookup per request and is ~half the cost of these endpoints —
-    # five times more than the membership check. Scoped to the chat module so
-    # PAL's auth core stays untouched. 0 disables it.
-    #
-    # Short by design: a deactivated account keeps a valid session on these
-    # three endpoints for at most this long, and still cannot subscribe to
-    # anything (that is authorised separately, and invalidated on change).
-    chat_principal_cache_ttl: int = 30            # seconds; 0 = off
-
-    # ── Observability (opt-in; see deploy/observability/) ────────────────────
-    # DEFAULT FALSE ON PURPOSE. With this off, no middleware is installed and
-    # no /metrics route is mounted, so the route table stays byte-identical to
-    # the one certified in NO_REGRESSION_REPORT.md.
-    #
-    # Turning it on also requires `pip install prometheus-client`; if that
-    # package is absent the flag logs a warning and stays a no-op rather than
-    # failing startup — the same degradation strategy as CHAT_TRANSPORT.
-    metrics_enabled: bool = False
 
     # ── Family Plan ──────────────────────────────────────────────────────────
     # Set FAMILY_PLAN_ENABLED=false to 404 the whole /family surface.
@@ -181,29 +132,12 @@ class Settings(BaseSettings):
     # Payment links are generated server-side as <base>/<payment_request_id>.
     family_payment_link_base: str = "https://pal.health/pay"
 
-    # --- Drug label route ---------------------------------------------------
-    # Looks up a medicine the patient named on 1mg/PharmEasy and returns a
-    # label card. Off switches the route off entirely and the turn is answered
-    # exactly as it was before the route existed; nothing else changes.
-    #
-    # The commercial caveat is unchanged and belongs with whoever flips this:
-    # reading these listings is against their terms of use and breaks when they
-    # redesign. `drug_resolver.TableResolver` is the seam for NPPA data or a
-    # licensed feed, and nothing above it has to change when that lands.
-    drug_label_lookup_enabled: bool = True
-    #: 1mg's search endpoint requires a city and rejects the request without
-    #: one. It affects which listings are shown, never the label content.
-    drug_label_city: str = "Gurgaon"
-    #: Whole-route budget. Exceeding it drops the cards, not the answer.
-    drug_label_timeout_seconds: float = 12.0
-
     def effective_hindsight_key(self) -> str:
         return self.hindsight_llm_api_key or self.anthropic_api_key
 
     class Config:
         env_file = ".env"
         case_sensitive = False
-        extra = "ignore"
 
 
 @lru_cache()

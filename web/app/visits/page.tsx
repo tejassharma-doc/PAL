@@ -6,18 +6,22 @@ import AppBar from '@/components/layout/AppBar';
 import TabBar from '@/components/layout/TabBar';
 import { getPatientVisits, type Visit } from '@/lib/api-auth';
 
-const ANIL = {
-  initial: 'A',
-  grad: 'linear-gradient(150deg,#37b59b,#1f7d6b)',
-  name: 'Anil',
-  sub: 'your record · active',
-};
-
 export default function VisitsPage() {
   const [upcomingVisits, setUpcomingVisits] = useState<Visit[]>([]);
   const [pastVisits, setPastVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedVisitId, setExpandedVisitId] = useState<string | null>(null);
+  const [person, setPerson] = useState({
+    initial: '…',
+    grad: 'linear-gradient(150deg,#37b59b,#1f7d6b)',
+    name: '…',
+    sub: 'your record · active',
+  });
+
+  useEffect(() => {
+    const name = localStorage.getItem('pal_user_name') || localStorage.getItem('pal_full_name') || 'Me';
+    setPerson({ initial: name[0]?.toUpperCase() || 'M', grad: 'linear-gradient(150deg,#37b59b,#1f7d6b)', name, sub: 'your record · active' });
+  }, []);
 
   useEffect(() => {
     async function loadVisits() {
@@ -58,8 +62,7 @@ export default function VisitsPage() {
   return (
     <PhoneShell>
       <AppBar
-        person={ANIL}
-        badgeCount={3}
+        person={person}
         onAvatarTap={() => {}}
       />
 

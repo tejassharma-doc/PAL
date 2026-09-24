@@ -24,20 +24,7 @@ function jsonHeaders(): Record<string, string> {
 async function unwrap<T>(res: Response, what: string): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    const detail = (body as Record<string, unknown>).detail;
-    // FastAPI HTTPException → detail is a string.
-    // Pydantic 422 ValidationError → detail is an array of {loc, msg, type} objects.
-    let message: string;
-    if (typeof detail === 'string') {
-      message = detail;
-    } else if (Array.isArray(detail)) {
-      message = detail
-        .map((e: Record<string, unknown>) => String(e.msg ?? e.message ?? e))
-        .join('; ');
-    } else {
-      message = `${what} failed (${res.status})`;
-    }
-    throw new Error(message);
+    throw new Error((body as Record<string, string>).detail || `${what} failed (${res.status})`);
   }
   return (await res.json()) as T;
 }
@@ -107,6 +94,28 @@ export interface HubInfo {
   name: string;
   muted: boolean;
   can_pay: boolean;
+  /** Centrifugo channel for this hub, e.g. "room:<uuid>". */
+  channel?: string;
+}
+
+export interface MyPlanSummary {
+  plan_id: string;
+  name: string;
+  status: string;
+  hub_room_id: string | null;
+  is_admin: boolean;
+  my_role: string | null;
+  member_count: number;
+}
+
+export interface MyPlans {
+  plans: MyPlanSummary[];
+  count: number;
+  /** Hard cap: a user may hold a seat in at most this many plans. */
+  max_plans: number;
+  can_join_more: boolean;
+  /** Drives the Individual-Plan upsell: false => show the upgrade prompt. */
+  has_family_plan: boolean;
 }
 
 export interface ChatMessage {
@@ -135,36 +144,26 @@ export interface Conversation {
 }
 
 // ── plan ─────────────────────────────────────────────────────────────────────
+/**
+ * Every plan the caller is in, plus the 3-plan cap.
+ *
+ * Returns 200 with an empty list for an Individual-Plan user — that is the
+ * signal the AppBar upsell needs, and it is why this exists alongside
+ * getFamilyPlan() (which 404s and cannot distinguish "no plan" from "error").
+ * Returns null only when the request itself failed (e.g. signed out).
+ */
+export async function getMyPlans(): Promise<MyPlans | null> {
+  const res = await fetch('/api/family/plans', { headers: authHeaders() });
+  if (!res.ok) return null;
+  return (await res.json()) as MyPlans;
+}
+
 /** null when the account has no plan yet (404), which is a normal state. */
 export async function getFamilyPlan(planId?: string): Promise<FamilyPlanInfo | null> {
-  const url = planId ? `/api/family/plan?plan_id=${planId}` : '/api/family/plan';
-  const res = await fetch(url, { headers: authHeaders() });
+  const qs = planId ? `?plan_id=${encodeURIComponent(planId)}` : '';
+  const res = await fetch(`/api/family/plan${qs}`, { headers: authHeaders() });
   if (res.status === 404) return null;
   return unwrap<FamilyPlanInfo>(res, 'Load family plan');
-}
-
-export interface FamilyPlanListItem {
-  plan_id: string;
-  name: string;
-  status: string;
-  hub_room_id: string | null;
-  is_admin: boolean;
-  my_role: string | null;
-  member_count: number;
-}
-
-export interface FamilyPlanList {
-  plans: FamilyPlanListItem[];
-  count: number;
-  max_plans: number;
-  can_join_more: boolean;
-  has_family_plan: boolean;
-}
-
-export async function getFamilyPlans(): Promise<FamilyPlanList> {
-  const res = await fetch('/api/family/plans', { headers: authHeaders() });
-  if (!res.ok) return { plans: [], count: 0, max_plans: 5, can_join_more: true, has_family_plan: false };
-  return (await res.json()) as FamilyPlanList;
 }
 
 export async function createFamilyPlan(params: {
@@ -192,35 +191,22 @@ export async function updateFamilyPlan(params: {
   await unwrap(res, 'Update family plan');
 }
 
-export async function deleteFamilyPlan(planId: string): Promise<void> {
-  const res = await fetch(`/api/family/plan?plan_id=${planId}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
-  await unwrap(res, 'Delete group');
-}
-
 // ── members ──────────────────────────────────────────────────────────────────
-export async function listPlanMembers(planId?: string): Promise<FamilyPlanMember[]> {
-  const url = planId ? `/api/family/members?plan_id=${planId}` : '/api/family/members';
-  const res = await fetch(url, { headers: authHeaders() });
+export async function listPlanMembers(): Promise<FamilyPlanMember[]> {
+  const res = await fetch('/api/family/members', { headers: authHeaders() });
   if (!res.ok) return [];
   return (await res.json()) as FamilyPlanMember[];
 }
 
-export async function inviteMember(
-  params: {
-    display_name: string;
-    phone: string;
-    relationship_type: string;
-    role: 'adult' | 'dependent_adult' | 'minor';
-    date_of_birth?: string;
-    is_billing_delegate?: boolean;
-  },
-  planId?: string,
-): Promise<{ member_id: string; invite_code: string; expires_in_minutes: number; role: string }> {
-  const url = planId ? `/api/family/members?plan_id=${planId}` : '/api/family/members';
-  const res = await fetch(url, {
+export async function inviteMember(params: {
+  display_name: string;
+  phone: string;
+  relationship_type: string;
+  role: 'adult' | 'dependent_adult' | 'minor';
+  date_of_birth?: string;
+  is_billing_delegate?: boolean;
+}): Promise<{ member_id: string; invite_code: string; expires_in_minutes: number; role: string }> {
+  const res = await fetch('/api/family/members', {
     method: 'POST',
     headers: jsonHeaders(),
     body: JSON.stringify(params),
@@ -258,11 +244,11 @@ export async function updateMember(
   await unwrap(res, 'Update member');
 }
 
-export async function removeMember(memberId: string, planId?: string): Promise<void> {
-  const url = planId
-    ? `/api/family/members/${memberId}?plan_id=${planId}`
-    : `/api/family/members/${memberId}`;
-  const res = await fetch(url, { method: 'DELETE', headers: authHeaders() });
+export async function removeMember(memberId: string): Promise<void> {
+  const res = await fetch(`/api/family/members/${memberId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
   await unwrap(res, 'Remove member');
 }
 
@@ -339,8 +325,8 @@ export async function payRequest(paymentId: string): Promise<{ status: string }>
 
 // ── hub + chat ───────────────────────────────────────────────────────────────
 export async function getHub(planId?: string): Promise<HubInfo | null> {
-  const url = planId ? `/api/family/hub?plan_id=${planId}` : '/api/family/hub';
-  const res = await fetch(url, { headers: authHeaders() });
+  const qs = planId ? `?plan_id=${encodeURIComponent(planId)}` : '';
+  const res = await fetch(`/api/family/hub${qs}`, { headers: authHeaders() });
   if (res.status === 404 || res.status === 403 || res.status === 503) return null;
   return unwrap<HubInfo>(res, 'Open Care Hub');
 }
@@ -369,6 +355,24 @@ export async function listConversations(): Promise<Conversation[]> {
   const res = await fetch('/api/chat/conversations', { headers: authHeaders() });
   if (!res.ok) return [];
   return (await res.json()) as Conversation[];
+}
+
+/** Mark a room read on the server.
+ *
+ * The socket used to carry this as a `read` frame. Under SSE — and under
+ * Centrifugo — clients cannot send frames at all, so without this REST call
+ * the AppBar unread badge counted every message the user was watching arrive
+ * on screen and only cleared on a full page load.
+ */
+export async function markRoomRead(roomId: string): Promise<void> {
+  try {
+    await fetch(`/api/chat/rooms/${roomId}/read`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+  } catch {
+    /* the badge self-corrects on the next history load */
+  }
 }
 
 export async function chatUnreadCount(): Promise<number> {

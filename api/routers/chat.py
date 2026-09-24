@@ -9,7 +9,7 @@ Every room endpoint is membership-gated via ``assert_room_member``.
 """
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -89,18 +89,40 @@ async def create_dm(body: CreateDMIn, user: User = Depends(get_current_user)):
     return {"room_id": room_id}
 
 
+def _clean_ts(value: Optional[str], field: str) -> Optional[str]:
+    """Accept only a real ISO-8601 instant, or 400. Never pass it through raw."""
+    if value is None or value == "":
+        return None
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=400, detail=f"`{field}` must be an ISO-8601 timestamp"
+        )
+    return value
+
+
 @router.get("/rooms/{room_id}/messages")
 async def get_messages(
     room_id: str,
     limit: int = Query(50, ge=1, le=200),
     before: Optional[str] = None,
+    # Delta fetch: only what arrived after this ISO timestamp, oldest first.
+    # Used by the polling fallback when no realtime transport can connect.
+    after: Optional[str] = None,
     mark_read: bool = True,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Room history, newest first. Opening a conversation clears its badge."""
     await assert_room_member(db, room_id, user.id)
-    messages = await get_room_history(room_id, limit=limit, before=before)
+    # `before`/`after` land in CAST(:x AS timestamptz). Unvalidated they turn
+    # any authenticated member into a 500 generator — and `after` is now on a
+    # path the fallback poll hits every couple of seconds, so a stale or
+    # mangled cursor would be a steady drip of 500s and stack traces.
+    before = _clean_ts(before, "before")
+    after = _clean_ts(after, "after")
+    messages = await get_room_history(room_id, limit=limit, before=before, after=after)
     if mark_read:
         await mark_room_read(room_id, str(user.id))
     return {"room_id": room_id, "messages": messages, "count": len(messages)}
@@ -146,7 +168,7 @@ async def send_message_rest(
             detail=f"Message exceeds {settings.chat_max_message_length} characters",
         )
 
-    msg_id = await persist_message(
+    msg_id, created_at = await persist_message(
         sender_id=str(user.id),
         message_type="room",
         content=content,
@@ -164,7 +186,11 @@ async def send_message_rest(
                 "content": content,
                 "content_type": "text",
                 "reply_to_id": body.reply_to_id,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                # The ROW's created_at, not "now". See persist_message: a
+                # stamp taken after the insert is milliseconds later than the
+                # row, and the poll cursor built from it silently skips
+                # messages written inside that gap.
+                "timestamp": created_at,
                 **sender,
             },
             exclude_user=str(user.id),

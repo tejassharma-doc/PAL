@@ -27,7 +27,6 @@ export default function NotificationsPage() {
     <PhoneShell>
       <AppBar
         person={ANIL}
-        badgeCount={3}
         onAvatarTap={() => setShowSheet(true)}
       />
 

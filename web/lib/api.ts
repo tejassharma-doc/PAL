@@ -148,6 +148,7 @@ export interface ConversationSummary {
   id: string
   title: string | null
   scope_tag: string | null
+  hindsight_summary: string | null
   created_at: string
   updated_at: string
 }
@@ -163,21 +164,15 @@ export interface ConversationTurn {
 }
 
 export async function listConversations(): Promise<ConversationSummary[]> {
-  const memberId = getMemberId()
-  if (!memberId) return []
-  const res = await fetch(`/api/conversations/${DEFAULT_TENANT_ID}/${memberId}`, {
-    headers: authHeaders(),
-  })
+  const res = await fetch('/api/conversations', { headers: authHeaders() })
   if (!res.ok) return []
   const data = await res.json()
   return (data.conversations || []) as ConversationSummary[]
 }
 
 export async function getConversationTurns(conversationId: string): Promise<ConversationTurn[]> {
-  const memberId = getMemberId()
-  if (!memberId) return []
   const res = await fetch(
-    `/api/conversations/${DEFAULT_TENANT_ID}/${memberId}/${conversationId}/turns`,
+    `/api/conversations/${conversationId}/turns`,
     { headers: authHeaders() },
   )
   if (!res.ok) return []
@@ -186,10 +181,8 @@ export async function getConversationTurns(conversationId: string): Promise<Conv
 }
 
 export async function deleteConversation(conversationId: string): Promise<void> {
-  const memberId = getMemberId()
-  if (!memberId) return
   await fetch(
-    `/api/conversations/${DEFAULT_TENANT_ID}/${memberId}/${conversationId}`,
+    `/api/conversations/${conversationId}`,
     { method: 'DELETE', headers: authHeaders() },
   )
 }

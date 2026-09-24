@@ -25,6 +25,8 @@ from .service import (
     money,
     post_hub_system_message,
     remove_member,
+    revoke_live_access,
+    RevocationTask,
     request_access,
     revoke_access,
 )
@@ -36,5 +38,7 @@ __all__ = [
     "decide_access", "eighteenth_birthday", "ensure_hub_room",
     "expire_aged_out_guardianships", "get_member", "get_plan_for_user",
     "invite_member", "list_members", "mark_payment_paid", "money",
-    "post_hub_system_message", "remove_member", "request_access", "revoke_access",
+    "post_hub_system_message", "remove_member",
+    "revoke_live_access",
+    "RevocationTask", "request_access", "revoke_access",
 ]

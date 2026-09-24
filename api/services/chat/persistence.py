@@ -45,8 +45,20 @@ async def persist_message(
     msg_source: Optional[str] = None,
     reply_to_id: Optional[str] = None,
     session: Optional[AsyncSession] = None,
-) -> str:
-    """Persist one message and return its id.
+) -> tuple[str, str]:
+    """Persist one message. Returns ``(message_id, created_at_iso)``.
+
+    The timestamp is returned, not just the id, because callers broadcast it —
+    and a broadcast that carries `datetime.now()` taken AFTER the insert (and
+    after a `resolve_sender` round-trip) is a few milliseconds LATER than the
+    row's real `created_at`.
+
+    That difference is not cosmetic. The polling fallback stores the broadcast
+    timestamp as its cursor and then asks for `created_at > cursor`. If two
+    people post within those few milliseconds, the second message's row is
+    older than the first message's broadcast stamp, so the poll skips it
+    permanently — it reappears only on a full page reload, which is the exact
+    bug this whole change exists to remove.
 
     ``session`` lets a caller enlist this write in an existing transaction (the
     family service does, so a payment request and its hub card commit together
@@ -89,7 +101,7 @@ async def persist_message(
         async with AsyncSessionLocal() as own:
             await own.execute(stmt, params)
             await own.commit()
-    return msg_id
+    return msg_id, now.isoformat()
 
 
 async def create_or_get_dm(user_a: str, user_b: str) -> str:
@@ -149,45 +161,9 @@ async def create_or_get_dm(user_a: str, user_b: str) -> str:
 
 
 async def mark_room_read(room_id: str, reader_id: str) -> int:
-    """Advance the reader's watermark for a room, and record receipts.
-
-    Two writes, in this order and for different reasons:
-
-    1. **The watermark** (`chat_room_members.last_read_at`) is what zeroes the
-       badge. It is a single-row UPDATE and is the authoritative "I have read up
-       to here" marker.
-
-    2. **Receipts** still back per-message "seen by", so they are still written
-       — but only for messages created *after the previous watermark*.
-
-    That second bound is the point. The original version anti-joined the whole
-    room against `message_read_receipts` on every open, which made opening a
-    room O(total history) even after the badge itself was fixed: a room with
-    20,000 messages re-scanned all 20,000 every time someone tapped it. Now a
-    room open costs O(messages since you last looked), which for an active user
-    is a handful of rows.
-
-    Returns the number of new receipts written.
-    """
+    """Bulk-insert read receipts for every message in a room the reader has not
+    yet acknowledged. Returns the number of new receipts. Zeroes the badge."""
     async with AsyncSessionLocal() as session:
-        # Read the previous watermark first — the INSERT must be bounded by the
-        # OLD value, and the UPDATE below moves it.
-        prev = (
-            await session.execute(
-                text(
-                    """
-                    SELECT last_read_at
-                    FROM chat_room_members
-                    WHERE room_id = CAST(:room_uuid AS uuid)
-                      AND user_id  = CAST(:reader_uuid AS uuid)
-                      AND left_at IS NULL
-                    LIMIT 1
-                    """
-                ),
-                {"room_uuid": str(room_id), "reader_uuid": str(reader_id)},
-            )
-        ).scalar()
-
         result = await session.execute(
             text(
                 """
@@ -195,42 +171,20 @@ async def mark_room_read(room_id: str, reader_id: str) -> int:
                 SELECT gen_random_uuid(), cm.id, CAST(:reader_id AS varchar(36)), NOW()
                 FROM chat_messages cm
                 WHERE cm.room_id = CAST(:room_id AS varchar(36))
-                  AND cm.created_at > COALESCE(
-                        CAST(:since AS timestamptz), '-infinity'::timestamptz)
                   AND cm.is_deleted = false
                   AND cm.sender_id <> CAST(:reader_id AS varchar(36))
+                  AND NOT EXISTS (
+                      SELECT 1 FROM message_read_receipts r
+                      WHERE r.message_id = cm.id
+                        AND r.reader_id = CAST(:reader_id AS varchar(36))
+                  )
                 ON CONFLICT ON CONSTRAINT uq_read_receipt DO NOTHING
                 """
             ),
             # Explicit casts: in an INSERT..SELECT asyncpg deduces the type of a
             # placeholder from its first use (here the SELECT list -> text) and
             # then conflicts with the varchar comparisons below.
-            #
-            # The NOT EXISTS anti-join the original had is gone: the
-            # created_at bound already excludes everything previously
-            # acknowledged, and ON CONFLICT DO NOTHING covers the remaining
-            # race (two devices opening the same room at once).
-            {
-                "room_id": str(room_id),
-                "reader_id": str(reader_id),
-                "since": prev,
-            },
-        )
-
-        # Advance the watermark. NOW() rather than the newest message's
-        # created_at: a message that lands mid-transaction is genuinely unread,
-        # and it is far better to leave a badge on than to silently clear one.
-        await session.execute(
-            text(
-                """
-                UPDATE chat_room_members
-                   SET last_read_at = NOW()
-                 WHERE room_id = CAST(:room_uuid AS uuid)
-                   AND user_id  = CAST(:reader_uuid AS uuid)
-                   AND left_at IS NULL
-                """
-            ),
-            {"room_uuid": str(room_id), "reader_uuid": str(reader_id)},
+            {"room_id": str(room_id), "reader_id": str(reader_id)},
         )
         await session.commit()
         return result.rowcount or 0
@@ -333,8 +287,46 @@ def _row_to_message(row: Any) -> dict:
     return m
 
 
-async def get_room_history(room_id: str, limit: int = 50, before: Optional[str] = None) -> list[dict]:
-    """Room history, newest first. ``before`` is an ISO timestamp for paging."""
+def _as_dt(value):
+    """Coerce an ISO-8601 string to a datetime for asyncpg.
+
+    `CAST(:x AS timestamptz)` tells asyncpg the parameter IS a timestamptz, so
+    handing it a str raises `invalid input for query argument ... (expected a
+    datetime.date or datetime.datetime instance, got 'str')` and the endpoint
+    500s. The CAST is still needed — without it asyncpg cannot infer a type for
+    a parameter whose only other use is an IS NULL test — so the value has to be
+    a real datetime on the way in.
+
+    Latent for `before` (callers passed None in practice); `after` put it on the
+    fallback poll's path, where it fired every couple of seconds.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+async def get_room_history(
+    room_id: str,
+    limit: int = 50,
+    before: Optional[str] = None,
+    after: Optional[str] = None,
+) -> list[dict]:
+    """Room history, newest first.
+
+    ``before`` is an ISO timestamp for paging backwards through history.
+
+    ``after`` is the delta case: "what has arrived since I last looked". It
+    returns messages OLDEST first, because the caller appends them to the end
+    of a conversation, and it is the query the polling fallback runs when no
+    realtime transport can be established. Both bounds hit
+    ``ix_chat_messages_room_created`` as a range scan, so an empty delta poll
+    is a single index probe and costs essentially nothing.
+    """
     limit = max(1, min(int(limit), 200))
     async with AsyncSessionLocal() as session:
         result = await session.execute(
@@ -364,11 +356,17 @@ async def get_room_history(room_id: str, limit: int = 50, before: Optional[str] 
                   AND cm.is_deleted = false
                   AND (CAST(:before AS timestamptz) IS NULL
                        OR cm.created_at < CAST(:before AS timestamptz))
-                ORDER BY cm.created_at DESC
+                  AND (CAST(:after AS timestamptz) IS NULL
+                       OR cm.created_at > CAST(:after AS timestamptz))
+                ORDER BY cm.created_at """ + ("ASC" if after else "DESC") + """
                 LIMIT :limit
                 """
             ),
-            {"room_id": str(room_id), "limit": limit, "before": before},
+            # Explicit CASTs, not `:before IS NULL` — asyncpg cannot infer a
+            # type for a parameter whose only use is an IS NULL test and fails
+            # with "could not determine data type of parameter".
+            {"room_id": str(room_id), "limit": limit,
+             "before": _as_dt(before), "after": _as_dt(after)},
         )
         return [_row_to_message(r) for r in result]
 
@@ -425,17 +423,15 @@ async def list_conversations(user_id: str) -> list[dict]:
                     LIMIT 1
                 ) last_msg ON true
                 LEFT JOIN LATERAL (
-                    -- Counts forward from this membership's watermark, so the
-                    -- (room_id, created_at) index does the work. The previous
-                    -- version anti-joined message_read_receipts per message,
-                    -- which made the inbox O(total history) per room.
                     SELECT COUNT(*) AS n
                     FROM chat_messages cm
                     WHERE cm.room_id = r.id::text
-                      AND cm.created_at > COALESCE(
-                            m.last_read_at, '-infinity'::timestamptz)
                       AND cm.is_deleted = false
                       AND cm.sender_id <> :uid_txt
+                      AND NOT EXISTS (
+                          SELECT 1 FROM message_read_receipts rr
+                          WHERE rr.message_id = cm.id AND rr.reader_id = :uid_txt
+                      )
                 ) unread ON true
                 WHERE m.user_id = CAST(:uid_uuid AS uuid)
                   AND m.left_at IS NULL
@@ -465,19 +461,18 @@ async def unread_total(user_id: str) -> int:
             await session.execute(
                 text(
                     """
-                    SELECT COALESCE(SUM(s.n), 0)
-                    FROM chat_room_members m
-                    CROSS JOIN LATERAL (
-                        SELECT COUNT(*) AS n
-                        FROM chat_messages cm
-                        WHERE cm.room_id = m.room_id::text
-                          AND cm.created_at > COALESCE(
-                                m.last_read_at, '-infinity'::timestamptz)
-                          AND cm.is_deleted = false
-                          AND cm.sender_id <> :uid_txt
-                    ) s
-                    WHERE m.user_id = CAST(:uid_uuid AS uuid)
+                    SELECT COUNT(*)
+                    FROM chat_messages cm
+                    JOIN chat_room_members m
+                      ON m.room_id::text = cm.room_id
+                     AND m.user_id = CAST(:uid_uuid AS uuid)
+                    WHERE cm.is_deleted = false
                       AND m.left_at IS NULL
+                      AND cm.sender_id <> :uid_txt
+                      AND NOT EXISTS (
+                          SELECT 1 FROM message_read_receipts rr
+                          WHERE rr.message_id = cm.id AND rr.reader_id = :uid_txt
+                      )
                     """
                 ),
                 # See list_conversations: separate params to keep asyncpg from

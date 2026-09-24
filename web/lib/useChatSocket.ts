@@ -16,12 +16,13 @@
  *     period mean mount → unmount → mount reuses the same connection
  *   - the token is read from localStorage `pal_token` at connect time
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   acquireChatSocket,
   getChatState,
   joinChatRoom,
   leaveChatRoom,
+  getTransport,
   onChatFrame,
   onChatState,
   sendChatFrame,
@@ -92,18 +93,28 @@ export function useChatSocket(opts: { enabled?: boolean } = {}) {
     [],
   );
 
-  return {
-    state,
-    connected: state === 'open',
-    lastError,
-    onMessage,
-    joinRoom,
-    leaveRoom,
-    sendRoom,
-    sendDM,
-    typing,
-    react,
-    markRead,
-    send: sendChatFrame,
-  };
+  // MEMOISED, and that matters. Returning a fresh object literal every render
+  // made every `useEffect(..., [chat])` in every consumer tear down and re-run
+  // on each render — and since an incoming message triggers a render, the Care
+  // Hub was unsubscribing and resubscribing its frame handler on every single
+  // message. Harmless-looking, genuinely wasteful, and it opened a window in
+  // which a frame could land with no listener attached.
+  return useMemo(
+    () => ({
+      state,
+      connected: state === 'open',
+      transport: getTransport(),
+      lastError,
+      onMessage,
+      joinRoom,
+      leaveRoom,
+      sendRoom,
+      sendDM,
+      typing,
+      react,
+      markRead,
+      send: sendChatFrame,
+    }),
+    [state, lastError, onMessage, joinRoom, leaveRoom, sendRoom, sendDM, typing, react, markRead],
+  );
 }

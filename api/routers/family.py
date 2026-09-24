@@ -109,20 +109,6 @@ class AcceptInviteIn(BaseModel):
     phone: str = Field(min_length=6, max_length=30)
     code: str = Field(min_length=4, max_length=10)
 
-    @field_validator("phone")
-    @classmethod
-    def _normalise_phone(cls, v: str) -> str:
-        """Strip spaces and hyphens so accept always matches the stored E.164 value."""
-        v = v.strip().replace(" ", "").replace("-", "")
-        if not v.startswith("+") or not v[1:].isdigit():
-            raise ValueError("phone must be in international format, e.g. +919876543210")
-        return v
-
-    @field_validator("code")
-    @classmethod
-    def _normalise_code(cls, v: str) -> str:
-        return v.strip()
-
 
 class UpdateMemberIn(BaseModel):
     role: Optional[Literal["admin", "adult", "dependent_adult", "minor"]] = None
@@ -291,23 +277,6 @@ async def update_plan(
     return {"updated": True}
 
 
-@router.delete("/plan", dependencies=[Depends(_require_enabled)])
-async def delete_plan(
-    plan_id: Optional[uuid.UUID] = Query(default=None),
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    plan, member = await _ctx(db, user, plan_id)
-    if not policy.can_manage_plan(member, plan, user.id):
-        raise HTTPException(status_code=403, detail="Only the plan admin can delete the group")
-    if plan.primary_user_id != user.id:
-        raise HTTPException(status_code=403, detail="Only the group creator can delete it")
-    plan_id_str = str(plan.id)
-    await service.delete_plan(db, plan=plan, actor_user_id=user.id)
-    await db.commit()
-    return {"deleted": True, "plan_id": plan_id_str}
-
-
 # ── members ──────────────────────────────────────────────────────────────────
 @router.get("/members", response_model=list[MemberOut], dependencies=[Depends(_require_enabled)])
 async def get_members(
@@ -356,7 +325,6 @@ async def get_members(
 @router.post("/members", status_code=status.HTTP_201_CREATED, dependencies=[Depends(_require_enabled)])
 async def invite(
     body: InviteIn,
-    plan_id: Optional[uuid.UUID] = Query(default=None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -365,7 +333,7 @@ async def invite(
     The seat exists immediately, so the admin can start coordinating before the
     invitee installs the app. The seat carries no access rights.
     """
-    plan, member = await _ctx(db, user, plan_id)
+    plan, member = await _ctx(db, user)
     if not policy.can_manage_plan(member, plan, user.id):
         raise HTTPException(status_code=403, detail="Only the plan admin can invite")
 
@@ -425,7 +393,6 @@ async def accept(
 async def update_member(
     member_id: uuid.UUID,
     body: UpdateMemberIn,
-    plan_id: Optional[uuid.UUID] = Query(default=None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -434,7 +401,7 @@ async def update_member(
     Note the asymmetry: an admin can NOT raise someone else's
     ``hub_share_level``. Only the subject can decide to be more visible.
     """
-    plan, me = await _ctx(db, user, plan_id)
+    plan, me = await _ctx(db, user)
     target = (
         await db.execute(
             select(FamilyMember).where(
@@ -486,11 +453,10 @@ async def update_member(
 @router.delete("/members/{member_id}", dependencies=[Depends(_require_enabled)])
 async def delete_member(
     member_id: uuid.UUID,
-    plan_id: Optional[uuid.UUID] = Query(default=None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    plan, me = await _ctx(db, user, plan_id)
+    plan, me = await _ctx(db, user)
     if not policy.can_manage_plan(me, plan, user.id):
         raise HTTPException(status_code=403, detail="Only the plan admin can remove members")
 
@@ -506,8 +472,27 @@ async def delete_member(
     if target.user_id == plan.primary_user_id:
         raise HTTPException(status_code=409, detail="Cannot remove the primary account holder")
 
-    await service.remove_member(db, plan=plan, member=target, actor_user_id=user.id)
+    revocation = await service.remove_member(
+        db, plan=plan, member=target, actor_user_id=user.id
+    )
     await db.commit()
+    # Only now is the removal durable. Cutting live delivery before the commit
+    # would let the member's own reconnect re-admit them — see the note in
+    # services/family/service.py.
+    #
+    # Wrapped: the removal is already committed, so a transport hiccup here
+    # must not turn a successful removal into an error the admin will retry.
+    # It is logged at ERROR because nothing else will notice — the member stays
+    # revoked in the database, and their live stream self-heals at the next
+    # revalidation, but until then they are still receiving.
+    try:
+        await service.revoke_live_access(revocation)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "family: member %s removed but LIVE revocation failed (%s) — "
+            "their open stream may keep delivering until it revalidates",
+            member_id, exc,
+        )
     return {"removed": True, "member_id": str(member_id)}
 
 
