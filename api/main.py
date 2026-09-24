@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import get_settings
 from database import init_db
 from routers import auth, auth_v2, auth_new, records, search, conversations, admin, follow_up, upload, appointment, analytics, credits, medical_doc, user_profile, patients, visits, lab_tests, prescriptions, hermes_chat
+from routers import phone_auth
 
 
 @asynccontextmanager
@@ -73,6 +74,7 @@ app.add_middleware(
 app.include_router(auth.router)  # Legacy auth endpoints
 app.include_router(auth_v2.router, prefix="/v2")  # Auth with sessions (old signup removed)
 app.include_router(auth_new.router, prefix="/v3")  # New signup/login with users+patients
+app.include_router(phone_auth.router)  # Phone OTP login (/phone/auth/request, /phone/auth/verify)
 app.include_router(user_profile.router)  # User profile and credits
 app.include_router(patients.router)  # Patient CRUD
 app.include_router(records.router)
