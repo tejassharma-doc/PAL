@@ -266,7 +266,42 @@ function stopCentrifugo(): void {
  * SSE is an ordinary GET that never finishes. It rides the proxy that already
  * works, needs no new port and no infrastructure. One connection per tab.
  */
+function clearSseWatchdogs(): void {
+  if (sseReadyTimer) {
+    clearTimeout(sseReadyTimer);
+    sseReadyTimer = null;
+  }
+  if (sseAliveTimer) {
+    clearTimeout(sseAliveTimer);
+    sseAliveTimer = null;
+  }
+}
+
+/** Restart the silence timer. Called on EVERY inbound event, including the
+ *  server's heartbeat, so an idle-but-healthy stream is never mistaken for a
+ *  dead one. */
+function noteSseActivity(): void {
+  if (sseAliveTimer) clearTimeout(sseAliveTimer);
+  sseAliveTimer = setTimeout(() => {
+    sseAliveTimer = null;
+    if (!sseReady) return;
+    sseSilences += 1;
+    stopSse();
+    startPolling();
+    if (sseSilences >= 2) {
+      console.warn('[chat] stream went silent twice — staying on periodic refresh');
+      transport = 'poll';
+      setState('closed', 'Live stream keeps dropping — using periodic refresh');
+      return;                       // maybeRecoverStream still retries every 30s
+    }
+    console.warn('[chat] stream went silent — reconnecting and polling meanwhile');
+    setState('connecting', 'Live stream went quiet — reconnecting');
+    scheduleSseRestart(500);
+  }, sseSilenceLimit());
+}
+
 function stopSse(): void {
+  clearSseWatchdogs();
   if (sseRetry) {
     clearTimeout(sseRetry);
     sseRetry = null;
@@ -295,6 +330,34 @@ let sseStarting = false;
  *  re-arming, and the tab sat on "connecting…" with no transport and no poll
  *  until the user reloaded. */
 let sseRestartPending = false;
+/** Watchdogs.
+ *
+ *  `EventSource` reports a connection it cannot open, and a connection that is
+ *  closed. It does NOT report a connection that opens and then delivers
+ *  nothing — which is what a buffering proxy, a TLS-inspecting antivirus, or a
+ *  request queued behind the browser's six-per-origin HTTP/1.1 limit all look
+ *  like. No error, no data, forever.
+ *
+ *  That is device-specific by nature: the same build, same account, works on a
+ *  phone and hangs on a laptop behind a corporate network. Without these two
+ *  timers the app waits indefinitely and the user learns to press refresh. */
+let sseReadyTimer: ReturnType<typeof setTimeout> | null = null;
+let sseAliveTimer: ReturnType<typeof setTimeout> | null = null;
+let sseHeartbeatMs = 15_000;
+/** How many times in a row a stream has connected and then gone silent.
+ *
+ *  Reconnecting after a silence is right the first time — streams drop. But a
+ *  network path that kills every stream a few seconds after it opens (a
+ *  buffering proxy, an inspecting firewall) would otherwise put us in a loop:
+ *  connect, say "ready", switch polling OFF, go silent, reconnect. The user
+ *  gets messages only in the brief windows. After the second silence we stop
+ *  believing this path can carry a stream and stay on the poll, still
+ *  retrying quietly in the background. */
+let sseSilences = 0;
+/** No `ready` within this long and the stream is not coming. */
+const SSE_READY_DEADLINE_MS = 4_000;
+/** Silence longer than this on a stream that DID open means it has died. */
+const sseSilenceLimit = () => sseHeartbeatMs * 2 + 5_000;
 
 /** A short-lived ticket for the stream URL, so the account's real access token
  *  never lands in a proxy access log, browser history or Referer. Falls back to
@@ -360,7 +423,10 @@ async function startSseInner(): Promise<void> {
   }
   if (ticket === undefined) {
     // Could not mint, and it is not a missing endpoint. Retry rather than
-    // downgrade the credential.
+    // downgrade the credential — but start the fallback NOW, not after three
+    // attempts. Each attempt can take the full 8s fetch deadline, so waiting
+    // for the third meant ~30 seconds of a chat that looked simply broken.
+    startPolling();
     sseFailures += 1;
     if (sseFailures >= 3) {
       transport = 'poll';
@@ -379,24 +445,58 @@ async function startSseInner(): Promise<void> {
   const source = new EventSource(`/api/chat/stream?${qs}`);
   es = source;
 
+  // Poll from the moment we start connecting, not only after a failure.
+  // Negotiating the stream takes a ticket round-trip plus two queries, and a
+  // message that lands in that window would otherwise wait for the next one.
+  // `ready` stops this again immediately.
+  startPolling();
+
+  if (sseReadyTimer) clearTimeout(sseReadyTimer);
+  sseReadyTimer = setTimeout(() => {
+    sseReadyTimer = null;
+    if (es !== source || sseReady) return;
+    // Opened (or queued) but silent. EventSource will never tell us.
+    console.warn('[chat] stream did not deliver within '
+      + SSE_READY_DEADLINE_MS + 'ms — falling back');
+    stopSse();
+    sseFailures += 1;
+    startPolling();
+    if (sseFailures >= 3) {
+      transport = 'poll';
+      setState('closed', 'Live stream unavailable — using periodic refresh');
+    } else {
+      setState('connecting', null);
+      scheduleSseRestart(1_000 * sseFailures);
+    }
+  }, SSE_READY_DEADLINE_MS);
+
   source.addEventListener('ready', (ev) => {
     if (es !== source) return;
     sseReady = true;
     sseFailures = 0;
+    if (sseReadyTimer) {
+      clearTimeout(sseReadyTimer);
+      sseReadyTimer = null;
+    }
     setState('open', null);
+    noteSseActivity();
     // Fetch anything written between the last poll and this stream opening —
     // ticket mint plus two queries is tens to hundreds of milliseconds, and a
     // message landing in that window belongs to neither transport. Catch up
     // FIRST, then stop polling.
     void pollOnce().finally(() => {
-      if (es === source && sseReady) stopPolling();
+      // Only switch the backstop off for a path that has never betrayed us.
+      if (es === source && sseReady && sseSilences === 0) stopPolling();
     });
     try {
-      const info = JSON.parse((ev as MessageEvent).data) as { rooms?: string[] };
+      const info = JSON.parse((ev as MessageEvent).data) as { rooms?: string[]; heartbeat?: number };
       // The server joins every room the user is a member of. If a room we want
       // is missing, membership changed after the stream opened (a plan was just
       // created or joined) — reconnect so the server re-resolves it, rather
       // than silently never delivering that room.
+      if (typeof info.heartbeat === 'number' && info.heartbeat > 0) {
+        sseHeartbeatMs = info.heartbeat * 1000;
+      }
       const served = new Set(info.rooms ?? []);
       let missing = false;
       desiredRooms.forEach((r) => {
@@ -421,8 +521,18 @@ async function startSseInner(): Promise<void> {
     scheduleSseRestart(50);
   });
 
+  source.addEventListener('beat', () => {
+    if (es !== source) return;
+    noteSseActivity();     // proof of life: the reason it is an event, not a comment
+  });
+
   source.addEventListener('chat', (ev) => {
     if (es !== source) return;
+    if (sseSilences > 0) {
+      sseSilences = 0;      // real traffic got through: this path is fine
+      stopPolling();        // ...so the backstop can go
+    }
+    noteSseActivity();
     try {
       emit(JSON.parse((ev as MessageEvent).data) as ChatFrame);
     } catch {
@@ -498,7 +608,12 @@ function scheduleSseRestart(delay: number): void {
  */
 function pollDelay(): number {
   if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return -1;
-  return state === 'open' ? -1 : POLL_ACTIVE_MS;
+  if (state !== 'open') return POLL_ACTIVE_MS;
+  // The stream says it is open. Normally that is enough and we do not poll at
+  // all. But if a stream on THIS network path has already gone silent once,
+  // "open" has been shown to mean nothing here — so keep a slow backstop until
+  // a real message proves the path works. Trust is earned, not asserted.
+  return sseSilences > 0 ? POLL_IDLE_MS : -1;
 }
 
 async function pollOnce(): Promise<void> {
@@ -778,6 +893,8 @@ function teardown(): void {
   pollCursor = {};
   desiredRooms.clear();
   bootPromise = null;
+  sseSilences = 0;
+  sseFailures = 0;
   transport = 'unknown';
   setState('idle', null);
 }

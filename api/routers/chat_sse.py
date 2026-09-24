@@ -70,9 +70,15 @@ settings = get_settings()
 
 router = APIRouter(prefix="/chat", tags=["chat-sse"])
 
-# A comment line keeps the connection warm through proxies that cut idle
-# sockets. 20s is comfortably under the usual 30-60s idle timeouts.
-_HEARTBEAT_S = 20.0
+# Keeps the connection warm through proxies that cut idle sockets, AND — just
+# as important — gives the client something it can actually observe.
+#
+# A bare SSE comment (`: ping`) fires NO JavaScript event. A stream that is
+# open but delivering nothing therefore looks identical, from the browser, to a
+# stream that is merely quiet. That is the difference between "your friend has
+# not messaged yet" and "this connection is dead and you must refresh", and the
+# client had no way to tell them apart. So the heartbeat is a real named event.
+_HEARTBEAT_S = float(settings.chat_sse_heartbeat)
 
 
 def _sse(event: str, data: str) -> str:
@@ -258,6 +264,9 @@ async def chat_stream(
             # chat dead. `degraded` tells it to fall back to polling instead.
             yield _sse("degraded", json.dumps({"error": "too_many_streams"}))
             return
+        # So an overflow can unblock us even while we are parked in a `yield`
+        # writing to a client that has stopped reading. See Listener.close().
+        lis.task = asyncio.current_task()
         for room_id in rooms:
             await manager.join_room(uid, room_id)
         opened = time.monotonic()
@@ -268,7 +277,8 @@ async def chat_stream(
             yield _sse(
                 "ready",
                 json.dumps({"type": "connected", "user_id": uid, "rooms": rooms,
-                            "transport": "sse", "max_age": _MAX_STREAM_S}),
+                            "transport": "sse", "max_age": _MAX_STREAM_S,
+                            "heartbeat": _HEARTBEAT_S}),
             )
             last_beat = time.monotonic()
             while True:
@@ -306,17 +316,6 @@ async def chat_stream(
                     _REVALIDATE_S - (now - last_check),
                 )
                 timeout = max(0.25, timeout)
-                # `if getter is None`, NOT `if getter.done()`.
-                #
-                # A done getter has already TAKEN a frame off the queue. The
-                # first version re-created it in that state, which threw the
-                # frame away without ever calling .result() — no error, no
-                # warning, nothing in the queue to retry. It fired whenever a
-                # message landed while the loop was awaiting something else: the
-                # heartbeat write, the disconnect check, or the two database
-                # queries of the once-a-minute revalidation. Silent, occasional
-                # message loss inside the code written to end silent, occasional
-                # message loss.
                 if getter is None:
                     getter = asyncio.create_task(lis.queue.get())
                 if closer is None:
@@ -325,27 +324,17 @@ async def chat_stream(
                     {getter, closer}, timeout=timeout,
                     return_when=asyncio.FIRST_COMPLETED,
                 )
-                # `.done()` rather than membership in `done`, so a frame that
-                # lands between the wait returning and this check is still read.
                 if closer.done():
-                    # The manager dropped this stream (an overflowing queue, or
-                    # a revocation). An Event, not a queue sentinel — a sentinel
-                    # cannot be pushed into a queue that is already full, which
-                    # is exactly why it must not be one.
-                    #
-                    # If `getter` also completed we lose that one frame. That
-                    # only happens on the overflow path, which is already
-                    # dropping frames by definition — do not "fix" this by
-                    # checking getter first, or a revoked member gets one more
-                    # message than they should.
                     break
                 if getter.done():
                     frame = getter.result()
                     getter = None
                     yield _sse("chat", json.dumps(frame, default=str))
                     continue
-                # Nothing arrived: keep intermediaries from closing us.
-                yield ": ping\n\n"
+                # Nothing arrived. Send a real event, not a bare comment, so
+                # the client can distinguish "quiet" from "dead" and fall back
+                # when a proxy has silently stopped forwarding this stream.
+                yield _sse("beat", json.dumps({"t": int(time.time())}))
                 last_beat = time.monotonic()
         except asyncio.CancelledError:
             raise

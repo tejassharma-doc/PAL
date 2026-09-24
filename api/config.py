@@ -107,6 +107,13 @@ class Settings(BaseSettings):
     # Between reconnects, re-check the cheap things (account still active, room
     # set unchanged) on this cadence.
     chat_sse_revalidate: int = 60
+    # Heartbeat interval. This is not only about keeping proxies from closing
+    # an idle connection: it is the ONLY thing that lets the browser tell a
+    # quiet stream from a dead one, because a stream that a proxy has silently
+    # stopped forwarding looks exactly like a conversation where nobody has
+    # spoken. The client waits ~2 beats before declaring it dead, so this value
+    # sets how long a silently-broken stream goes unnoticed.
+    chat_sse_heartbeat: int = 10
     # Browser/mobile-facing WebSocket endpoint.
     centrifugo_url: str = "ws://localhost:8100/connection/websocket"
     # Server-to-server HTTP API base (never exposed to clients).

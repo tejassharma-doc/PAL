@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from auth import get_current_user
 from models import User
+from services.chat.authz import require_uuid
 from services.chat.notifications import (
     list_notifications,
     mark_all_notifications_read,
@@ -38,6 +39,7 @@ async def get_unread_count(user: User = Depends(get_current_user)):
 
 @router.post("/{notification_id}/read")
 async def read_one(notification_id: str, user: User = Depends(get_current_user)):
+    require_uuid(notification_id, "notification_id")
     ok = await mark_notification_read(notification_id, user.id)
     if not ok:
         raise HTTPException(status_code=404, detail="Notification not found")

@@ -371,12 +371,6 @@ class ConnectionManager:
             except Exception:  # noqa: BLE001
                 pass
         if effective_transport() == "centrifugo":
-            # NOTE ON exclude_user: Centrifugo publishes to a channel, not to a
-            # filtered set of subscribers, so the sender DOES receive their own
-            # frame back. That is the standard Centrifugo pattern and it is
-            # strictly better for multi-device. Clients reconcile by
-            # message_id — they adopt the id returned by POST /chat/send for
-            # their optimistic row, so the echo de-dupes.
             await centrifugo.publish(centrifugo.room_channel(room_id), full)
 
     async def send_notification(self, user_id: str, notification: dict) -> None:
@@ -520,11 +514,30 @@ class Listener:
     prevent it.
     """
 
-    __slots__ = ("queue", "closed")
+    __slots__ = ("queue", "closed", "task")
 
     def __init__(self) -> None:
         self.queue: asyncio.Queue = asyncio.Queue(maxsize=ConnectionManager.SSE_QUEUE_MAX)
         self.closed: asyncio.Event = asyncio.Event()
+        # The task running this stream's generator. Needed because setting the
+        # Event is not always enough — see close().
+        self.task: Optional[asyncio.Task] = None
 
     def close(self) -> None:
+        """Signal, and if necessary force.
+
+        Setting the Event is enough when the generator is waiting on the queue.
+        It is NOT enough when the generator is parked inside `yield`, blocked
+        on an ASGI write to a client that has stopped reading — which is
+        exactly the client an overflow implies. In that state the generator
+        never returns to the top of the loop, so it never sees the Event, and
+        the stream sits there holding a full queue for as long as the tab
+        exists (a suspended laptop, a tab the OS has descheduled).
+
+        So cancel the task too. That unwinds the blocked write and lets the
+        generator's `finally` release the listener and its room membership.
+        """
         self.closed.set()
+        t = self.task
+        if t is not None and not t.done():
+            t.cancel()

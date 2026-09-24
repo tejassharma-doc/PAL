@@ -12,7 +12,12 @@ function authHeaders(): Record<string, string> {
 
 function getMemberId(): string | null {
   if (typeof window === 'undefined') return null
-  return localStorage.getItem('pal_user_id')
+  const v = localStorage.getItem('pal_user_id')
+  // localStorage.setItem(k, undefined) writes the literal string "undefined";
+  // setItem(k, null) writes "null" — both reach the server as path segments
+  // like /api/conversations/<tenant>/null that the server rejects with 422.
+  if (!v || v === 'null' || v === 'undefined') return null
+  return v
 }
 
 // ── Search ─────────────────────────────────────────────────────────────────────

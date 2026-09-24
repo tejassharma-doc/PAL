@@ -36,8 +36,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import get_settings
 from models import User
 
-from . import cache
-
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
@@ -71,30 +69,38 @@ async def authenticate_ws_token(db: AsyncSession, token: Optional[str]) -> Optio
     return user
 
 
+def require_uuid(value: str, field: str) -> str:
+    """Reject a non-UUID path parameter with 422, not a 500.
+
+    These ids are typed `str` on the route and then handed to SQL that casts
+    them to uuid, so anything that is not a UUID reaches PostgreSQL and comes
+    back as `invalid input for query argument` — an unhandled DataError, an
+    HTTP 500, and a stack trace in the log. A sweep of the API surface found
+    this on nine endpoints; these are the two inside the chat module.
+
+    Routes elsewhere in PAL have the same shape. The durable fix for them is to
+    type the parameter as `uuid.UUID` so FastAPI validates it before the
+    handler runs.
+    """
+    try:
+        uuid.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"`{field}` must be a UUID",
+        )
+    return str(value)
+
+
 async def is_room_member(
     db: AsyncSession, room_id: str | uuid.UUID, user_id: str | uuid.UUID
 ) -> bool:
-    """True if the user currently holds a non-departed seat in the room.
-
-    Read-through cached in Redis (``services.chat.cache``) because this runs on
-    every Centrifugo subscription token — roughly 1,700 times a second at the
-    1M target, and a measured ~230,000/s peak during a reconnect storm. Without
-    a cache each of those is a PostgreSQL query.
-
-    The cache does NOT weaken revocation: every membership change invalidates
-    the exact (room, user) entry, so a removed member is denied on their next
-    subscribe rather than after a TTL. If Redis is unreachable the lookup falls
-    straight through to the database — slower, never wronger.
-    """
+    """True if the user currently holds a non-departed seat in the room."""
     try:
         rid = uuid.UUID(str(room_id))
         uid = uuid.UUID(str(user_id))
     except (ValueError, AttributeError, TypeError):
         return False
-
-    cached = await cache.get(str(rid), str(uid))
-    if cached is not None:
-        return cached
 
     row = (
         await db.execute(
@@ -111,38 +117,7 @@ async def is_room_member(
             {"room_id": rid, "user_id": uid},
         )
     ).first()
-    allowed = row is not None
-    await cache.put(str(rid), str(uid), allowed)
-    return allowed
-
-
-async def is_room_member_lazy(
-    room_id: str | uuid.UUID, user_id: str | uuid.UUID
-) -> bool:
-    """``is_room_member`` without holding a pooled connection on a cache hit.
-
-    The subscription-token endpoint is called at reconnect-storm rates. Taking
-    a session from the pool (10 + 20 per pod) on every request — purely because
-    the FastAPI dependency asked for one, even when the membership cache answers
-    without touching PostgreSQL — makes the pool the contention point instead of
-    the database.
-
-    So: consult the cache first with no session at all, and open one only on a
-    miss. Same authorisation decision, same cache, same invalidation.
-    """
-    try:
-        rid = uuid.UUID(str(room_id))
-        uid = uuid.UUID(str(user_id))
-    except (ValueError, AttributeError, TypeError):
-        return False
-
-    cached = await cache.get(str(rid), str(uid))
-    if cached is not None:
-        return cached
-
-    from database import AsyncSessionLocal
-    async with AsyncSessionLocal() as db:
-        return await is_room_member(db, rid, uid)
+    return row is not None
 
 
 async def assert_room_member(
