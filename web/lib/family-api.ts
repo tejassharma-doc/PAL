@@ -415,3 +415,15 @@ export async function markNotificationRead(id: string): Promise<void> {
 export async function markAllNotificationsRead(): Promise<void> {
   await fetch('/api/notifications/mark-all-read', { method: 'POST', headers: authHeaders() });
 }
+
+// ── Compatibility aliases for callers that used the old API shape ─────────────
+export type FamilyPlanListItem = MyPlanSummary;
+export const getFamilyPlans = getMyPlans;
+
+export async function deleteFamilyPlan(planId: string): Promise<void> {
+  const res = await fetch(`/api/family/plans/${planId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error('Could not delete group');
+}

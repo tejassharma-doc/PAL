@@ -282,17 +282,16 @@ export default function FamilyPage() {
         listPayments(),
         chatUnreadCount(),
       ]);
-      setPlans(pl.plans);
-      setCanJoinMore(pl.can_join_more);
+      if (pl) {
+        setPlans(pl.plans);
+        setCanJoinMore(pl.can_join_more);
+        if (pl.plans.length > 0 && un > 0) {
+          const first = pl.plans.find(p => p.hub_room_id);
+          if (first) setUnreadMap({ [first.plan_id]: un });
+        }
+      }
       setRequests(rq);
       setPayments(py.filter(x => x.status === 'pending'));
-      // Spread the total unread count across plans proportionally (rough heuristic).
-      // Each plan's accurate unread count comes from its hub room; for now mark
-      // the first plan that has a hub room with the total count.
-      if (pl.plans.length > 0 && un > 0) {
-        const first = pl.plans.find(p => p.hub_room_id);
-        if (first) setUnreadMap({ [first.plan_id]: un });
-      }
     } catch {
       // fail closed
     } finally {

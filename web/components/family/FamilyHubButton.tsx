@@ -139,6 +139,7 @@ export default function FamilyHubButton({
     try {
       const [planData, conversations] = await Promise.all([getFamilyPlans(), listConversations()]);
       if (!mounted.current) return;
+      if (!planData) return;
       const roomUnread = new Map(conversations.map(c => [c.room_id, c.unread_count]));
       const withUnread = planData.plans.filter(p =>
         p.hub_room_id && (roomUnread.get(p.hub_room_id) ?? 0) > 0
@@ -223,7 +224,7 @@ export default function FamilyHubButton({
     try {
       const data = await getFamilyPlans();
       if (!mounted.current) return;
-      if (data.plans.length === 1) {
+      if (data && data.plans.length === 1) {
         router.push(`/family/hub?planId=${data.plans[0].plan_id}`);
         return;
       }

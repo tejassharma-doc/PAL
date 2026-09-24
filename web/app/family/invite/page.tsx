@@ -107,7 +107,7 @@ function FamilyInviteInner() {
           role,
           date_of_birth: dob || undefined,
           is_billing_delegate: delegate,
-        }, planId);
+        });
         setIssuedCode(r.invite_code);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not send the invitation');
