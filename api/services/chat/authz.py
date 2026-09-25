@@ -92,6 +92,16 @@ def require_uuid(value: str, field: str) -> str:
     return str(value)
 
 
+async def is_room_member_lazy(
+    room_id: str | uuid.UUID, user_id: str | uuid.UUID
+) -> bool:
+    """Session-free version — opens its own connection. Use inside endpoints
+    that don't already hold a db session (e.g. Centrifugo subscribe-token)."""
+    from database import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        return await is_room_member(db, room_id, user_id)
+
+
 async def is_room_member(
     db: AsyncSession, room_id: str | uuid.UUID, user_id: str | uuid.UUID
 ) -> bool:
