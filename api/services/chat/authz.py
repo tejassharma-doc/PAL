@@ -45,11 +45,17 @@ WS_CLOSE_FORBIDDEN = 4003
 WS_CLOSE_TIMEOUT = 4008
 
 
-async def authenticate_ws_token(db: AsyncSession, token: Optional[str]) -> Optional[User]:
-    """Resolve a `?token=` query param to an active User, or None.
+async def authenticate_ws_token(db: AsyncSession, token: Optional[str]):
+    """Resolve a `?token=` query param to an active user, or None.
 
     Returns None (never raises) so the endpoint can close the socket with a
     proper code instead of surfacing a 500.
+
+    PAL has two account types and phone OTP is the PRIMARY one, so this mirrors
+    ``auth.get_current_user_unified``: a ``phone`` token resolves to a
+    ``PhoneUser`` (``sub`` is its id), an ``email`` token to a ``User`` (``sub``
+    is its id, falling back to username). Resolving only ``User`` here made every
+    phone user fail WS/SSE auth and silently drop to polling.
     """
     if not token:
         return None
@@ -58,12 +64,37 @@ async def authenticate_ws_token(db: AsyncSession, token: Optional[str]) -> Optio
     except JWTError:
         return None
 
-    username = payload.get("sub")
-    if not username:
+    sub = payload.get("sub")
+    if not sub:
         return None
+    auth_type = payload.get("auth_type", "email")
 
-    result = await db.execute(select(User).where(User.username == username))
-    user = result.scalar_one_or_none()
+    if auth_type == "phone":
+        from models.phone_user import PhoneUser
+        try:
+            pid = uuid.UUID(str(sub))
+        except (ValueError, AttributeError, TypeError):
+            return None
+        user = (
+            await db.execute(select(PhoneUser).where(PhoneUser.id == pid))
+        ).scalar_one_or_none()
+        if user is None or not user.is_active:
+            return None
+        return user
+
+    # Email/password (legacy): sub may be a User id or a username.
+    user = None
+    try:
+        uid = uuid.UUID(str(sub))
+        user = (
+            await db.execute(select(User).where(User.id == uid))
+        ).scalar_one_or_none()
+    except (ValueError, AttributeError, TypeError):
+        user = None
+    if user is None:
+        user = (
+            await db.execute(select(User).where(User.username == sub))
+        ).scalar_one_or_none()
     if user is None or not user.is_active:
         return None
     return user

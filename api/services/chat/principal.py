@@ -111,23 +111,29 @@ async def get_chat_principal(
         detail="Could not validate credentials",
     )
 
-    # Cryptography first, always. The cache is keyed by a username that has
-    # already been proven to come from a token we signed and that has not
+    # Cryptography first, always. The cache is keyed by the token subject, which
+    # has already been proven to come from a token we signed and that has not
     # expired — it is never keyed by unverified input.
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-        username: str = payload.get("sub")
-        if not username:
+        sub: str = payload.get("sub")
+        if not sub:
             raise creds_exception
     except JWTError:
         raise creds_exception
+
+    # PAL's PRIMARY auth is phone OTP, whose `sub` is a PhoneUser id (not a
+    # username). Mirror auth.get_current_user_unified so /config authenticates
+    # phone users too; resolving only the User table 401'd every phone user here.
+    auth_type: str = payload.get("auth_type", "email")
+    cache_key = sub  # unique per account for both auth types
 
     redis = _cache._redis  # same connection, same logical DB
     ttl = getattr(settings, "chat_principal_cache_ttl", 0) or 0
 
     if redis is not None and ttl > 0:
         try:
-            raw = await redis.get(_KEY.format(username=username))
+            raw = await redis.get(_KEY.format(username=cache_key))
             if raw:
                 d = json.loads(raw)
                 if not d.get("is_active"):
@@ -139,25 +145,52 @@ async def get_chat_principal(
             pass        # fall through to the database
 
     # Cache miss (or cache disabled): now, and only now, take a connection.
+    user = None
+    display_name = sub
     async with AsyncSessionLocal() as db:
-        user = (
-            await db.execute(select(User).where(User.username == username))
-        ).scalar_one_or_none()
+        if auth_type == "phone":
+            from models.phone_user import PhoneUser
+            import uuid as _uuid
+            try:
+                pid = _uuid.UUID(str(sub))
+                user = (
+                    await db.execute(select(PhoneUser).where(PhoneUser.id == pid))
+                ).scalar_one_or_none()
+            except (ValueError, AttributeError, TypeError):
+                user = None
+            if user is not None:
+                display_name = user.phone_number
+        else:
+            user = (
+                await db.execute(select(User).where(User.username == sub))
+            ).scalar_one_or_none()
+            # Legacy email tokens can carry a User id in `sub` instead of a name.
+            if user is None:
+                import uuid as _uuid
+                try:
+                    uid = _uuid.UUID(str(sub))
+                    user = (
+                        await db.execute(select(User).where(User.id == uid))
+                    ).scalar_one_or_none()
+                except (ValueError, AttributeError, TypeError):
+                    user = None
+            if user is not None:
+                display_name = user.username
     if not user or not user.is_active:
         raise creds_exception
 
     if redis is not None and ttl > 0:
         try:
             await redis.set(
-                _KEY.format(username=username),
-                json.dumps({"id": str(user.id), "username": user.username,
+                _KEY.format(username=cache_key),
+                json.dumps({"id": str(user.id), "username": display_name,
                             "is_active": True}),
                 ex=_jitter(ttl),
             )
         except Exception:
             pass
 
-    return Principal(str(user.id), user.username, True)
+    return Principal(str(user.id), display_name, True)
 
 
 async def invalidate_principal(username: str) -> None:

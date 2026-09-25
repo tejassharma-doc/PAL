@@ -98,13 +98,24 @@ async def _user_by_id(db: AsyncSession, user_id: str):
     A ticket is a bearer credential, so the account state is verified here and
     not trusted from the claims — a user deactivated in the last 60 seconds
     must not be able to open a stream.
+
+    PAL's PRIMARY auth is phone OTP, whose subject is a ``PhoneUser`` id, not a
+    ``User`` id. A ticket carries only the raw id (no auth_type), so both tables
+    are checked — PhoneUser first, since that is the common case. Resolving only
+    ``User`` here was silently 401ing every phone user's stream and dropping them
+    to polling (i.e. "the website only updates on refresh").
     """
+    import uuid as _uuid
     from models import User
+    from models.phone_user import PhoneUser
     from sqlalchemy import select
     try:
-        row = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
-    except Exception:  # noqa: BLE001 — a malformed uuid is just a bad ticket
+        uid = _uuid.UUID(str(user_id))
+    except (ValueError, AttributeError, TypeError):  # a malformed uuid is a bad ticket
         return None
+    row = (await db.execute(select(PhoneUser).where(PhoneUser.id == uid))).scalar_one_or_none()
+    if row is None:
+        row = (await db.execute(select(User).where(User.id == uid))).scalar_one_or_none()
     if row is None or not row.is_active:
         return None
     return row
