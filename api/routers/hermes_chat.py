@@ -17,6 +17,7 @@ from models import User, Conversation, ConversationTurn
 from services.llm_vertex import get_vertex_client
 from services.mcp_client import get_mcp_client
 from services.fastmcp_client import get_fastmcp_client
+from services.mcp_auth import mint_mcp_token, owned_patient_ids, user_owns_patient
 from services.hindsight import Hindsight
 from config import get_settings
 
@@ -224,6 +225,24 @@ async def chat_with_hermes(
         conversation_uuid = uuid.UUID(conversation_id)
         patient_uuid = uuid.UUID(request.patient_id)
 
+        # ── PAL MCP authentication gate ────────────────────────────────────────
+        # The patient-data tools are about to run against `request.patient_id`,
+        # which arrived in the request body. Before any PAL-MCP call, confirm the
+        # authenticated user actually owns that patient record, then mint the
+        # short-lived, patient-scoped JWT the MCP now requires. If the user owns
+        # nothing (or not this patient), stop here — no token, no chat over PHI.
+        allowed_pids = await owned_patient_ids(db, user)
+        if settings.mcp_auth_required and not user_owns_patient(request.patient_id, allowed_pids):
+            logger.warning(
+                "Hermes chat: user %s attempted patient_id %s they do not own",
+                user.id, request.patient_id,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="You are not authorized to access this patient's records",
+            )
+        mcp_token = mint_mcp_token(str(user.id), allowed_pids)
+
         # Get conversation history from Hindsight
         tenant_id = None  # Tenant concept removed
         hindsight = Hindsight(db, tenant_id, patient_uuid)
@@ -340,7 +359,7 @@ Patient ID for this conversation: {request.patient_id}
                     tool_name = tool_call.function.name
                     tool_args = json.loads(tool_call.function.arguments)
                     logger.info(f"Calling tool: {tool_name} args={tool_args}")
-                    tool_result = await fastmcp_client.call_tool(tool_name, tool_args, db)
+                    tool_result = await fastmcp_client.call_tool(tool_name, tool_args, db, mcp_token=mcp_token)
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,

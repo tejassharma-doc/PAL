@@ -129,12 +129,24 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-pal}
       PAL_API_KEY: ${PAL_API_KEY}
+      # MCP auth. The signing key is delivered by `env_file: .env.production`
+      # above (SECRET_KEY) — the SAME mechanism and value the API uses, so the
+      # API-minted JWT verifies here. If .env.production does not define
+      # SECRET_KEY, both services fall back to the identical config default, so
+      # they still match. This server returns PHI and rejects any
+      # unauthenticated /tools/call while MCP_AUTH_REQUIRED is true.
+      MCP_JWT_AUD: pal-mcp
+      MCP_JWT_TYP: mcp-access
+      MCP_AUTH_REQUIRED: "true"
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
     ports:
-      - "0.0.0.0:8002:8002"
+      # Bound to loopback only: the API reaches this over the internal docker
+      # network (http://fastmcp:8002), so it never needs a public interface.
+      # (JWT auth is the primary guard; this is defence in depth.)
+      - "127.0.0.1:8002:8002"
     networks:
       - pal-network
 

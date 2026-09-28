@@ -30,6 +30,17 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 30
     algorithm: str = "HS256"
 
+    # ── PAL MCP (FastMCP) service auth ─────────────────────────────────────────
+    # The FastMCP tool server holds PHI and must never be called
+    # unauthenticated. On a PAL-MCP-related call the API mints a short-lived JWT,
+    # scoped to the caller's OWN patient ids, and the MCP verifies signature +
+    # expiry + patient scope before running any tool. Signed with `secret_key`
+    # (the MCP is given the same secret via env), so no new key to manage.
+    mcp_jwt_ttl: int = 120           # seconds — a chat turn's tool calls finish well inside this
+    mcp_jwt_aud: str = "pal-mcp"     # audience the MCP requires
+    mcp_jwt_typ: str = "mcp-access"  # token type the MCP requires
+    mcp_auth_required: bool = True   # set false ONLY for a temporary rollback
+
     # App
     app_name: str = "PAL"
     environment: Literal["development", "production"] = "development"

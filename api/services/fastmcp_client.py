@@ -190,7 +190,13 @@ class FastMCPClient:
         else:
             logger.info("MCP-bioRxiv disabled")
 
-    async def call_tool(self, tool_name: str, arguments: Dict[str, Any], db: AsyncSession) -> Any:
+    async def call_tool(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        db: AsyncSession,
+        mcp_token: Optional[str] = None,
+    ) -> Any:
         """
         Route tool calls to appropriate MCP server
 
@@ -198,6 +204,10 @@ class FastMCPClient:
             tool_name: Name of the tool
             arguments: Tool arguments as dict
             db: Database session (for external MCP ID translation)
+            mcp_token: Short-lived, patient-scoped JWT minted by the API for the
+                local FastMCP (patient-data) server. Required by that server now
+                that it authenticates every call; ignored by the other MCPs,
+                which carry no PHI.
 
         Returns:
             Tool result from MCP server
@@ -206,7 +216,7 @@ class FastMCPClient:
             # Check if it's a local FastMCP tool (patient data)
             if tool_name in ["get_patient_info", "get_patient_records", "get_latest_prescription", "get_lab_results", "search_patients"]:
                 logger.info(f"FastMCP: Calling {tool_name}")
-                result = await self._call_fastmcp_tool(tool_name, arguments)
+                result = await self._call_fastmcp_tool(tool_name, arguments, mcp_token)
                 logger.info(f"FastMCP: Got response from {tool_name}")
                 return result
 
@@ -235,15 +245,24 @@ class FastMCPClient:
             logger.error(f"Error calling tool {tool_name}: {e}")
             raise
 
-    async def _call_fastmcp_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
-        """Call a tool on the FastMCP server (uses HTTP wrapper over FastMCP)"""
+    async def _call_fastmcp_tool(
+        self, tool_name: str, arguments: Dict[str, Any], mcp_token: Optional[str] = None
+    ) -> Any:
+        """Call a tool on the FastMCP server (uses HTTP wrapper over FastMCP).
+
+        The token travels in the Authorization header; the FastMCP server
+        rejects the call with 401/403 if it is missing, invalid, or does not
+        cover the requested patient.
+        """
+        headers = {"Authorization": f"Bearer {mcp_token}"} if mcp_token else None
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(
                 f"{self.fastmcp_url}/tools/call",
                 json={
                     "name": tool_name,
                     "arguments": arguments
-                }
+                },
+                headers=headers,
             )
             response.raise_for_status()
             result = response.json()

@@ -4,10 +4,12 @@ Modern MCP server using FastMCP framework (Python)
 """
 import os
 import json
+import uuid
 from datetime import datetime
 from typing import Optional, List
 from fastmcp import FastMCP
 from pydantic import BaseModel, field_validator
+from jose import JWTError, jwt
 import asyncpg
 
 # Environment configuration
@@ -18,6 +20,23 @@ POSTGRES_USER = os.getenv("POSTGRES_USER", "pal")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 POSTGRES_DB = os.getenv("POSTGRES_DB", "pal")
 PAL_API_KEY = os.getenv("PAL_API_KEY", "")
+
+# ── MCP auth ───────────────────────────────────────────────────────────────
+# This server returns PHI, so every /tools/call must carry a JWT that the PAL
+# API minted (services/mcp_auth.py). It is signed with the SAME secret the API
+# uses, scoped to the caller's own patient ids, and it expires in ~2 minutes.
+# The server verifies signature + expiry + audience/type, then enforces that the
+# requested patient_id is inside the token's `pids` scope.
+# Default MUST equal the API's config.py `secret_key` default so that, whether
+# or not .env.production defines SECRET_KEY, this server and the API agree on the
+# signing key and the API-minted token verifies here.
+SECRET_KEY = os.getenv("SECRET_KEY", "dev_secret_change_in_prod")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM") or os.getenv("ALGORITHM", "HS256")
+MCP_JWT_AUD = os.getenv("MCP_JWT_AUD", "pal-mcp")
+MCP_JWT_TYP = os.getenv("MCP_JWT_TYP", "mcp-access")
+# Escape hatch for a temporary rollback ONLY. Leaving this false re-opens the
+# PHI hole this file exists to close, so it must be "true" in production.
+MCP_AUTH_REQUIRED = os.getenv("MCP_AUTH_REQUIRED", "true").strip().lower() != "false"
 
 # Build connection string
 if not DATABASE_URL:
@@ -306,18 +325,90 @@ async def search_patients(
 
 
 # Add simple HTTP endpoints for bridge access using FastAPI
-from fastapi import FastAPI, Request, HTTPException as FastAPIHTTPException
+from fastapi import FastAPI, Request, Header, HTTPException as FastAPIHTTPException
 from pydantic import BaseModel as PydanticBaseModel
 
 # Create FastAPI app to add custom endpoints
 custom_app = FastAPI()
+
+# Tools that read a single patient's record. Their `patient_id` argument must be
+# inside the caller's token scope.
+_PATIENT_ID_TOOLS = {
+    "get_patient_info", "get_patient_records",
+    "get_latest_prescription", "get_lab_results",
+}
+
+
+def _norm_uuid(value) -> str:
+    """Normalise an id so scope comparison is not defeated by case/formatting."""
+    try:
+        return str(uuid.UUID(str(value)))
+    except (ValueError, AttributeError, TypeError):
+        return str(value)
+
+
+def _verify_mcp_token(authorization: Optional[str]) -> Optional[dict]:
+    """Verify the API-minted MCP JWT and return its claims.
+
+    Returns None when auth is disabled (rollback only). Raises 401 for a
+    missing/invalid/expired/wrong-type token — never runs a tool without one.
+    """
+    if not MCP_AUTH_REQUIRED:
+        return None
+    if not SECRET_KEY:
+        # Fail closed: a server told to require auth but given no key must not
+        # silently accept everything.
+        raise FastAPIHTTPException(status_code=500, detail="MCP auth misconfigured")
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise FastAPIHTTPException(status_code=401, detail="Missing bearer token")
+    raw = authorization[7:].strip()
+    try:
+        claims = jwt.decode(
+            raw, SECRET_KEY, algorithms=[JWT_ALGORITHM], audience=MCP_JWT_AUD
+        )
+    except JWTError:
+        raise FastAPIHTTPException(status_code=401, detail="Invalid or expired token")
+    # python-jose 3.3.0 does NOT reject a token whose `aud` is simply absent even
+    # when audience= is passed, so both claims are checked explicitly here.
+    if claims.get("aud") != MCP_JWT_AUD or claims.get("typ") != MCP_JWT_TYP:
+        raise FastAPIHTTPException(status_code=401, detail="Wrong token type")
+    return claims
+
+
+def _enforce_patient_scope(name: str, arguments: dict, claims: Optional[dict]) -> None:
+    """Reject a tool call for a patient the token does not cover. 403 on breach."""
+    if claims is None:  # auth disabled (rollback)
+        return
+    allowed = {_norm_uuid(p) for p in (claims.get("pids") or [])}
+
+    if name in _PATIENT_ID_TOOLS:
+        pid = arguments.get("patient_id")
+        if not pid or _norm_uuid(pid) not in allowed:
+            raise FastAPIHTTPException(
+                status_code=403, detail="Not authorized for this patient",
+            )
+    elif name == "search_patients":
+        # search_patients can otherwise enumerate strangers by phone/email. Pin
+        # it to the caller's own records: require an owned patient_id and drop
+        # the fishing parameters.
+        pid = arguments.get("patient_id")
+        if not pid or _norm_uuid(pid) not in allowed:
+            raise FastAPIHTTPException(
+                status_code=403, detail="Search restricted to your own records",
+            )
+        arguments.pop("phone", None)
+        arguments.pop("email", None)
+
 
 class ToolCallRequest(PydanticBaseModel):
     name: str
     arguments: dict
 
 @custom_app.post("/tools/call")
-async def http_call_tool(request: ToolCallRequest):
+async def http_call_tool(
+    request: ToolCallRequest,
+    authorization: Optional[str] = Header(default=None),
+):
     """Simple HTTP endpoint to call tools"""
     tools_map = {
         "get_patient_info": get_patient_info,
@@ -329,6 +420,10 @@ async def http_call_tool(request: ToolCallRequest):
 
     if request.name not in tools_map:
         raise FastAPIHTTPException(status_code=404, detail=f"Tool '{request.name}' not found")
+
+    # Authenticate the caller and enforce patient scope BEFORE touching the DB.
+    claims = _verify_mcp_token(authorization)
+    _enforce_patient_scope(request.name, request.arguments, claims)
 
     try:
         print(f"Calling tool: {request.name} with args: {request.arguments}")
