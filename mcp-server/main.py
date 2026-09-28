@@ -10,6 +10,7 @@ from datetime import datetime
 import asyncpg
 import os
 import json
+import uuid
 # Import SQLAlchemy dependencies for helper function
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from webhook_processor import process_webhook, WebhookProcessingError
@@ -52,6 +53,35 @@ app.add_middleware(
 # Database connection pool (asyncpg for raw queries)
 db_pool = None
 
+# ── invoices table ───────────────────────────────────────────────────────────
+# Structured store for payment/invoice webhooks (DocEHR → /api/v1/webhook/invoice).
+# The raw event is still audited in webhook_events; this table is the queryable,
+# de-duplicated projection. Id-like fields are TEXT (not UUID) so a malformed
+# external value can never make the webhook fail and lose data — they remain
+# castable to uuid for joins. Created idempotently on startup because this
+# service has no migration framework of its own.
+INVOICES_DDL = """
+CREATE TABLE IF NOT EXISTS invoices (
+    id                  UUID PRIMARY KEY,
+    event               TEXT,
+    reservation_id      TEXT,
+    appointment_id      TEXT,
+    invoice_id          TEXT,
+    payment_id          TEXT,
+    razorpay_payment_id TEXT,
+    source              TEXT,
+    raw_payload         JSONB       NOT NULL,
+    received_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Idempotency: a retried webhook for the same payment updates in place rather
+-- than inserting a duplicate. Partial so multiple rows without a payment_id
+-- (e.g. non-payment invoice events) are still allowed.
+CREATE UNIQUE INDEX IF NOT EXISTS invoices_payment_id_key
+    ON invoices (payment_id) WHERE payment_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS invoices_invoice_id_idx     ON invoices (invoice_id);
+CREATE INDEX IF NOT EXISTS invoices_appointment_id_idx ON invoices (appointment_id);
+"""
+
 # SQLAlchemy engine and session maker (for ORM helper functions)
 engine = None
 SessionLocal = None
@@ -73,6 +103,14 @@ async def startup():
             timeout=10  # 10 second connection timeout
         )
         print(f"✅ Database pool created successfully")
+
+        # Ensure the invoices table exists (idempotent).
+        try:
+            async with db_pool.acquire() as conn:
+                await conn.execute(INVOICES_DDL)
+            print("✅ invoices table ready")
+        except Exception as ddl_error:
+            print(f"⚠️  Could not ensure invoices table: {ddl_error}")
 
         # SQLAlchemy async engine for ORM
         print(f"🔄 Creating SQLAlchemy engine...")
@@ -518,10 +556,11 @@ async def receive_invoice_webhook(
 
     webhook_id = None
 
-    try:
-        event_type = payload.get("event", "invoice")
-        source = headers.get("x-webhook-source") or payload.get("source", "docehr")
+    event_type = payload.get("event", "invoice")
+    source = headers.get("x-webhook-source") or payload.get("source", "docehr")
 
+    # STEP 1: raw audit trail — keep the untouched event in webhook_events.
+    try:
         row = await db.fetchrow(
             """
             INSERT INTO webhook_events
@@ -534,29 +573,66 @@ async def receive_invoice_webhook(
             timestamp,
             json.dumps(payload),
             json.dumps(headers),
-            False,
+            True,  # projected into invoices below, so mark processed
         )
-
         webhook_id = str(row["id"])
-        print(f"✅ Invoice webhook stored — id: {webhook_id}")
+        print(f"✅ Invoice webhook audited in webhook_events — id: {webhook_id}")
+    except Exception as error:
+        print(f"⚠️  Could not audit invoice webhook: {error}")
+
+    # STEP 2: structured projection — upsert the parsed fields into invoices.
+    invoice_row_id = None
+    try:
+        invoice_row_id = str(uuid.uuid4())
+        result = await db.fetchrow(
+            """
+            INSERT INTO invoices
+                (id, event, reservation_id, appointment_id, invoice_id,
+                 payment_id, razorpay_payment_id, source, raw_payload, received_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ON CONFLICT (payment_id) WHERE payment_id IS NOT NULL
+            DO UPDATE SET
+                event               = EXCLUDED.event,
+                reservation_id      = EXCLUDED.reservation_id,
+                appointment_id      = EXCLUDED.appointment_id,
+                invoice_id          = EXCLUDED.invoice_id,
+                razorpay_payment_id = EXCLUDED.razorpay_payment_id,
+                source              = EXCLUDED.source,
+                raw_payload         = EXCLUDED.raw_payload,
+                received_at         = EXCLUDED.received_at
+            RETURNING id
+            """,
+            invoice_row_id,
+            event_type,
+            payload.get("reservation_id"),
+            payload.get("appointment_id"),
+            payload.get("invoice_id"),
+            payload.get("payment_id"),
+            payload.get("razorpay_payment_id"),
+            payload.get("source") or source,
+            json.dumps(payload),
+            timestamp,
+        )
+        invoice_row_id = str(result["id"])
+        print(f"✅ Invoice saved to invoices table — id: {invoice_row_id}")
 
         return WebhookResponse(
             success=True,
-            message="Invoice webhook received and stored",
-            webhook_id=webhook_id,
-            timestamp=str(row["timestamp"]),
-            event_type=row["event_type"],
+            message="Invoice webhook received and saved",
+            webhook_id=invoice_row_id,
+            timestamp=str(timestamp),
+            event_type=event_type,
             dataReceived=len(payload) > 0,
         )
 
     except Exception as error:
-        print(f"❌ Error storing invoice webhook: {error}")
+        print(f"❌ Error saving invoice to invoices table: {error}")
         import traceback
         traceback.print_exc()
 
         return WebhookResponse(
             success=True,
-            message="Invoice webhook received (storage pending)",
+            message="Invoice webhook received (invoices save pending)",
             webhook_id=webhook_id,
             dataReceived=len(payload) > 0,
         )
