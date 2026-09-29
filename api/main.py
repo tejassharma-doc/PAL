@@ -92,6 +92,18 @@ app.include_router(analytics.router)
 app.include_router(credits.router)
 app.include_router(medical_doc.router)
 
+# ── Voice chat: appointment-booking agent (ADDITIVE) ─────────────────────────
+# Separate from the Hermes "ask" chat above. Importing this router pulls in the
+# Sarvam STT/TTS client, so the mount is guarded: any import/config problem there
+# must never stop the API from booting. The web client reaches it at
+# /api/voice-chat/* and nginx strips /api → the router's /voice-chat prefix.
+try:
+    from routers import voice_chat
+    app.include_router(voice_chat.router)  # /voice-chat/sessions, /voice-chat/ws/{id}
+except Exception as exc:  # noqa: BLE001
+    import logging
+    logging.getLogger(__name__).error("voice-chat: mount failed, continuing: %s", exc)
+
 # ── Realtime chat + Family Plan (ADDITIVE) ───────────────────────────────────
 # Mounted last so they can never shadow an existing route, and imported inside
 # the flag check so that with CHAT_ENABLED=false / FAMILY_PLAN_ENABLED=false the

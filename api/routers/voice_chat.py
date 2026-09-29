@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import secrets
 import time
@@ -29,6 +30,13 @@ log = logging.getLogger("pal.voice_chat")
 router = APIRouter(prefix="/voice-chat", tags=["voice-chat"])
 
 SESSION_TTL = 900  # 15 minutes
+
+# This voice agent books appointments and nothing else, so it is handed only the
+# DocEHR scheduling tools (surfaced by fastmcp_client). Patient-data and
+# literature tools are deliberately withheld — that keeps it separate from the
+# Hermes "ask" chat, which still gets the full tool set.
+BOOKING_TOOL_NAMES = {"get_appointment_slots", "book_appointment"}
+MAX_BOOKING_TOOL_ROUNDS = 6
 
 
 class VoiceChatRequest(BaseModel):
@@ -284,95 +292,127 @@ class VoiceChatSession:
             self.state = "thinking"
             await self.send_json({"type": "state", "value": "thinking"})
 
-            # Call Hermes chat function directly (no HTTP)
-            from routers.hermes_chat import chat_with_hermes, ChatRequest
+            # ── Appointment-booking agent (DocEHR MCP) ─────────────────────────
+            # This is deliberately distinct from the Hermes "ask" chat: this voice
+            # agent only books appointments and only sees the DocEHR scheduling
+            # tools. It reuses the SAME DocEHR MCP wiring as fastmcp_client, so no
+            # new integration is introduced and the "ask llm" flow is untouched.
+            from services.llm_vertex import get_vertex_client
+            from services.fastmcp_client import get_fastmcp_client
             from database import get_db
+            from datetime import date as _date
+            import uuid as uuid_lib
 
-            # Create database session
+            # Keep the conversation in the user's spoken language.
+            language_instruction = ""
+            if self.detected_language:
+                lang_names = {'en': 'English', 'hi': 'Hindi', 'kn': 'Kannada'}
+                lang_name = lang_names.get(self.detected_language, 'English')
+                language_instruction = (
+                    f"\n\nIMPORTANT: The user is speaking in {lang_name}. "
+                    f"ALWAYS respond in {lang_name} to keep the conversation consistent."
+                )
+
+            today = _date.today().isoformat()
+            system_prompt = f"""You are PAL's appointment-booking assistant, a warm and efficient voice receptionist.
+Your ONLY job is to help this patient book a medical appointment. Do not give medical advice or discuss records — if asked, gently steer back to booking.
+
+Today's date is {today}. You are booking for patient_id: {self.patient_id} — always pass this exact id to the tools.
+
+Follow this order:
+1. Find out which doctor and clinic the patient wants, and their preferred date.
+2. Call get_appointment_slots to fetch real openings. Never invent slots — only offer what the tool returns.
+3. Read the options back in natural spoken language (e.g. "I have 11:30 in the morning or 3 in the afternoon").
+4. When the patient picks a time, ALWAYS confirm doctor, clinic, date and time out loud before booking.
+5. Call book_appointment only after the patient confirms, then read back the confirmation.
+
+Keep every reply SHORT (1-2 sentences) — this is a voice call. Ask one question at a time.{language_instruction}"""
+
+            # Build messages with the last few turns for context.
+            messages = [{"role": "system", "content": system_prompt}]
+            for turn in self.conversation_history[-5:]:
+                messages.append({"role": "user", "content": turn["user"]})
+                messages.append({"role": "assistant", "content": turn["assistant"]})
+            messages.append({"role": "user", "content": query})
+
+            vertex_client = get_vertex_client()
+            fastmcp_client = get_fastmcp_client()
+
+            # Expose ONLY the DocEHR scheduling tools to this booking agent.
+            all_tools = await fastmcp_client.get_tool_definitions()
+            tools = [
+                t for t in all_tools
+                if t.get("function", {}).get("name") in BOOKING_TOOL_NAMES
+            ]
+
+            answer = None
             async for db in get_db():
                 try:
-                    # Create request
-                    chat_request = ChatRequest(
-                        query=query,
-                        patient_id=self.patient_id,
-                        conversation_id=self.conversation_id
-                    )
+                    if tools:
+                        # Gemma tool-calling loop over the DocEHR MCP tools.
+                        for round_num in range(MAX_BOOKING_TOOL_ROUNDS):
+                            response = await vertex_client.generate_with_tools(messages, tools)
+                            message = response.choices[0].message
 
-                    # For now, use a simple response without MCP
-                    # TODO: Integrate with MCP once it's ready
-                    from services.llm_vertex import get_vertex_client
-                    import uuid as uuid_lib
+                            if not message.tool_calls:
+                                answer = message.content
+                                break
 
-                    # Build system prompt with language consistency
-                    language_instruction = ""
-                    if self.detected_language:
-                        lang_names = {'en': 'English', 'hi': 'Hindi', 'kn': 'Kannada'}
-                        lang_name = lang_names.get(self.detected_language, 'English')
-                        language_instruction = f"\n\nIMPORTANT: The user is speaking in {lang_name}. ALWAYS respond in {lang_name} to maintain language consistency throughout the conversation."
+                            log.info(
+                                f"[VoiceChat] Tool round {round_num + 1}: "
+                                f"{[tc.function.name for tc in message.tool_calls]}"
+                            )
+                            messages.append({
+                                "role": "assistant",
+                                "content": message.content,
+                                "tool_calls": [tc.dict() for tc in message.tool_calls],
+                            })
 
-                    system_prompt = f"""You are PAL Health Assistant, a friendly medical AI assistant.
+                            for tool_call in message.tool_calls:
+                                tool_name = tool_call.function.name
+                                try:
+                                    tool_args = json.loads(tool_call.function.arguments or "{}")
+                                except json.JSONDecodeError:
+                                    tool_args = {}
+                                # This agent always books for the session's patient.
+                                tool_args.setdefault("patient_id", self.patient_id)
+                                log.info(f"[VoiceChat] Calling {tool_name} args={tool_args}")
+                                try:
+                                    tool_result = await fastmcp_client.call_tool(tool_name, tool_args, db)
+                                except Exception as tool_err:
+                                    log.error(f"[VoiceChat] Tool {tool_name} failed: {tool_err}")
+                                    tool_result = {"error": str(tool_err)}
+                                messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.id,
+                                    "content": json.dumps(tool_result, default=str),
+                                })
 
-IMPORTANT RULES:
-1. Give direct, concise answers to the user's question
-2. DO NOT ask follow-up questions like "How are you feeling?" or "What's on your mind?"
-3. DO NOT end your response with a question
-4. Keep responses SHORT (1-3 sentences max) for voice conversations
-5. Wait for the user to ask their next question - don't prompt them
-6. Be helpful but brief{language_instruction}
-
-If you don't have specific patient data, provide general health guidance and recommend consulting with their doctor."""
-
-                    # Build messages with conversation history
-                    messages = [{"role": "system", "content": system_prompt}]
-
-                    # Add conversation history (last 5 turns for context)
-                    for turn in self.conversation_history[-5:]:
-                        messages.append({"role": "user", "content": turn["user"]})
-                        messages.append({"role": "assistant", "content": turn["assistant"]})
-
-                    # Add current query
-                    messages.append({"role": "user", "content": query})
-
-                    # Call Vertex AI
-                    vertex_client = get_vertex_client()
-                    answer = await vertex_client.generate(messages)
-
-                    # Store this turn in conversation history
-                    self.conversation_history.append({
-                        "user": query,
-                        "assistant": answer
-                    })
-                    log.info(f"[VoiceChat] Conversation history now has {len(self.conversation_history)} turns")
-
-                    # Generate conversation ID if needed
-                    if not self.conversation_id:
-                        self.conversation_id = str(uuid_lib.uuid4())
-
-                    # Create result object
-                    class Result:
-                        def __init__(self, ans, conv):
-                            self.answer = ans
-                            self.conversation_id = conv
-
-                    result = Result(answer, self.conversation_id)
-
-                    answer = result.answer
-                    self.conversation_id = result.conversation_id
-
-                    # Send answer text to client
-                    await self.send_json({
-                        "type": "agent",
-                        "text": answer
-                    })
-
-                    # Speak the answer
-                    await self.speak_text(answer)
-
-                except Exception as e:
-                    log.error(f"Hermes call error: {e}")
-                    await self.speak_text("I'm having trouble processing your request. Please try again.")
+                        if answer is None:
+                            # Hit the tool-round cap — force a final spoken answer.
+                            response = await vertex_client.generate_with_tools(messages, tools)
+                            answer = response.choices[0].message.content or ""
+                    else:
+                        # DocEHR not configured yet — still run the LLM so the agent
+                        # talks; booking activates once DOCEHR_MCP_URL and
+                        # DOCEHR_ENABLED are set. (Step "run the llm perfectly".)
+                        answer = await vertex_client.generate(messages)
                 finally:
-                    break  # Exit after first iteration
+                    break  # Single DB session is all we need per turn
+
+            if not answer:
+                answer = "Sorry, I didn't catch that. Which doctor would you like to see?"
+
+            # Store this turn in conversation history
+            self.conversation_history.append({"user": query, "assistant": answer})
+            log.info(f"[VoiceChat] Conversation history now has {len(self.conversation_history)} turns")
+
+            if not self.conversation_id:
+                self.conversation_id = str(uuid_lib.uuid4())
+
+            # Send answer text to client, then speak it
+            await self.send_json({"type": "agent", "text": answer})
+            await self.speak_text(answer)
 
         except Exception as e:
             log.error(f"Error processing query: {e}")
