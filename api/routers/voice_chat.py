@@ -27,7 +27,11 @@ from services.sarvam import client as sarvam
 from services.sarvam.languages import get as get_language
 
 log = logging.getLogger("pal.voice_chat")
-router = APIRouter(prefix="/voice-chat", tags=["voice-chat"])
+# No prefix: the session POST lives at /voice-chat/sessions (reached via the
+# nginx /api/ proxy), but the WebSocket must live under /ws/ — the nginx /api/
+# location does NOT pass the Upgrade header, so a socket under /api would 404.
+# /ws/voice-chat gets its own upgrade-enabled nginx block (like /ws/chat).
+router = APIRouter(tags=["voice-chat"])
 
 SESSION_TTL = 900  # 15 minutes
 
@@ -529,7 +533,7 @@ def _reap_sessions():
         _SESSIONS.pop(sid, None)
 
 
-@router.post("/sessions", status_code=201)
+@router.post("/voice-chat/sessions", status_code=201)
 async def create_voice_chat_session(
     req: VoiceChatRequest,
     current_user: User | PhoneUser = Depends(get_current_user),
@@ -556,12 +560,12 @@ async def create_voice_chat_session(
     return {
         "session_id": session_id,
         "token": token,
-        "ws_url": f"/api/voice-chat/ws/{session_id}?token={token}",
+        "ws_url": f"/ws/voice-chat/{session_id}?token={token}",
         "language": req.language
     }
 
 
-@router.websocket("/ws/{session_id}")
+@router.websocket("/ws/voice-chat/{session_id}")
 async def voice_chat_websocket(
     websocket: WebSocket,
     session_id: str,
