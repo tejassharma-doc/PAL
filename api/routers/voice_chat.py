@@ -17,14 +17,18 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect, Depends
+from jose import JWTError, jwt
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import get_settings
 from database import get_db
 from models import User, PhoneUser
 from routers.auth import get_current_user
 from services.sarvam import client as sarvam
 from services.sarvam.languages import get as get_language
+
+settings = get_settings()
 
 log = logging.getLogger("pal.voice_chat")
 # No prefix: the session POST lives at /voice-chat/sessions (reached via the
@@ -41,6 +45,42 @@ SESSION_TTL = 900  # 15 minutes
 # Hermes "ask" chat, which still gets the full tool set.
 BOOKING_TOOL_NAMES = {"get_appointment_slots", "book_appointment"}
 MAX_BOOKING_TOOL_ROUNDS = 6
+
+# The socket token is a short-lived signed JWT, NOT an in-memory handle. The API
+# runs with multiple uvicorn workers, so the worker that creates the session
+# (POST) is often not the worker that serves the WebSocket. A signed token lets
+# the WebSocket authenticate statelessly on any worker — no shared store needed.
+VOICE_TOKEN_TYP = "voice-chat"
+
+
+def _mint_voice_token(session_id: str, req: "VoiceChatRequest", user_id) -> str:
+    """Sign a short-lived token carrying everything the WebSocket turn needs."""
+    now = int(time.time())
+    return jwt.encode(
+        {
+            "sid": session_id,
+            "pid": req.patient_id,
+            "lang": req.language,
+            "gender": req.gender,
+            "sub": str(user_id),
+            "typ": VOICE_TOKEN_TYP,
+            "iat": now,
+            "exp": now + SESSION_TTL,
+        },
+        settings.secret_key,
+        algorithm=settings.algorithm,
+    )
+
+
+def _decode_voice_token(token: str) -> dict | None:
+    """Verify the socket token; return its claims, or None if invalid/expired."""
+    try:
+        claims = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+    except JWTError:
+        return None
+    if claims.get("typ") != VOICE_TOKEN_TYP:
+        return None
+    return claims
 
 
 class VoiceChatRequest(BaseModel):
@@ -522,46 +562,27 @@ Keep every reply SHORT (1-2 sentences) — this is a voice call. Ask one questio
         })
 
 
-# In-memory session store (use Redis in production)
-_SESSIONS: dict[str, dict[str, Any]] = {}
-
-
-def _reap_sessions():
-    """Remove expired sessions"""
-    cutoff = time.time() - SESSION_TTL
-    for sid in [s for s, v in _SESSIONS.items() if v["created"] < cutoff]:
-        _SESSIONS.pop(sid, None)
-
-
 @router.post("/voice-chat/sessions", status_code=201)
 async def create_voice_chat_session(
     req: VoiceChatRequest,
     current_user: User | PhoneUser = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Create a new voice chat session"""
-    _reap_sessions()
+    """Create a new voice chat session.
 
+    Returns a signed, short-lived token that the WebSocket verifies on its own.
+    There is NO server-side session state, so the socket works no matter which
+    uvicorn worker serves it.
+    """
     session_id = uuid.uuid4().hex
-    token = secrets.token_urlsafe(24)
-
-    _SESSIONS[session_id] = {
-        "created": time.time(),
-        "token": token,
-        "patient_id": req.patient_id,
-        "language": req.language,
-        "gender": req.gender,
-        "user_id": current_user.id,
-        "status": "created"
-    }
+    token = _mint_voice_token(session_id, req, current_user.id)
 
     log.info(f"[VoiceChat] Created session {session_id} for user {current_user.id}")
-    log.info(f"[VoiceChat] Total active sessions: {len(_SESSIONS)}")
 
     return {
         "session_id": session_id,
         "token": token,
         "ws_url": f"/ws/voice-chat/{session_id}?token={token}",
-        "language": req.language
+        "language": req.language,
     }
 
 
@@ -572,32 +593,26 @@ async def voice_chat_websocket(
     token: str = Query(...),
     db: AsyncSession = Depends(get_db)
 ):
-    """WebSocket endpoint for voice chat"""
-    log.info(f"[VoiceChat] WebSocket connect attempt: session_id={session_id}, token={token[:10]}...")
-    sess = _SESSIONS.get(session_id)
-    log.info(f"[VoiceChat] Session found: {sess is not None}")
+    """WebSocket endpoint for voice chat (stateless auth via the signed token)."""
+    log.info(f"[VoiceChat] WebSocket connect attempt: session_id={session_id}")
 
-    if not sess:
-        log.warning(f"[VoiceChat] Session not found for {session_id}")
+    claims = _decode_voice_token(token)
+    if not claims or claims.get("sid") != session_id:
+        log.warning(f"[VoiceChat] Invalid/expired token for {session_id}")
         await websocket.close(code=4401)
-        return
-
-    if not secrets.compare_digest(token, sess["token"]):
-        log.warning(f"[VoiceChat] Token mismatch for {session_id}")
-        await websocket.close(code=4401)
-        return
-
-    if time.time() - sess["created"] > SESSION_TTL:
-        await websocket.close(code=4408)
         return
 
     await websocket.accept()
-    sess["status"] = "connected"
 
-    # Get user from session
+    # Load the phone user named in the token.
     from sqlalchemy import select
-    from models import PhoneUser
-    result = await db.execute(select(PhoneUser).where(PhoneUser.id == sess["user_id"]))
+    try:
+        user_uuid = uuid.UUID(str(claims.get("sub")))
+    except (ValueError, TypeError):
+        await websocket.close(code=4403)
+        return
+
+    result = await db.execute(select(PhoneUser).where(PhoneUser.id == user_uuid))
     user = result.scalar_one_or_none()
 
     if not user:
@@ -608,10 +623,10 @@ async def voice_chat_websocket(
     session = VoiceChatSession(
         websocket=websocket,
         session_id=session_id,
-        patient_id=sess["patient_id"],
-        language=sess["language"],
-        gender=sess["gender"],
-        user=user
+        patient_id=claims.get("pid"),
+        language=claims.get("lang", "auto"),
+        gender=claims.get("gender", "female"),
+        user=user,
     )
 
     log.info(f"[VoiceChat] About to call session.run() for {session_id}")
@@ -623,7 +638,6 @@ async def voice_chat_websocket(
         log.exception(f"[VoiceChat] session.run() crashed for {session_id}: {e}")
     finally:
         log.info(f"[VoiceChat] Cleaning up session {session_id}")
-        sess["status"] = "ended"
 
 
 import contextlib
