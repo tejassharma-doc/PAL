@@ -151,9 +151,6 @@ class VoiceChatSession:
             })
             log.info(f"[VoiceChat] Sent ready signal")
 
-            # Skip greeting for now - TTS has issues
-            # TODO: Fix TTS language detection
-            log.info(f"[VoiceChat] Skipping greeting, going straight to listening")
             self.state = "listening"
             await self.send_json({"type": "state", "value": "listening"})
 
@@ -164,6 +161,11 @@ class VoiceChatSession:
                 asyncio.create_task(self._pump_stt(), name="stt"),
                 asyncio.create_task(self._pump_tts(), name="tts"),
             ]
+
+            # Greet the caller and state what details we need. Scheduled AFTER the
+            # pumps start (so the TTS audio actually streams) and kept OUT of the
+            # wait set below (so finishing the greeting doesn't end the session).
+            self._greet_task = asyncio.create_task(self._greet(), name="greet")
 
             done, pending = await asyncio.wait(
                 self._tasks, return_when=asyncio.FIRST_COMPLETED
@@ -320,6 +322,20 @@ class VoiceChatSession:
         except Exception as e:
             log.exception(f"TTS pump error: {e}")
 
+    async def _greet(self):
+        """Speak the opening line so the caller knows this is a booking agent
+        and what to do next."""
+        greeting = (
+            "Hello, I'm PAL, your appointment booking assistant. "
+            "To book your appointment I'll need a few details, so please answer my "
+            "questions one at a time. First, which doctor would you like to see?"
+        )
+        # Seed history so the model knows it has already greeted and asked for the
+        # doctor — it should not repeat the greeting on the first real answer.
+        self.conversation_history.append({"user": "[call started]", "assistant": greeting})
+        await self.send_json({"type": "agent", "text": greeting})
+        await self.speak_text(greeting)
+
     async def process_user_query(self, query: str):
         """
         User query → Hermes endpoint → TTS
@@ -358,19 +374,24 @@ class VoiceChatSession:
                 )
 
             today = _date.today().isoformat()
-            system_prompt = f"""You are PAL's appointment-booking assistant, a warm and efficient voice receptionist.
-Your ONLY job is to help this patient book a medical appointment. Do not give medical advice or discuss records — if asked, gently steer back to booking.
+            system_prompt = f"""You are PAL, a warm and efficient voice receptionist. Your ONLY job is to book a medical appointment for this patient. Do not give medical advice or discuss records — if asked, gently steer back to booking.
 
-Today's date is {today}. You are booking for patient_id: {self.patient_id} — always pass this exact id to the tools.
+Today's date is {today}. You are booking for patient_id: {self.patient_id} — always pass this exact id to every tool call.
 
-Follow this order:
-1. Find out which doctor and clinic the patient wants, and their preferred date.
-2. Call get_appointment_slots to fetch real openings. Never invent slots — only offer what the tool returns.
-3. Read the options back in natural spoken language (e.g. "I have 11:30 in the morning or 3 in the afternoon").
-4. When the patient picks a time, ALWAYS confirm doctor, clinic, date and time out loud before booking.
-5. Call book_appointment only after the patient confirms, then read back the confirmation.
+COLLECT THESE DETAILS, ONE AT A TIME, IN THIS ORDER. Ask exactly one question per turn and wait for the answer before moving on:
+1. Doctor — which doctor they want to see.
+2. Clinic — which clinic or hospital.
+3. Date — their preferred day. Convert whatever they say into an exact calendar date in YYYY-MM-DD form using today's date above (e.g. "second of October" → this year's 2026-10-02). If the spoken date is ambiguous, ask them to confirm the exact day and month.
+4. Only once you have doctor, clinic AND date, call get_appointment_slots to fetch real openings. NEVER invent slots — only offer what the tool returns.
+5. Read the available times back in natural spoken language (e.g. "I have 11:30 in the morning or 3 in the afternoon") and let them pick one.
 
-Keep every reply SHORT (1-2 sentences) — this is a voice call. Ask one question at a time.{language_instruction}"""
+CONFIRM before booking: repeat the doctor, clinic, date and time out loud and ask "shall I book this?". Call book_appointment ONLY after they say yes, then read back the confirmation clearly.
+
+HANDLING TOOL RESULTS:
+- If a tool result contains an "error" that lists available clinics or doctors, DO NOT say you have a technical problem. Read those available names to the patient and ask which one they meant, then retry with that exact name.
+- If a tool genuinely fails with no options, briefly say you couldn't reach the schedule and ask them to try again.
+
+Keep every reply SHORT — 1 to 2 spoken sentences. Answer the patient's questions directly. Ask only one thing at a time.{language_instruction}"""
 
             # Build messages with the last few turns for context.
             messages = [{"role": "system", "content": system_prompt}]
