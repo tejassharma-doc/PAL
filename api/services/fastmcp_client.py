@@ -328,8 +328,21 @@ class FastMCPClient:
                 translated["doctorId"] = doctor.external_id
                 logger.info(f"MCP-DocEHR: doctor_name '{doctor_name}' → doctorId: {doctor.external_id}")
             else:
-                logger.error(f"MCP-DocEHR: Doctor not found with name: {doctor_name}")
-                raise Exception(f"Doctor not found with name: {doctor_name}")
+                # Don't hard-fail on a near-miss name. Return the real doctor names
+                # so the model can ask the user to pick an exact one and retry,
+                # instead of surfacing a raw error.
+                names_result = await db.execute(
+                    select(Doctor.full_name).where(Doctor.external_id.isnot(None))
+                )
+                available = [n for (n,) in names_result.all() if n][:30]
+                logger.error(
+                    f"MCP-DocEHR: Doctor not found with name: {doctor_name}. Available: {available}"
+                )
+                raise Exception(
+                    f"No doctor matched '{doctor_name}'. "
+                    f"Available doctors: {', '.join(available) if available else 'none configured'}. "
+                    f"Ask the user which of these they mean, then retry with that exact name."
+                )
 
         # Translate clinic_name to external_id
         if "clinic_name" in arguments:
@@ -346,8 +359,21 @@ class FastMCPClient:
                 translated["clinicId"] = clinic.external_id
                 logger.info(f"MCP-DocEHR: clinic_name '{clinic_name}' → clinicId: {clinic.external_id}")
             else:
-                logger.error(f"MCP-DocEHR: Clinic not found with name: {clinic_name}")
-                raise Exception(f"Clinic not found with name: {clinic_name}")
+                # A spoken hospital/clinic name rarely matches the stored name
+                # exactly. Return the real clinic names so the model can ask the
+                # user to choose one instead of failing the whole booking.
+                names_result = await db.execute(
+                    select(Clinic.name).where(Clinic.external_id.isnot(None))
+                )
+                available = [n for (n,) in names_result.all() if n][:30]
+                logger.error(
+                    f"MCP-DocEHR: Clinic not found with name: {clinic_name}. Available: {available}"
+                )
+                raise Exception(
+                    f"No clinic matched '{clinic_name}'. "
+                    f"Available clinics: {', '.join(available) if available else 'none configured'}. "
+                    f"Ask the user which of these they mean, then retry with that exact name."
+                )
 
         # Pass through all other arguments as-is
         for key, value in arguments.items():
