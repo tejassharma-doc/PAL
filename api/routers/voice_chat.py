@@ -383,8 +383,8 @@ COLLECT THESE DETAILS, ONE AT A TIME, IN THIS ORDER. Ask exactly one question pe
 1. Doctor — which doctor they want to see.
 2. Clinic — which clinic or hospital.
 3. Date — their preferred day. Interpret whatever they say into an exact calendar date in YYYY-MM-DD form using today's date above (e.g. "second of October" → 2026-10-02, "tomorrow", "next Monday"). Assume the next upcoming occurrence and the current year unless they clearly say otherwise. Do NOT ask the patient to repeat or re-confirm a date you already understood — just move on to fetching slots.
-4. Only once you have doctor, clinic AND date, call get_appointment_slots to fetch real openings. NEVER invent slots — only offer what the tool returns.
-5. Read the available times back in natural spoken language (e.g. "I have 11:30 in the morning or 3 in the afternoon") and let them pick one.
+4. Only once you have doctor, clinic AND date, call the get_appointment_slots tool and WAIT for its result. You MUST call this tool before you say any specific time. NEVER invent, guess, or pre-fill times — the ONLY times you may speak are the exact ones returned in the tool result. If the tool returns no slots, tell the patient there are none available that day and offer to try another date.
+5. Read ONLY the times from the tool result back in natural spoken language (e.g. "I have 11:30 in the morning or 3 in the afternoon") and let them pick one.
 
 CONFIRM before booking: repeat the doctor, clinic, date and time out loud and ask "shall I book this?". Call book_appointment ONLY after they say yes, then read back the confirmation clearly.
 
@@ -445,6 +445,12 @@ Keep every reply SHORT — 1 to 2 spoken sentences. Answer the patient's questio
                                 log.info(f"[VoiceChat] Calling {tool_name} args={tool_args}")
                                 try:
                                     tool_result = await fastmcp_client.call_tool(tool_name, tool_args, db)
+                                    # Log the RAW tool result so we can verify the
+                                    # slots/booking come from DocEHR, not the model.
+                                    log.info(
+                                        f"[VoiceChat] {tool_name} RESULT: "
+                                        f"{json.dumps(tool_result, default=str)[:1000]}"
+                                    )
                                 except Exception as tool_err:
                                     log.error(f"[VoiceChat] Tool {tool_name} failed: {tool_err}")
                                     tool_result = {"error": str(tool_err)}
