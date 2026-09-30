@@ -2370,7 +2370,9 @@ export default function PAL() {
       {/* Sarvam Voice Call Modal */}
       {showVoiceCall && (
         <VoiceCall
-          patientId={personKey}
+          // Must be the real patient UUID (same source the ask/Hermes flow uses),
+          // NOT personKey — DocEHR resolves patient_id → phone by patients.id.
+          patientId={(typeof window !== 'undefined' && localStorage.getItem('pal_patient_id')) || ''}
           onClose={() => setShowVoiceCall(false)}
         />
       )}

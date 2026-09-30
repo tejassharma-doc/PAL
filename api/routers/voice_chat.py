@@ -105,7 +105,11 @@ class VoiceChatSession:
         self.session_id = session_id
         self.patient_id = patient_id
         self.user = user
-        self.lang = get_language(language)
+        # Booking agent is English-only by product requirement: force English STT,
+        # TTS and replies regardless of the language the caller selected, so the
+        # agent never drifts into Hindi/other scripts mid-call.
+        self.requested_language = language
+        self.lang = get_language("en")
         self.gender = gender
         self.state = "idle"  # idle, listening, thinking, speaking
         self.conversation_id: str | None = None
@@ -363,15 +367,12 @@ class VoiceChatSession:
             from datetime import date as _date
             import uuid as uuid_lib
 
-            # Keep the conversation in the user's spoken language.
-            language_instruction = ""
-            if self.detected_language:
-                lang_names = {'en': 'English', 'hi': 'Hindi', 'kn': 'Kannada'}
-                lang_name = lang_names.get(self.detected_language, 'English')
-                language_instruction = (
-                    f"\n\nIMPORTANT: The user is speaking in {lang_name}. "
-                    f"ALWAYS respond in {lang_name} to keep the conversation consistent."
-                )
+            # English-only booking agent: always reply in English, no matter what
+            # language the caller speaks in.
+            language_instruction = (
+                "\n\nALWAYS respond in English, even if the patient speaks in Hindi "
+                "or another language. Never reply in any other language."
+            )
 
             today = _date.today().isoformat()
             system_prompt = f"""You are PAL, a warm and efficient voice receptionist. Your ONLY job is to book a medical appointment for this patient. Do not give medical advice or discuss records — if asked, gently steer back to booking.
@@ -381,7 +382,7 @@ Today's date is {today}. You are booking for patient_id: {self.patient_id} — a
 COLLECT THESE DETAILS, ONE AT A TIME, IN THIS ORDER. Ask exactly one question per turn and wait for the answer before moving on:
 1. Doctor — which doctor they want to see.
 2. Clinic — which clinic or hospital.
-3. Date — their preferred day. Convert whatever they say into an exact calendar date in YYYY-MM-DD form using today's date above (e.g. "second of October" → this year's 2026-10-02). If the spoken date is ambiguous, ask them to confirm the exact day and month.
+3. Date — their preferred day. Interpret whatever they say into an exact calendar date in YYYY-MM-DD form using today's date above (e.g. "second of October" → 2026-10-02, "tomorrow", "next Monday"). Assume the next upcoming occurrence and the current year unless they clearly say otherwise. Do NOT ask the patient to repeat or re-confirm a date you already understood — just move on to fetching slots.
 4. Only once you have doctor, clinic AND date, call get_appointment_slots to fetch real openings. NEVER invent slots — only offer what the tool returns.
 5. Read the available times back in natural spoken language (e.g. "I have 11:30 in the morning or 3 in the afternoon") and let them pick one.
 
