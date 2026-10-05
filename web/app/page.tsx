@@ -237,6 +237,8 @@ export default function PAL() {
   const [medLoading, setMedLoading] = useState(false);
   const [medError, setMedError] = useState<string | null>(null);
   const [medBusy, setMedBusy] = useState<string | null>(null);
+  const [notifOpen, setNotifOpen] = useState(false);       // phone-style drop-down shade
+  const prevNotifCount = useRef<number | null>(null);      // detect new arrivals
 
   // ─── Real API state ───────────────────────────────────────────────────────
   const [queryText, setQueryText] = useState('');
@@ -932,9 +934,14 @@ export default function PAL() {
     }
   }, []);
 
+  // Poll for reminders globally (not just on the reminders tab) so the bell
+  // badge stays live and new "take your medicine" / "did you take it?" prompts
+  // surface wherever the user is in the app.
   useEffect(() => {
-    if (tab === 'reminders') void loadReminders();
-  }, [tab, loadReminders]);
+    void loadReminders();
+    const id = setInterval(() => void loadReminders(), 30000);
+    return () => clearInterval(id);
+  }, [loadReminders]);
 
   const answerDose = useCallback(async (doseId: string, value: DoseResponse) => {
     setMedBusy(doseId);
@@ -950,6 +957,19 @@ export default function PAL() {
     .flatMap(s => (s.times || []).map(time => ({ key: `${s.id}:${time}`, medicine: s.medicine_name, dosage: s.dosage, time })))
     .sort((a, b) => a.time.localeCompare(b.time));
   const medAwaiting = medPending.filter(d => d.status === 'awaiting_ack');
+
+  // Every unanswered dose (reminder, ack-prompt or snoozed) is a live notification.
+  const notifItems = medPending;
+  const notifCount = notifItems.length;
+  const scheduleById = (id: string) => medSchedules.find(s => s.id === id);
+
+  // Auto-open the drop-down shade when a NEW notification arrives (not on first load).
+  useEffect(() => {
+    if (prevNotifCount.current !== null && notifCount > prevNotifCount.current) {
+      setNotifOpen(true);
+    }
+    prevNotifCount.current = notifCount;
+  }, [notifCount]);
 
   const ACK_OPTIONS: { value: DoseResponse; label: string }[] = [
     { value: 'yes', label: 'Yes' },
@@ -996,6 +1016,17 @@ export default function PAL() {
         @keyframes fade-in {
           from { opacity: 0; transform: translateY(6px); }
           to   { opacity: 1; transform: translateY(0);   }
+        }
+        @keyframes bell-shake {
+          0%,17%,100% { transform: rotate(0); }
+          3%  { transform: rotate(14deg); }
+          6%  { transform: rotate(-12deg); }
+          9%  { transform: rotate(9deg); }
+          12% { transform: rotate(-5deg); }
+          15% { transform: rotate(2deg); }
+        }
+        @keyframes badge-pop {
+          0% { transform: scale(0); } 60% { transform: scale(1.25); } 100% { transform: scale(1); }
         }
       `}</style>
 
@@ -1216,13 +1247,78 @@ export default function PAL() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               <FamilyHubButton />
               <button onClick={() => setSettingsOpen(true)} aria-label="Settings" style={{ width: 34, height: 34, borderRadius: 11, border: '1px solid rgba(13,31,36,.10)', display: 'grid', placeItems: 'center', fontSize: '.85rem', color: c.ink, background: '#fff', cursor: 'pointer' }}>⚙</button>
-              <button onClick={() => setTab('reminders')} style={{ width: 34, height: 34, borderRadius: 11, border: '1px solid rgba(13,31,36,.10)', display: 'grid', placeItems: 'center', background: '#fff', position: 'relative', cursor: 'pointer', flexShrink: 0 }}>
-                <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+              <button onClick={() => setNotifOpen(o => !o)} aria-label="Notifications" style={{ width: 34, height: 34, borderRadius: 11, border: '1px solid rgba(13,31,36,.10)', display: 'grid', placeItems: 'center', background: '#fff', position: 'relative', cursor: 'pointer', flexShrink: 0 }}>
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" style={{ transformOrigin: '50% 3px', animation: notifCount > 0 ? 'bell-shake 2.6s ease-in-out infinite' : 'none' }}>
                   <path d="M8.5 17.5h3M10 3C7 3 4.5 5.5 4.5 8.5V13l-1.5 2.5h14L15.5 13V8.5C15.5 5.5 13 3 10 3z" stroke="#0d1f24" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
-                <span style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: '50%', background: c.rose, color: '#fff', fontFamily: mono, fontSize: '.54rem', display: 'grid', placeItems: 'center', fontWeight: 700 }}>3</span>
+                {notifCount > 0 && (
+                  <span style={{ position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, padding: '0 3px', boxSizing: 'border-box', borderRadius: 8, background: c.rose, color: '#fff', fontFamily: mono, fontSize: '.54rem', display: 'grid', placeItems: 'center', fontWeight: 700, animation: 'badge-pop .3s ease' }}>{notifCount > 9 ? '9+' : notifCount}</span>
+                )}
               </button>
             </div>
+          </div>
+
+          {/* NOTIFICATION SHADE — phone-style drop-down from the top */}
+          {notifOpen && (
+            <div onClick={() => setNotifOpen(false)} style={{ position: 'absolute', inset: 0, zIndex: 44, background: 'rgba(13,31,36,.35)', borderRadius: 29, animation: 'fade-in .2s ease' }} />
+          )}
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 45, background: c.soft, borderBottomLeftRadius: 22, borderBottomRightRadius: 22, boxShadow: '0 18px 40px -18px rgba(0,0,0,.45)', padding: '14px 14px 16px', maxHeight: '78%', overflowY: 'auto', transform: notifOpen ? 'translateY(0)' : 'translateY(-105%)', transition: 'transform .32s cubic-bezier(.22,1,.36,1)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '.92rem' }}>Notifications</div>
+                <div style={{ fontFamily: mono, fontSize: '.58rem', opacity: .5 }}>{notifCount === 0 ? 'all caught up' : `${notifCount} to review`}</div>
+              </div>
+              <button onClick={() => setNotifOpen(false)} aria-label="Close" style={{ border: 'none', background: 'rgba(13,31,36,.06)', width: 28, height: 28, borderRadius: 9, cursor: 'pointer', color: c.ink, fontSize: '1rem', lineHeight: 1 }}>×</button>
+            </div>
+
+            {medError && (
+              <div style={{ background: '#fff', borderRadius: 12, padding: 11, marginBottom: 10, color: c.rose, fontSize: '.78rem', borderLeft: `3px solid ${c.rose}` }}>{medError}</div>
+            )}
+
+            {notifItems.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '22px 0 10px' }}>
+                <div style={{ fontSize: '1.5rem', marginBottom: 6 }}>🔔</div>
+                <div style={{ fontSize: '.84rem', fontWeight: 600 }}>No reminders right now</div>
+                <div style={{ fontSize: '.72rem', opacity: .55, marginTop: 3 }}>Medicine reminders appear here at their scheduled times.</div>
+              </div>
+            )}
+
+            {notifItems.map(d => {
+              const sch = scheduleById(d.schedule_id);
+              const isAck = d.status === 'awaiting_ack';
+              return (
+                <div key={d.id} style={{ background: '#fff', border: `1px solid ${isAck ? 'rgba(55,181,155,.5)' : 'rgba(13,31,36,.10)'}`, borderRadius: 13, padding: 12, marginBottom: 9, display: 'flex', gap: 11, alignItems: 'flex-start', animation: 'fade-in .22s ease' }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(55,181,155,.14)', color: c.jadeD, display: 'grid', placeItems: 'center', fontSize: '.9rem', flexShrink: 0 }}>💊</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: '.84rem' }}>
+                      {isAck ? 'Did you take your medicine?' : 'Time to take your medicine'}
+                    </div>
+                    <div style={{ fontSize: '.76rem', opacity: .75, marginTop: 2 }}>
+                      {sch?.medicine_name || 'Medicine'}{sch?.dosage ? ` · ${sch.dosage}` : ''}
+                    </div>
+                    <div style={{ fontFamily: mono, fontSize: '.54rem', opacity: .45, marginTop: 5 }}>
+                      {d.scheduled_time?.slice(0, 5)} · {d.scheduled_date}
+                    </div>
+                    <div style={{ display: 'flex', gap: 7, marginTop: 9, flexWrap: 'wrap' }}>
+                      {ACK_OPTIONS.map(opt => {
+                        const primary = opt.value === 'yes' || opt.value === 'take_now';
+                        return (
+                          <button key={opt.value} disabled={medBusy === d.id} onClick={() => answerDose(d.id, opt.value)}
+                            style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '6px 11px', borderRadius: 8, border: primary ? 'none' : '1px solid rgba(13,31,36,.16)', background: primary ? c.jade : 'transparent', color: primary ? c.deep2 : c.ink, cursor: medBusy === d.id ? 'default' : 'pointer', opacity: medBusy === d.id ? .6 : 1 }}>
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            <button onClick={() => { setNotifOpen(false); router.push('/medications'); }}
+              style={{ width: '100%', marginTop: 4, background: 'transparent', border: '1px solid rgba(13,31,36,.16)', borderRadius: 10, padding: '9px 0', fontFamily: sans, fontWeight: 600, fontSize: '.78rem', color: c.ink, cursor: 'pointer' }}>
+              Manage medication reminders
+            </button>
           </div>
 
           {/* BODY */}
