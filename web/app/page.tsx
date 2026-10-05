@@ -18,6 +18,10 @@ import { useTranslation } from '../lib/useTranslation';
 import { useAuthStore } from '../lib/store';
 import { SUPPORTED_LANGUAGES } from '../lib/languages';
 import FamilyHubButton from '../components/family/FamilyHubButton';
+import {
+  listMedicationSchedules, pendingDoses, respondToDose,
+  type MedicationSchedule, type PendingDose, type DoseResponse,
+} from '../lib/medications-api';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const c = {
@@ -222,11 +226,17 @@ export default function PAL() {
   const [booked, setBooked] = useState(false);
   const [explainOpen, setExplainOpen] = useState(false);
   const [revoked, setRevoked] = useState<Record<string, boolean>>({});
-  const [notif, setNotif] = useState<Record<string, string>>({ statin:'pending', dinner:'pending', recheck:'pending' });
   const [historyView, setHistoryView] = useState<string|null>(null);
   const [activeThread, setActiveThread] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState<number|null>(null);
   const [continueText, setContinueText] = useState('');
+
+  // ─── Medication reminders (real backend) ────────────────────────────────────
+  const [medSchedules, setMedSchedules] = useState<MedicationSchedule[]>([]);
+  const [medPending, setMedPending] = useState<PendingDose[]>([]);
+  const [medLoading, setMedLoading] = useState(false);
+  const [medError, setMedError] = useState<string | null>(null);
+  const [medBusy, setMedBusy] = useState<string | null>(null);
 
   // ─── Real API state ───────────────────────────────────────────────────────
   const [queryText, setQueryText] = useState('');
@@ -905,17 +915,47 @@ export default function PAL() {
 
   const careItems = [...CARE.meds, ...CARE.targets];
 
-  // Notification state helpers
-  function setNotifVal(id: string, val: string) { setNotif(n => ({ ...n, [id]: val })); }
+  // ─── Real medication reminders ──────────────────────────────────────────────
+  const loadReminders = useCallback(async () => {
+    const pid = typeof window === 'undefined' ? null : localStorage.getItem('pal_patient_id');
+    if (!pid) { setMedSchedules([]); setMedPending([]); return; }
+    setMedLoading(true);
+    try {
+      const [sch, doses] = await Promise.all([listMedicationSchedules(pid), pendingDoses(pid)]);
+      setMedSchedules(sch);
+      setMedPending(doses);
+      setMedError(null);
+    } catch (e) {
+      setMedError(e instanceof Error ? e.message : 'Failed to load reminders');
+    } finally {
+      setMedLoading(false);
+    }
+  }, []);
 
-  const todayNotifs = [
-    { id:'statin', icon:'℞', iconStyle:`background:rgba(55,181,155,.14);color:#1f7d6b`, accent:'#37b59b', tt:'Atorvastatin · evening dose', bd:'From Dr. Rao\'s plan. Best taken at night.', time:'9:00 PM', kind:'statin' },
-    { id:'dinner', icon:'☘', iconStyle:`background:rgba(216,162,74,.16);color:#8a6020`, accent:'#d8a24a', tt:'Tonight: grilled fish & greens', bd:'From Sneha\'s plan for today. Recipe ready.', time:'6:30 PM', kind:'dinner' },
-    { id:'walk',   icon:'🚶', iconStyle:`background:rgba(55,181,155,.20);color:#1f7d6b`, accent:'#37b59b', tt:'Morning walk', bd:'30 min — part of your care plan.', time:'7:15 AM', kind:'donealready' },
-  ];
-  const comingNotifs = [
-    { id:'recheck', icon:'◷', iconStyle:`background:rgba(90,143,168,.14);color:#33607a`, accent:'#5a8fa8', tt:'Lipid recheck due soon', bd:'Dr. Rao asked to recheck LDL in 12 weeks. Want to book it?', time:'in 3 weeks · 26 Jun review', kind:'recheck' },
-    { id:'planupd', icon:'⛁', iconStyle:`background:rgba(90,143,168,.18);color:#33607a`, accent:'#33607a', tt:'Sneha updated your nutrition plan', bd:'New meals for next week are ready to view.', time:'yesterday', kind:'seeplan' },
+  useEffect(() => {
+    if (tab === 'reminders') void loadReminders();
+  }, [tab, loadReminders]);
+
+  const answerDose = useCallback(async (doseId: string, value: DoseResponse) => {
+    setMedBusy(doseId);
+    try { await respondToDose(doseId, value); await loadReminders(); }
+    catch (e) { setMedError(e instanceof Error ? e.message : 'Failed to respond'); }
+    finally { setMedBusy(null); }
+  }, [loadReminders]);
+
+  // Mon=0 .. Sun=6, matching the backend days_of_week encoding.
+  const medTodayDow = (new Date().getDay() + 6) % 7;
+  const medTodayDoses = medSchedules
+    .filter(s => s.active && (!s.days_of_week?.length || s.days_of_week.includes(medTodayDow)))
+    .flatMap(s => (s.times || []).map(time => ({ key: `${s.id}:${time}`, medicine: s.medicine_name, dosage: s.dosage, time })))
+    .sort((a, b) => a.time.localeCompare(b.time));
+  const medAwaiting = medPending.filter(d => d.status === 'awaiting_ack');
+
+  const ACK_OPTIONS: { value: DoseResponse; label: string }[] = [
+    { value: 'yes', label: 'Yes' },
+    { value: 'no', label: 'No' },
+    { value: 'take_now', label: 'Will take now' },
+    { value: 'snooze_10', label: 'In 10 mins' },
   ];
 
   const chips = [
@@ -2081,86 +2121,72 @@ export default function PAL() {
               ))}
             </div>}
 
-            {/* ===== REMINDERS ===== */}
+            {/* ===== REMINDERS (real backend medication data) ===== */}
             {isReminders && <div>
-              <div style={{ background: 'linear-gradient(160deg,#13343b,#0c2429)', borderRadius: 16, padding: 16, color: c.paper, margin: '8px 0 16px' }}>
-                <div style={{ fontFamily: mono, fontSize: '.58rem', letterSpacing: '.12em', textTransform: 'uppercase', color: c.jade, marginBottom: 12 }}>✶ this week, with you</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 52, height: 52, borderRadius: '50%', flexShrink: 0, display: 'grid', placeItems: 'center', background: 'conic-gradient(#37b59b 0% 86%, rgba(255,255,255,.12) 86% 100%)', position: 'relative' }}>
-                    <div style={{ position: 'absolute', inset: 6, borderRadius: '50%', background: c.deep }} />
-                    <span style={{ position: 'relative', fontFamily: serif, fontSize: '1rem', fontWeight: 500 }}>6/7</span>
+              {medError && (
+                <div style={{ background: '#fff', borderRadius: 14, padding: 13, marginBottom: 10, color: c.rose, fontSize: '.8rem', borderLeft: `3px solid ${c.rose}` }}>{medError}</div>
+              )}
+
+              {medLoading && medSchedules.length === 0 && medPending.length === 0 && (
+                <div style={{ opacity: .6, fontSize: '.82rem', margin: '16px 2px' }}>Loading…</div>
+              )}
+
+              {/* Needs your answer — the "did you take it?" prompts */}
+              {medAwaiting.length > 0 && <>
+                <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '8px 2px 10px' }}>Needs your answer</div>
+                {medAwaiting.map(d => (
+                  <div key={d.id} style={{ background: '#fff', borderRadius: 14, padding: 13, marginBottom: 10, display: 'flex', gap: 12, alignItems: 'flex-start', borderLeft: `3px solid ${c.jade}` }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 10, display: 'grid', placeItems: 'center', fontSize: '.9rem', flexShrink: 0, background: 'rgba(55,181,155,.14)', color: c.jadeD }}>💊</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: '.85rem', lineHeight: 1.3 }}>Did you take your medicine?</div>
+                      <div style={{ fontFamily: mono, fontSize: '.56rem', opacity: .45, marginTop: 6 }}>{(d.scheduled_time || '').slice(0,5)} · {d.scheduled_date}</div>
+                      <div style={{ display: 'flex', gap: 7, marginTop: 10, flexWrap: 'wrap' }}>
+                        {ACK_OPTIONS.map(opt => {
+                          const primary = opt.value === 'yes' || opt.value === 'take_now';
+                          return (
+                            <button key={opt.value} disabled={medBusy === d.id} onClick={() => answerDose(d.id, opt.value)}
+                              style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 13px', borderRadius: 8, border: primary ? 'none' : '1px solid rgba(13,31,36,.16)', background: primary ? c.jade : 'transparent', color: primary ? c.deep2 : c.ink, cursor: medBusy === d.id ? 'default' : 'pointer', opacity: medBusy === d.id ? .6 : 1 }}>
+                              {opt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <div style={{ fontFamily: serif, fontSize: '.98rem', lineHeight: 1.4 }}>Six days on track — nicely done.</div>
-                    <div style={{ fontSize: '.74rem', opacity: .65, marginTop: 3 }}>Your statin, most evenings.</div>
+                ))}
+              </>}
+
+              {/* Today's scheduled doses */}
+              {medTodayDoses.length > 0 && <>
+                <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '14px 2px 10px' }}>Today</div>
+                {medTodayDoses.map(d => (
+                  <div key={d.key} style={{ background: '#fff', borderRadius: 14, padding: 13, marginBottom: 10, display: 'flex', gap: 12, alignItems: 'flex-start', borderLeft: `3px solid ${c.jade}` }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 10, display: 'grid', placeItems: 'center', fontSize: '.9rem', flexShrink: 0, background: 'rgba(55,181,155,.14)', color: c.jadeD }}>💊</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: '.85rem', lineHeight: 1.3 }}>{d.medicine}</div>
+                      {d.dosage && <div style={{ fontSize: '.76rem', opacity: .72, marginTop: 3, lineHeight: 1.45 }}>{d.dosage}</div>}
+                      <div style={{ fontFamily: mono, fontSize: '.56rem', opacity: .45, marginTop: 6 }}>{d.time}</div>
+                    </div>
                   </div>
+                ))}
+              </>}
+
+              {/* Empty state */}
+              {!medLoading && medAwaiting.length === 0 && medTodayDoses.length === 0 && (
+                <div style={{ textAlign: 'center', marginTop: 40 }}>
+                  <div style={{ fontSize: '1.6rem', marginBottom: 8 }}>🔔</div>
+                  <div style={{ fontFamily: serif, fontSize: '1rem', marginBottom: 6 }}>No reminders right now</div>
+                  <div style={{ fontSize: '.76rem', opacity: .6, marginBottom: 16 }}>Medicine reminders will appear here at their scheduled times.</div>
                 </div>
-                <div style={{ fontFamily: mono, fontSize: '.56rem', opacity: .55, borderTop: '1px solid rgba(255,255,255,.12)', paddingTop: 10, marginTop: 12 }}>Missed a day? That&apos;s okay. Tap any reminder to catch up — no streak to break.</div>
+              )}
+
+              {/* Manage schedules */}
+              <div style={{ textAlign: 'center', marginTop: 18 }}>
+                <button onClick={() => router.push('/medications')}
+                  style={{ fontFamily: sans, fontWeight: 600, fontSize: '.74rem', padding: '8px 14px', borderRadius: 8, border: '1px solid rgba(13,31,36,.16)', background: 'transparent', color: c.ink, cursor: 'pointer' }}>
+                  Manage medication reminders
+                </button>
               </div>
-
-              <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '14px 2px 10px' }}>Today</div>
-              {todayNotifs.map(n => {
-                const st = notif[n.id];
-                const done = n.kind === 'donealready' || st === 'taken';
-                return (
-                  <div key={n.id} style={{ background: '#fff', borderRadius: 14, padding: 13, marginBottom: 10, display: 'flex', gap: 12, alignItems: 'flex-start', borderLeft: `3px solid ${n.accent}`, opacity: done ? 0.62 : 1 }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 10, display: 'grid', placeItems: 'center', fontSize: '.9rem', flexShrink: 0, ...Object.fromEntries(n.iconStyle.split(';').filter(Boolean).map((s:string)=>{const [k2,v2]=s.split(':');return [k2.trim().replace(/-([a-z])/g,(_:string,m:string)=>m.toUpperCase()),v2?.trim()];})) }}>{n.icon}</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: '.85rem', lineHeight: 1.3 }}>{n.tt}</div>
-                      <div style={{ fontSize: '.76rem', opacity: .72, marginTop: 3, lineHeight: 1.45 }}>{n.bd}</div>
-                      <div style={{ fontFamily: mono, fontSize: '.56rem', opacity: .45, marginTop: 6 }}>{n.time}</div>
-                      {n.kind === 'statin' && st === 'pending' && (
-                        <div style={{ display: 'flex', gap: 7, marginTop: 10 }}>
-                          <button onClick={() => setNotifVal(n.id,'taken')} style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 13px', borderRadius: 8, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer' }}>Taken ✓</button>
-                          <button onClick={() => setNotifVal(n.id,'later')} style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 13px', borderRadius: 8, border: '1px solid rgba(13,31,36,.16)', background: 'transparent', color: c.ink, cursor: 'pointer' }}>Later</button>
-                        </div>
-                      )}
-                      {n.kind === 'statin' && st === 'later' && (
-                        <div style={{ fontFamily: mono, fontSize: '.6rem', color: c.amberD, marginTop: 9 }}>we&apos;ll remind you again this evening</div>
-                      )}
-                      {n.kind === 'dinner' && (
-                        <div style={{ display: 'flex', gap: 7, marginTop: 10 }}>
-                          <button onClick={() => { setTabRaw('visits'); setView('nutrition'); }} style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 13px', borderRadius: 8, border: 'none', background: 'rgba(90,143,168,.14)', color: c.blueD, cursor: 'pointer' }}>View recipe</button>
-                          <button style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 13px', borderRadius: 8, border: '1px solid rgba(13,31,36,.16)', background: 'transparent', color: c.ink, cursor: 'pointer' }}>Swap meal</button>
-                        </div>
-                      )}
-                      {done && n.kind !== 'donealready' && <span style={{ fontFamily: mono, fontSize: '.58rem', color: c.jadeD }}>done ✓</span>}
-                    </div>
-                    {n.kind === 'donealready' && <span style={{ fontFamily: mono, fontSize: '.58rem', color: c.jadeD }}>done ✓</span>}
-                  </div>
-                );
-              })}
-
-              <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '14px 2px 10px' }}>Coming up</div>
-              {comingNotifs.map(n => {
-                const st = notif[n.id];
-                return (
-                  <div key={n.id} style={{ background: '#fff', borderRadius: 14, padding: 13, marginBottom: 10, display: 'flex', gap: 12, alignItems: 'flex-start', borderLeft: `3px solid ${n.accent}` }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 10, display: 'grid', placeItems: 'center', fontSize: '.9rem', flexShrink: 0, ...Object.fromEntries(n.iconStyle.split(';').filter(Boolean).map((s:string)=>{const [k2,v2]=s.split(':');return [k2.trim().replace(/-([a-z])/g,(_:string,m:string)=>m.toUpperCase()),v2?.trim()];})) }}>{n.icon}</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: '.85rem', lineHeight: 1.3 }}>{n.tt}</div>
-                      <div style={{ fontSize: '.76rem', opacity: .72, marginTop: 3, lineHeight: 1.45 }}>{n.bd}</div>
-                      <div style={{ fontFamily: mono, fontSize: '.56rem', opacity: .45, marginTop: 6 }}>{n.time}</div>
-                      {n.kind === 'recheck' && st !== 'booked' && (
-                        <div style={{ display: 'flex', gap: 7, marginTop: 10 }}>
-                          <button onClick={() => { setBooked(true); setNotifVal(n.id,'booked'); }} style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 13px', borderRadius: 8, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer' }}>Book review</button>
-                          <button style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 13px', borderRadius: 8, border: '1px solid rgba(13,31,36,.16)', background: 'transparent', color: c.ink, cursor: 'pointer' }}>Remind me</button>
-                        </div>
-                      )}
-                      {n.kind === 'recheck' && st === 'booked' && (
-                        <div style={{ fontFamily: mono, fontSize: '.6rem', color: c.jadeD, marginTop: 9 }}>review booked ✓ · see Visits</div>
-                      )}
-                      {n.kind === 'seeplan' && (
-                        <div style={{ display: 'flex', gap: 7, marginTop: 10 }}>
-                          <button onClick={() => { setTabRaw('visits'); setView('nutrition'); }} style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 13px', borderRadius: 8, border: 'none', background: 'rgba(90,143,168,.14)', color: c.blueD, cursor: 'pointer' }}>See plan</button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-
-              <div style={{ fontFamily: mono, fontSize: '.6rem', opacity: .5, textAlign: 'center', marginTop: 14, lineHeight: 1.6 }}>You choose what PAL reminds you about,<br />and when. Quiet hours respected.</div>
             </div>}
 
           </div>
