@@ -178,6 +178,44 @@ export default function PersonSheet({ onClose, onSelect }: PersonSheetProps) {
           </span>
         </button>
 
+        {/* Medication reminders link */}
+        <button
+          onClick={() => { onClose(); router.push('/medications'); }}
+          style={{
+            width: '100%',
+            background: 'transparent',
+            border: '1.5px solid rgba(13,31,36,.12)',
+            borderRadius: 12,
+            padding: '10px 12px',
+            marginBottom: 4,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            cursor: 'pointer',
+          }}
+        >
+          <div style={{
+            width: 36,
+            height: 36,
+            borderRadius: 11,
+            background: 'rgba(55,181,155,.12)',
+            display: 'grid',
+            placeItems: 'center',
+            flexShrink: 0,
+            fontSize: '1rem',
+          }}>
+            💊
+          </div>
+          <span style={{
+            fontFamily: "'Space Grotesk', sans-serif",
+            fontSize: '0.82rem',
+            color: '#0d1f24',
+            fontWeight: 500,
+          }}>
+            Medication reminders
+          </span>
+        </button>
+
         {/* Settings link with notification dot */}
         <button
           onClick={() => { onClose(); router.push('/history/settings'); }}

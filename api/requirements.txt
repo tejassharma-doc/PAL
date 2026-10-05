@@ -21,6 +21,8 @@ redis==5.2.1
 sentence-transformers>=3.0.0
 numpy>=1.26.0
 celery==5.4.0
+flower==2.0.1
+tzdata>=2024.1
 anthropic==0.40.0
 openai>=1.12.0
 boto3==1.35.92

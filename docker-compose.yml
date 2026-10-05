@@ -58,6 +58,65 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
 
+  # Celery worker — medication reminder tasks
+  celery-worker:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: pal-celery-worker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pal}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pal}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./api:/app
+    command: celery -A celery_app worker -l info
+    restart: unless-stopped
+
+  # Celery beat — fires the 60s scan tick
+  celery-beat:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: pal-celery-beat
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pal}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pal}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./api:/app
+    command: celery -A celery_app beat -l info
+    restart: unless-stopped
+
+  # Flower — Celery dashboard
+  flower:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: pal-flower
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./api:/app
+    command: celery -A celery_app flower --port=5555 --url_prefix=flower
+    ports:
+      - "5555:5555"
+    restart: unless-stopped
+
   # Next.js frontend
   web:
     build:

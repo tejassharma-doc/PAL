@@ -3,6 +3,16 @@ from pydantic_settings import BaseSettings
 from typing import Literal
 
 
+def _swap_redis_db(base: str, db: int) -> str:
+    """Return `base` with its trailing /<db> replaced by /<db>. Mirrors the chat
+    manager's `_chat_redis_url` so Celery reuses the same Redis on its own DB."""
+    base = base or "redis://localhost:6379/0"
+    head, sep, tail = base.rpartition("/")
+    if sep and tail.isdigit():
+        return f"{head}/{db}"
+    return f"{base.rstrip('/')}/{db}"
+
+
 class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://pal:pal_secret@localhost:5432/pal"
@@ -150,8 +160,35 @@ class Settings(BaseSettings):
     # Payment links are generated server-side as <base>/<payment_request_id>.
     family_payment_link_base: str = "https://pal.health/pay"
 
+    # ── Medication reminders (Celery + Flower) ────────────────────────────────
+    # ADDITIVE. With MEDICATION_REMINDER_ENABLED=false the /medications routes are
+    # not mounted and the Celery services simply have nothing to scan. The broker
+    # and result backend reuse PAL's Redis on fresh logical DBs (/3 and /4) so
+    # they can never collide with general cache (/0) or chat pub/sub (/2).
+    medication_reminder_enabled: bool = False
+    celery_broker_url: str = ""        # blank => reuse redis_url on logical DB 3
+    celery_result_backend: str = ""    # blank => reuse redis_url on logical DB 4
+    celery_timezone: str = "Asia/Kolkata"
+    # Delay between the "take your medicine" reminder and the "did you take it?"
+    # acknowledgement prompt. 600s = 10 min in production; drop it (e.g. 60) to
+    # exercise the full flow quickly in testing.
+    medication_ack_delay_seconds: int = 600
+
     def effective_hindsight_key(self) -> str:
         return self.hindsight_llm_api_key or self.anthropic_api_key
+
+    def celery_broker(self) -> str:
+        """Celery broker URL. Explicit setting wins; else reuse PAL's Redis on
+        logical DB 3 (distinct from /0 cache and /2 chat)."""
+        if self.celery_broker_url:
+            return self.celery_broker_url
+        return _swap_redis_db(self.redis_url, 3)
+
+    def celery_backend(self) -> str:
+        """Celery result backend URL — logical DB 4."""
+        if self.celery_result_backend:
+            return self.celery_result_backend
+        return _swap_redis_db(self.redis_url, 4)
 
     class Config:
         env_file = ".env"
