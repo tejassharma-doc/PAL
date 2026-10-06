@@ -289,7 +289,7 @@ async def receive_webhook(
             False  # Not processed yet
         )
 
-        webhook_id = str(row['id'])
+        webhook_id = int(row["id"])
         print(f"✅ Webhook saved to database: {webhook_id}")
 
         # STEP 2: Process webhook based on event type
@@ -327,7 +327,7 @@ async def receive_webhook(
             return WebhookResponse(
                 success=True,
                 message=f"Webhook received and processed successfully",
-                webhook_id=webhook_id,
+                webhook_id=str(webhook_id),
                 timestamp=str(row['timestamp']),
                 event_type=row['event_type'],
                 dataReceived=len(payload) > 0
@@ -340,7 +340,7 @@ async def receive_webhook(
             return WebhookResponse(
                 success=True,
                 message=f"Webhook received but processing failed: {str(process_error)}",
-                webhook_id=webhook_id,
+                webhook_id=str(webhook_id) if webhook_id is not None else None,
                 timestamp=str(row['timestamp']),
                 event_type=row['event_type'],
                 dataReceived=len(payload) > 0
@@ -355,7 +355,7 @@ async def receive_webhook(
         return WebhookResponse(
             success=True,
             message="Webhook received (storage pending)",
-            webhook_id=webhook_id if webhook_id else None,
+            webhook_id=str(webhook_id) if webhook_id is not None else None,
             dataReceived=len(payload) > 0
         )
 
