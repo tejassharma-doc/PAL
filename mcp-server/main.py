@@ -530,6 +530,124 @@ async def receive_inutrimon_webhook(
 
 
 # Invoice / Payment Confirmation Webhook - NO AUTH REQUIRED
+async def _project_appointment_from_invoice(payload: dict, db: asyncpg.Connection) -> None:
+    """
+    Additive projection of a DocEHR `appointment_payment_completed` payload into
+    the shared `appointments` table so the booked visit shows up in the Visits
+    section (GET /visits/patient/{id}, which reads `appointments` by patient_id).
+
+    Identity: PHONE ONLY. The patient is matched against `patients.phone`
+    (comparing the last 10 digits, so stored country codes / formatting don't
+    matter). If no PAL patient has that phone yet, the appointment is skipped —
+    we never create a patient here. Doctor/clinic are resolved by external_id and
+    left NULL if unknown (doctor_name/clinic_name are stored as text regardless).
+
+    Idempotent on `external_appointment_id`. This never raises to the caller's
+    happy path: failures are logged and swallowed so the invoice/audit writes and
+    the webhook ack are unaffected.
+    """
+    import re
+
+    appt = payload.get("appointment") or {}
+    patient = payload.get("patient") or {}
+    doctor = payload.get("doctor") or {}
+    clinic = payload.get("clinic") or {}
+
+    ext_appt_id = appt.get("id")
+    if not ext_appt_id:
+        print("ℹ️  Appointment projection skipped: no appointment.id in payload")
+        return
+
+    # slot_time is required — a NULL would make the Visits endpoint fail for this
+    # patient, so skip rather than write a half-row.
+    slot_raw = appt.get("date_time")
+    if not slot_raw:
+        d, t = appt.get("date"), appt.get("time")
+        slot_raw = f"{d}T{t}" if d and t else d
+    if not slot_raw:
+        print("ℹ️  Appointment projection skipped: no appointment date/time in payload")
+        return
+
+    # Patient: match by phone only (last 10 digits), never create.
+    phone_digits = re.sub(r"\D", "", patient.get("phone") or "")
+    if len(phone_digits) < 10:
+        print("ℹ️  Appointment projection skipped: no usable patient.phone")
+        return
+    phone_last10 = phone_digits[-10:]
+    prow = await db.fetchrow(
+        "SELECT id FROM patients "
+        "WHERE right(regexp_replace(coalesce(phone, ''), '\\D', '', 'g'), 10) = $1 "
+        "LIMIT 1",
+        phone_last10,
+    )
+    if not prow:
+        print(f"ℹ️  Appointment projection skipped: no PAL patient with phone …{phone_last10} "
+              f"(will show in Visits once that patient exists)")
+        return
+    patient_id = prow["id"]
+
+    # Doctor / clinic: resolve by external_id; leave NULL if unknown.
+    doctor_id = None
+    if doctor.get("id"):
+        drow = await db.fetchrow(
+            "SELECT id FROM doctors WHERE external_id = $1 LIMIT 1", str(doctor["id"])
+        )
+        doctor_id = drow["id"] if drow else None
+    clinic_id = None
+    if clinic.get("id"):
+        crow = await db.fetchrow(
+            "SELECT id FROM clinics WHERE external_id = $1 LIMIT 1", str(clinic["id"])
+        )
+        clinic_id = crow["id"] if crow else None
+
+    duration = appt.get("duration_minutes") or 30
+    appt_type = appt.get("type")
+    status = appt.get("status") or "scheduled"
+    reason = appt.get("reason_for_visit")
+    notes = appt.get("notes")
+    doctor_name = doctor.get("name")
+    clinic_name = clinic.get("name")
+
+    existing = await db.fetchrow(
+        "SELECT id FROM appointments WHERE external_appointment_id = $1 LIMIT 1",
+        str(ext_appt_id),
+    )
+    if existing:
+        await db.execute(
+            """
+            UPDATE appointments SET
+                patient_id = $2, doctor_id = $3, clinic_id = $4,
+                appointment_date = $5::timestamptz, slot_time = $5::timestamptz,
+                duration_minutes = $6, type = $7, status = $8,
+                reason_for_visit = $9, notes = $10,
+                doctor_name = $11, clinic_name = $12, updated_at = NOW()
+            WHERE id = $1
+            """,
+            existing["id"], patient_id, doctor_id, clinic_id,
+            slot_raw, duration, appt_type, status, reason, notes, doctor_name, clinic_name,
+        )
+        print(f"✅ Appointment updated in appointments — id: {existing['id']}")
+    else:
+        await db.execute(
+            """
+            INSERT INTO appointments
+                (id, external_appointment_id, patient_id, doctor_id, clinic_id,
+                 appointment_date, slot_time, duration_minutes, type, status,
+                 reason_for_visit, notes, doctor_name, clinic_name,
+                 created_at, updated_at)
+            VALUES
+                (gen_random_uuid(), $1, $2, $3, $4,
+                 $5::timestamptz, $5::timestamptz, $6, $7, $8,
+                 $9, $10, $11, $12,
+                 NOW(), NOW())
+            """,
+            str(ext_appt_id), patient_id, doctor_id, clinic_id,
+            slot_raw, duration, appt_type, status, reason, notes, doctor_name, clinic_name,
+        )
+        print(f"✅ Appointment inserted into appointments for patient {patient_id} "
+              f"(external_appointment_id: {ext_appt_id})")
+
+
 @app.post("/api/v1/webhook/invoice", response_model=WebhookResponse)
 async def receive_invoice_webhook(
     request: Request,
@@ -582,6 +700,7 @@ async def receive_invoice_webhook(
 
     # STEP 2: structured projection — upsert the parsed fields into invoices.
     invoice_row_id = None
+    invoice_saved = False
     try:
         invoice_row_id = str(uuid.uuid4())
         result = await db.fetchrow(
@@ -614,28 +733,33 @@ async def receive_invoice_webhook(
             timestamp,
         )
         invoice_row_id = str(result["id"])
+        invoice_saved = True
         print(f"✅ Invoice saved to invoices table — id: {invoice_row_id}")
-
-        return WebhookResponse(
-            success=True,
-            message="Invoice webhook received and saved",
-            webhook_id=invoice_row_id,
-            timestamp=str(timestamp),
-            event_type=event_type,
-            dataReceived=len(payload) > 0,
-        )
 
     except Exception as error:
         print(f"❌ Error saving invoice to invoices table: {error}")
         import traceback
         traceback.print_exc()
 
-        return WebhookResponse(
-            success=True,
-            message="Invoice webhook received (invoices save pending)",
-            webhook_id=webhook_id,
-            dataReceived=len(payload) > 0,
-        )
+    # STEP 3: project the booked appointment into `appointments` so it appears in
+    # the Visits section. Fully additive — guarded so it can never fail the
+    # webhook ack or the invoice/audit writes above.
+    try:
+        await _project_appointment_from_invoice(payload, db)
+    except Exception as error:
+        print(f"⚠️  Could not project appointment into appointments table: {error}")
+        import traceback
+        traceback.print_exc()
+
+    return WebhookResponse(
+        success=True,
+        message="Invoice webhook received and saved" if invoice_saved
+                else "Invoice webhook received (invoices save pending)",
+        webhook_id=invoice_row_id or webhook_id,
+        timestamp=str(timestamp),
+        event_type=event_type,
+        dataReceived=len(payload) > 0,
+    )
 
 
 if __name__ == "__main__":

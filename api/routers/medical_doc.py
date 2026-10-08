@@ -300,8 +300,15 @@ async def confirm_medical_document(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid raw_source_id.")
 
-    # Use phone_user_id directly as patient_id
-    m_id = current_user.id
+    # Resolve the real patients.id for this identity. lab_tests.patient_id is an
+    # FK to patients.id — the phone_user id is a different table/UUID and using it
+    # directly violates lab_tests_patient_id_fkey.
+    m_id = await _resolve_patient_id(current_user, db)
+    if not m_id:
+        raise HTTPException(
+            status_code=404,
+            detail="No patient profile found for your account. Please complete your profile before saving documents.",
+        )
 
     # Get raw_source for file metadata
     raw_source = await db.get(RawSource, rs_id)

@@ -60,10 +60,17 @@ async def get_patient_records(
     )
     prescriptions = prescriptions_result.scalars().all()
 
-    # Get Lab Tests
+    # Get Lab Tests.
+    # Uploaded reports are stored keyed by the phone_user id (see
+    # routers/medical_doc.py), while other sources key by patients.id. Match
+    # either so uploaded reports show up here. Using the *owned* patient's
+    # phone_user_id keeps family/caregiver viewing correct.
+    lab_patient_ids = [patient_id]
+    if getattr(patient, "phone_user_id", None):
+        lab_patient_ids.append(str(patient.phone_user_id))
     lab_tests_result = await db.execute(
         select(LabTest)
-        .where(LabTest.patient_id == patient_id)
+        .where(LabTest.patient_id.in_(lab_patient_ids))
         .order_by(desc(LabTest.ordered_date))
     )
     lab_tests = lab_tests_result.scalars().all()
