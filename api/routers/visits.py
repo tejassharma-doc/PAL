@@ -8,7 +8,7 @@ from datetime import datetime
 import uuid
 
 from database import get_db
-from models import Patient, Appointment, LabTest
+from models import Patient, Appointment, LabTest, Consultation, Prescription
 from models.clinical_output import ClinicalOutput
 from auth import get_current_user_unified as get_current_user
 from services.user_service import get_patient_by_auth_user
@@ -59,57 +59,73 @@ async def get_patient_visits(
     )
     appointments = appointments_result.scalars().all()
 
-    visits = []
+    from datetime import timezone as _tz
+    now = datetime.now(_tz.utc)
+    upcoming = []
+    past = []
 
     for appt in appointments:
-        # Get clinical output for this appointment
-        clinical_output_result = await db.execute(
-            select(ClinicalOutput)
-            .where(ClinicalOutput.appointment_id == appt.id)
-        )
-        clinical_output = clinical_output_result.scalar_one_or_none()
+        # Clinical output (SOAP note / management plan) for this appointment.
+        clinical_output = (await db.execute(
+            select(ClinicalOutput).where(ClinicalOutput.appointment_id == appt.id)
+        )).scalar_one_or_none()
 
-        # Get lab tests for this appointment
-        lab_tests_result = await db.execute(
+        # Medications: appointment → consultation(s) → prescription(s) → items.
+        consult_ids = (await db.execute(
+            select(Consultation.id).where(Consultation.appointment_id == appt.id)
+        )).scalars().all()
+        medications: list = []
+        if consult_ids:
+            prescriptions = (await db.execute(
+                select(Prescription).where(Prescription.consultation_id.in_(consult_ids))
+            )).scalars().all()
+            for p in prescriptions:
+                for item in (p.items or []):
+                    if isinstance(item, dict):
+                        medications.append(item)
+
+        # Lab tests attached to this appointment.
+        lab_tests = (await db.execute(
             select(LabTest)
             .where(LabTest.appointment_id == appt.id)
             .order_by(desc(LabTest.result_date))
-        )
-        lab_tests = lab_tests_result.scalars().all()
-
-        # Format lab tests
+        )).scalars().all()
         lab_tests_summary = [
             {
                 "id": str(test.id),
-                "test_name": test.test_name,
+                "test_name": test.report_name,
                 "result_date": test.result_date.strftime("%Y-%m-%d") if test.result_date else None,
-                "abnormal_flag": test.abnormal_flag,
-                "interpretation": test.interpretation
+                "abnormal_flag": bool(test.has_abnormal_values),
+                "interpretation": test.interpretation,
             }
             for test in lab_tests
         ]
 
-        # Build visit summary - use only database data
+        has_prescription = bool(
+            medications or (clinical_output and (clinical_output.management_plan or clinical_output.soap_note))
+        )
+
         visit = {
             "id": str(appt.id),
             "doctor_id": str(appt.doctor_id) if appt.doctor_id else None,
+            "doctor_name": appt.doctor_name,
+            "clinic_name": appt.clinic_name,
             "date": appt.slot_time.strftime("%d %b %Y") if appt.slot_time else None,
+            "time": appt.slot_time.strftime("%H:%M") if appt.slot_time else None,
             "reason": appt.reason_for_visit or "General Consultation",
             "status": appt.status,
+            "has_prescription": has_prescription,
             "soap_note": clinical_output.soap_note if clinical_output else None,
             "management_plan": clinical_output.management_plan if clinical_output else None,
             "patient_summary": clinical_output.patient_summary if clinical_output else None,
-            "lab_tests": lab_tests_summary
+            "medications": medications,
+            "lab_tests": lab_tests_summary,
         }
 
-        visits.append(visit)
+        # Split by slot_time (datetime, not a re-parsed string); null-dated → past.
+        if appt.slot_time is not None and appt.slot_time >= now:
+            upcoming.append(visit)
+        else:
+            past.append(visit)
 
-    # Separate upcoming and past visits
-    now = datetime.now()
-    upcoming = [v for v in visits if datetime.strptime(v["date"], "%d %b %Y") >= now.replace(hour=0, minute=0, second=0, microsecond=0)]
-    past = [v for v in visits if datetime.strptime(v["date"], "%d %b %Y") < now.replace(hour=0, minute=0, second=0, microsecond=0)]
-
-    return {
-        "upcoming": upcoming,
-        "past": past
-    }
+    return {"upcoming": upcoming, "past": past}

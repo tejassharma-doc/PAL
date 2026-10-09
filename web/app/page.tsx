@@ -278,6 +278,11 @@ export default function PAL() {
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
 
+  // Visits (real appointments from the backend)
+  const [visits, setVisits] = useState<{ upcoming: any[]; past: any[] } | null>(null);
+  const [visitsLoading, setVisitsLoading] = useState(false);
+  const [expandedVisitId, setExpandedVisitId] = useState<string | null>(null);
+
   // Hermes A2A call overlay
   const [activeCallSession, setActiveCallSession] = useState<CallSessionType | null>(null);
   const [callTurns, setCallTurns] = useState<Array<{role:'hermes'|'patient'|'docehr'|'speaker_suggest', content:string}>>([]);
@@ -416,6 +421,31 @@ export default function PAL() {
     }
 
     loadRecords();
+  }, [tab]);
+
+  // Load real visits when the Visits tab opens.
+  useEffect(() => {
+    if (tab !== 'visits') return;
+    let cancelled = false;
+    (async () => {
+      setVisitsLoading(true);
+      try {
+        const patientId = localStorage.getItem('pal_patient_id');
+        const token = localStorage.getItem('pal_token');
+        if (!patientId || !token) { setVisits(null); return; }
+        const res = await fetch(`/api/visits/patient/${patientId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = res.ok ? await res.json() : null;
+        if (!cancelled) setVisits(data && { upcoming: data.upcoming || [], past: data.past || [] });
+      } catch (err) {
+        console.error('Failed to load visits:', err);
+        if (!cancelled) setVisits(null);
+      } finally {
+        if (!cancelled) setVisitsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [tab]);
 
   const person = PEOPLE.find(p => p.key === personKey) || PEOPLE[0];
@@ -1912,10 +1942,21 @@ export default function PAL() {
             {isVisits && <div>
               <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.5rem', margin: '12px 0 3px' }}>Your visits</div>
               <div style={{ fontSize: '.8rem', opacity: .6, marginBottom: 16 }}>Every plan here comes from your care team.</div>
+              {/* Booking / next-upcoming card (Hermes) */}
               <div style={{ background: 'linear-gradient(160deg,#13343b,#0c2429)', borderRadius: 14, padding: 15, color: c.paper, marginBottom: 14 }}>
                 <div style={{ fontFamily: mono, fontSize: '.58rem', letterSpacing: '.12em', textTransform: 'uppercase', color: c.jade, marginBottom: 9 }}>◷ upcoming{booked ? ' · confirmed ✓' : ''}</div>
-                <div style={{ fontFamily: serif, fontSize: '1.05rem' }}>Lipid review · Dr. Rao</div>
-                <div style={{ fontSize: '.76rem', opacity: .7, marginTop: 3 }}>Thu 26 Jun, 11:30 · City Clinic OPD</div>
+                {visits && visits.upcoming.length > 0 ? (
+                  <>
+                    <div style={{ fontFamily: serif, fontSize: '1.05rem' }}>
+                      {visits.upcoming[0].reason} · {visits.upcoming[0].doctor_name || 'Doctor'}
+                    </div>
+                    <div style={{ fontSize: '.76rem', opacity: .7, marginTop: 3 }}>
+                      {[visits.upcoming[0].date, visits.upcoming[0].time, visits.upcoming[0].clinic_name].filter(Boolean).join(' · ')}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontFamily: serif, fontSize: '1rem', opacity: .85 }}>No upcoming visits</div>
+                )}
                 <div style={{ display: 'flex', gap: 8, marginTop: 13 }}>
                   <button style={{ flex: 1, fontFamily: sans, fontWeight: 600, fontSize: '.74rem', padding: 9, borderRadius: 9, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer' }}>Prepare with PAL</button>
                   <button onClick={() => setShowVoiceCall(true)}
@@ -1951,30 +1992,103 @@ export default function PAL() {
                   <div style={{ marginTop: 13, fontFamily: mono, fontSize: '.6rem', color: c.jade }}>✓ Appointment requested — clinic will confirm</div>
                 )}
               </div>
-              <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '14px 2px 10px' }}>Care plans</div>
-              {[
-                { initial:'R', grad:'linear-gradient(150deg,#5a8fa8,#33607a)', name:'Dr. Rao', sub:'Physician · OPD', date:'12 May', year:'2026', icon:'⛁', plan:'Cardiometabolic care plan', target:'careplan' },
-                { initial:'S', grad:'linear-gradient(150deg,#37b59b,#1f7d6b)', name:'Sneha', sub:'Nutritionist · iNutriMon', date:'14 May', year:'2026', icon:'☘', plan:'Cholesterol nutrition plan', target:'nutrition' },
-              ].map(card => (
-                <button key={card.name} onClick={() => setView(card.target)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, padding: 14, marginBottom: 11, cursor: 'pointer' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 10 }}>
-                    <div style={{ width: 38, height: 38, borderRadius: 11, display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 700, fontSize: '.85rem', flexShrink: 0, background: card.grad }}>{card.initial}</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: '.88rem' }}>{card.name}</div>
-                      <div style={{ fontFamily: mono, fontSize: '.58rem', opacity: .55, marginTop: 2 }}>{card.sub}</div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontWeight: 600, fontSize: '.82rem' }}>{card.date}</div>
-                      <div style={{ fontFamily: mono, fontSize: '.58rem', opacity: .5 }}>{card.year}</div>
-                    </div>
-                  </div>
-                  <div style={{ borderTop: '1px solid rgba(13,31,36,.10)', marginTop: 4, paddingTop: 11, display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '.78rem' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 7, color: c.jadeD, fontWeight: 500 }}>{card.icon} {card.plan}</span>
-                    <span style={{ fontFamily: mono, fontSize: '.7rem', color: c.jadeD }}>open →</span>
-                  </div>
-                </button>
-              ))}
-              <div style={{ display: 'flex', gap: 11, alignItems: 'center', background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, padding: '12px 14px', marginTop: 4 }}>
+
+              {/* Real visits — tap a visit to see its prescription */}
+              {visitsLoading && <div style={{ opacity: .6, fontSize: '.85rem', margin: '8px 2px' }}>Loading visits…</div>}
+
+              {visits && [...visits.upcoming, ...visits.past].length === 0 && !visitsLoading && (
+                <div style={{ textAlign: 'center', marginTop: 28, opacity: .65 }}>
+                  <div style={{ fontSize: '1.6rem', marginBottom: 8 }}>🗓️</div>
+                  <div style={{ fontSize: '.9rem', fontWeight: 600, color: c.ink }}>No visits yet</div>
+                  <div style={{ fontSize: '.78rem', marginTop: 4 }}>Your booked appointments will appear here.</div>
+                </div>
+              )}
+
+              {visits && [...visits.upcoming, ...visits.past].length > 0 && (() => {
+                const DOCTOR_GRADS = ['linear-gradient(150deg,#5a8fa8,#33607a)', 'linear-gradient(150deg,#37b59b,#1f7d6b)', 'linear-gradient(150deg,#b08968,#7a5b42)'];
+                const all = [...visits.upcoming, ...visits.past];
+                return (
+                  <>
+                    <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '14px 2px 10px' }}>Your visits</div>
+                    {all.map((v: any, idx: number) => {
+                      const docName = v.doctor_name || 'Doctor';
+                      const initial = docName.replace(/^Dr\.?\s*/i, '').charAt(0).toUpperCase() || 'D';
+                      const open = expandedVisitId === v.id;
+                      const meds: any[] = Array.isArray(v.medications) ? v.medications : [];
+                      return (
+                        <div key={v.id} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, marginBottom: 11, overflow: 'hidden' }}>
+                          <button onClick={() => setExpandedVisitId(open ? null : v.id)}
+                            style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: 14, cursor: 'pointer' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+                              <div style={{ width: 38, height: 38, borderRadius: 11, display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 700, fontSize: '.85rem', flexShrink: 0, background: DOCTOR_GRADS[idx % DOCTOR_GRADS.length] }}>{initial}</div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontWeight: 600, fontSize: '.9rem', color: c.ink }}>{docName}</div>
+                                <div style={{ fontFamily: mono, fontSize: '.58rem', opacity: .55, marginTop: 2 }}>
+                                  {v.reason}{v.clinic_name ? ` · ${v.clinic_name}` : ''}
+                                </div>
+                              </div>
+                              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                <div style={{ fontWeight: 600, fontSize: '.78rem', color: c.ink }}>{v.date || '—'}</div>
+                                <div style={{ fontFamily: mono, fontSize: '.58rem', color: c.jadeD }}>{open ? 'close ▲' : 'open ▾'}</div>
+                              </div>
+                            </div>
+                          </button>
+
+                          {open && (
+                            <div style={{ borderTop: '1px solid rgba(13,31,36,.08)', padding: 14, background: 'rgba(13,31,36,.015)' }}>
+                              {v.has_prescription ? (
+                                <>
+                                  {(v.patient_summary || v.management_plan) && (
+                                    <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 11, padding: 12, marginBottom: 11 }}>
+                                      <div style={{ fontFamily: mono, fontSize: '.56rem', letterSpacing: '.1em', textTransform: 'uppercase', color: c.jadeD, marginBottom: 6 }}>Care plan</div>
+                                      <div style={{ fontSize: '.82rem', lineHeight: 1.5, color: c.ink }}>{v.patient_summary || v.management_plan}</div>
+                                    </div>
+                                  )}
+                                  {meds.length > 0 && (
+                                    <>
+                                      <div style={{ fontFamily: mono, fontSize: '.56rem', letterSpacing: '.1em', textTransform: 'uppercase', opacity: .5, margin: '4px 2px 8px' }}>Prescription</div>
+                                      {meds.map((m: any, i: number) => {
+                                        const name = m.name || m.drug_name || m.medication || m.medicine_name || 'Medicine';
+                                        const info = [m.dosage, m.strength, m.frequency, m.duration, m.instructions].filter(Boolean).join(' · ');
+                                        return (
+                                          <div key={i} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 11, padding: '10px 12px', marginBottom: 8, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                                            <span style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(55,181,155,.14)', color: c.jadeD, display: 'grid', placeItems: 'center', fontSize: '.8rem', flexShrink: 0 }}>℞</span>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                              <div style={{ fontSize: '.84rem', fontWeight: 600, color: c.ink }}>{name}</div>
+                                              {info && <div style={{ fontSize: '.74rem', opacity: .65, marginTop: 2 }}>{info}</div>}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </>
+                                  )}
+                                  {v.lab_tests && v.lab_tests.length > 0 && (
+                                    <div style={{ marginTop: 8, fontSize: '.74rem', opacity: .7 }}>
+                                      🧪 {v.lab_tests.length} lab result{v.lab_tests.length > 1 ? 's' : ''} attached
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                <div style={{ textAlign: 'center', padding: '14px 0', color: c.ink }}>
+                                  <div style={{ fontSize: '1.3rem', marginBottom: 6 }}>📋</div>
+                                  <div style={{ fontSize: '.84rem', fontWeight: 600 }}>No prescription</div>
+                                  <div style={{ fontSize: '.74rem', opacity: .6, marginTop: 3 }}>
+                                    {v.status && v.status.toLowerCase().includes('schedul')
+                                      ? 'The consultation hasn’t happened yet.'
+                                      : 'No prescription was recorded for this visit.'}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </>
+                );
+              })()}
+
+              <div style={{ display: 'flex', gap: 11, alignItems: 'center', background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, padding: '12px 14px', marginTop: 8 }}>
                 <span style={{ fontFamily: mono, fontSize: '.55rem', background: 'rgba(90,143,168,.14)', color: c.blueD, padding: '3px 8px', borderRadius: 10, whiteSpace: 'nowrap' }}>⛁ clinician-canonical</span>
                 <span style={{ fontSize: '.74rem', opacity: .65 }}>Plans are your team&apos;s own words — never altered by AI.</span>
               </div>
