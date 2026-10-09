@@ -567,6 +567,12 @@ async def _project_appointment_from_invoice(payload: dict, db: asyncpg.Connectio
     if not slot_raw:
         print("ℹ️  Appointment projection skipped: no appointment date/time in payload")
         return
+    # asyncpg requires a real datetime for a timestamptz param (not a string).
+    try:
+        slot_dt = datetime.fromisoformat(str(slot_raw).replace("Z", "+00:00"))
+    except ValueError:
+        print(f"ℹ️  Appointment projection skipped: unparseable date/time {slot_raw!r}")
+        return
 
     # Patient: match by phone only (last 10 digits), never create.
     phone_digits = re.sub(r"\D", "", patient.get("phone") or "")
@@ -624,7 +630,7 @@ async def _project_appointment_from_invoice(payload: dict, db: asyncpg.Connectio
             WHERE id = $1
             """,
             existing["id"], patient_id, doctor_id, clinic_id,
-            slot_raw, duration, appt_type, status, reason, notes, doctor_name, clinic_name,
+            slot_dt, duration, appt_type, status, reason, notes, doctor_name, clinic_name,
         )
         print(f"✅ Appointment updated in appointments — id: {existing['id']}")
     else:
@@ -642,7 +648,7 @@ async def _project_appointment_from_invoice(payload: dict, db: asyncpg.Connectio
                  NOW(), NOW())
             """,
             str(ext_appt_id), patient_id, doctor_id, clinic_id,
-            slot_raw, duration, appt_type, status, reason, notes, doctor_name, clinic_name,
+            slot_dt, duration, appt_type, status, reason, notes, doctor_name, clinic_name,
         )
         print(f"✅ Appointment inserted into appointments for patient {patient_id} "
               f"(external_appointment_id: {ext_appt_id})")
