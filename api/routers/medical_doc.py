@@ -125,6 +125,33 @@ async def _get_patient_from_user(user: User, db: AsyncSession):
     return result.scalar_one_or_none()
 
 
+async def _resolve_patient_id(user: Union[PhoneUser, User], db: AsyncSession):
+    """Resolve the real ``patients.id`` for the authenticated identity.
+
+    ``lab_tests.patient_id`` references ``patients.id`` — a different table/UUID
+    from the phone_user id. Phone users link to their patient row via
+    ``patients.phone_user_id`` (same rule phone_auth / visits / medications use);
+    legacy email users match by ``patients.email``. Returns the patient UUID, or
+    ``None`` if the account has no patient profile yet.
+    """
+    from models import Patient
+    from sqlalchemy import select
+
+    if isinstance(user, PhoneUser):
+        result = await db.execute(
+            select(Patient.id).where(Patient.phone_user_id == user.id).limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    email = getattr(user, "email", None)
+    if email:
+        result = await db.execute(
+            select(Patient.id).where(Patient.email == email).limit(1)
+        )
+        return result.scalar_one_or_none()
+    return None
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @router.post("/upload")
