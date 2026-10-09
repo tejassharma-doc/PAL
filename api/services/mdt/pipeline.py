@@ -92,6 +92,11 @@ def _obs_from_transcription(tx: TranscriptionResult) -> list[dict]:
                 "duration": m.duration,
                 "instructions": m.instructions,
                 "legible": m.legible,
+                # Normalized schedule for the reminder table.
+                "times": m.times,
+                "days_of_week": m.days_of_week,
+                "duration_days": m.duration_days,
+                "is_medication": True,
             }
         )
     for o in tx.observations:
@@ -173,9 +178,15 @@ async def extract_document(content: bytes, mime: str, settings) -> ExtractionOut
 
     low_conf = tx.confidence < settings.handwriting_min_confidence
 
-    # 2b. Render → re-feed MDT (unless confidence is too low to trust the text).
+    # Prescriptions use Gemini's structured medications directly — they carry the
+    # dose schedule (times/days/duration) the reminder system needs, which MDT's
+    # output would strip. Only lab reports benefit from the render → MDT round-trip
+    # (MDT adds LOINC coding etc.).
+    is_prescription = tx.doc_kind == "prescription" or (tx.medications and not tx.observations)
+
+    # 2b. Render → re-feed MDT for lab reports (skip for prescriptions / low conf).
     rendered_pdf: Optional[bytes] = None
-    if not low_conf:
+    if not low_conf and not is_prescription:
         try:
             rendered_pdf = render_text_to_pdf(tx)
             bundle2 = await client.document_to_fhir(rendered_pdf, "application/pdf")

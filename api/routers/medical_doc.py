@@ -61,6 +61,17 @@ class ObservationIn(BaseModel):
     duration: Optional[str] = None
     instructions: Optional[str] = None
     legible: Optional[bool] = True
+    # Normalized schedule for the reminder table
+    times: Optional[list[str]] = None
+    days_of_week: Optional[list[int]] = None
+    duration_days: Optional[int] = None
+    is_medication: Optional[bool] = None
+
+    def looks_like_medication(self) -> bool:
+        """A row is a medicine (→ reminder) if it carries any dosing/schedule hint."""
+        if self.is_medication is not None:
+            return self.is_medication
+        return bool(self.dosage or self.frequency or self.duration or self.times)
 
 
 class ConfirmRequest(BaseModel):
@@ -78,6 +89,8 @@ class ConfirmRequest(BaseModel):
     transcription_text: Optional[str] = None
     transcription_model: Optional[str] = None
     needs_review: Optional[bool] = False
+    # When true, also create medication_schedules rows for medicine rows.
+    create_reminders: Optional[bool] = True
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -480,6 +493,44 @@ async def confirm_medical_document(
             ext.edited_by = current_user.id
             ext.edited_at = now
 
+    # ── Also create medication reminders for medicine rows ───────────────────
+    # Each prescribed medicine becomes a medication_schedules row so it drives the
+    # reminder system, in addition to living in the Record (lab_tests) above.
+    created_schedules = 0
+    med_rows = [o for o in req.observations if o.looks_like_medication()]
+    if req.create_reminders and med_rows:
+        from models import MedicationSchedule, Patient as _Patient
+        from sqlalchemy import select as _select
+        from datetime import timedelta as _timedelta
+
+        # Resolve the reminder recipient key (phone_user_id).
+        if isinstance(current_user, PhoneUser):
+            pu_id = current_user.id
+        else:
+            pu_row = await db.execute(
+                _select(_Patient.phone_user_id).where(_Patient.id == m_id).limit(1)
+            )
+            pu_id = pu_row.scalar_one_or_none()
+
+        start = now.date()
+        for o in med_rows:
+            dur = o.duration_days if (o.duration_days and o.duration_days > 0) else None
+            end = (start + _timedelta(days=dur)) if dur else None
+            note_bits = [b for b in (o.frequency, o.duration, o.instructions) if b]
+            db.add(MedicationSchedule(
+                patient_id=m_id,
+                phone_user_id=pu_id,
+                medicine_name=o.display,
+                dosage=o.dosage or o.value,
+                times=o.times or ["09:00"],
+                days_of_week=o.days_of_week or [],
+                start_date=start,
+                end_date=end,
+                active=True,
+                notes=" · ".join(note_bits) or None,
+            ))
+            created_schedules += 1
+
     # Skip HealthFact creation - user only wants lab_tests.raw_extracted_json
 
     await db.commit()
@@ -490,4 +541,5 @@ async def confirm_medical_document(
         "lab_test_id": str(lab_test.id),
         "observations_count": len(req.observations),
         "edits_applied": len(user_edits),
+        "reminders_created": created_schedules,
     }

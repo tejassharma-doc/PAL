@@ -37,6 +37,10 @@ class TranscribedMedication:
     duration: Optional[str] = None      # e.g. "10 days"
     instructions: Optional[str] = None  # e.g. "after food"
     legible: bool = True
+    # Normalized schedule for the reminder system.
+    times: list = field(default_factory=list)          # ["08:00", "20:00"]
+    days_of_week: list = field(default_factory=list)    # [0..6] Mon=0; [] = every day
+    duration_days: Optional[int] = None                 # e.g. 28 for "4 weeks"
 
 
 @dataclass
@@ -87,6 +91,9 @@ _PROMPT = (
     '      "frequency": string | null,      // e.g. "twice daily"\n'
     '      "duration": string | null,       // e.g. "10 days"\n'
     '      "instructions": string | null,   // e.g. "after food"\n'
+    '      "times": string[],               // clock times "HH:MM" for each daily dose, inferred from frequency\n'
+    '      "days_of_week": number[],        // 0=Mon..6=Sun; [] means every day\n'
+    '      "duration_days": number | null,  // total days, e.g. 28 for "4 weeks"\n'
     '      "legible": boolean\n'
     "    }\n"
     "  ],\n"
@@ -109,6 +116,15 @@ _PROMPT = (
     "- If a token is illegible, write '[?]' in its place in `verbatim_text`, set "
     "`legible=false` on that item, and add a short note to `warnings`.\n"
     "- Use null (not empty string) for fields that are not present.\n"
+    "\nSCHEDULE MAPPING (for medications) — infer a concrete reminder schedule:\n"
+    "- 'once daily'/'OD'/'HS' → times ['09:00'] (HS → ['21:00']), days_of_week [].\n"
+    "- 'twice daily'/'BD' → ['09:00','21:00']; 'thrice daily'/'TDS' → "
+    "['08:00','14:00','20:00']; 'four times'/'QID' → ['08:00','12:00','16:00','20:00']; "
+    "days_of_week [].\n"
+    "- 'once weekly'/'weekly' → times ['09:00'], days_of_week [0] (Monday).\n"
+    "- 'twice weekly' → times ['09:00'], days_of_week [0,3] (Mon & Thu).\n"
+    "- Convert duration to duration_days: '4 weeks'→28, '10 days'→10, '1 month'→30.\n"
+    "- If frequency is unclear, use times ['09:00'], days_of_week [], and note it in warnings.\n"
 )
 
 
@@ -181,6 +197,15 @@ async def transcribe_handwritten(
         name = (m.get("name") or "").strip()
         if not name:
             continue
+        times = [str(t) for t in (m.get("times") or []) if t]
+        try:
+            dow = [int(d) for d in (m.get("days_of_week") or []) if 0 <= int(d) <= 6]
+        except (TypeError, ValueError):
+            dow = []
+        try:
+            dur_days = int(m["duration_days"]) if m.get("duration_days") is not None else None
+        except (TypeError, ValueError):
+            dur_days = None
         meds.append(
             TranscribedMedication(
                 name=name,
@@ -190,6 +215,9 @@ async def transcribe_handwritten(
                 duration=m.get("duration"),
                 instructions=m.get("instructions"),
                 legible=bool(m.get("legible", True)),
+                times=times,
+                days_of_week=dow,
+                duration_days=dur_days,
             )
         )
 

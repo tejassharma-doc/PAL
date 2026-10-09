@@ -342,6 +342,15 @@ export default function UploadPage() {
                     const edited = obs.display !== (obs.original_display ?? obs.display);
                     const detail = [obs.value, obs.unit, obs.dosage, obs.frequency, obs.duration]
                       .filter(Boolean).join(' · ');
+                    const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                    const timesStr = Array.isArray(obs.times) && obs.times.length ? obs.times.join(', ') : '';
+                    const daysStr = Array.isArray(obs.days_of_week) && obs.days_of_week.length
+                      ? obs.days_of_week.map((d: number) => DOW[d] ?? d).join(', ')
+                      : (Array.isArray(obs.days_of_week) ? 'every day' : '');
+                    const schedule = (timesStr || obs.duration_days)
+                      ? [timesStr && `⏰ ${timesStr}`, daysStr, obs.duration_days && `${obs.duration_days} days`]
+                          .filter(Boolean).join(' · ')
+                      : '';
                     return (
                       <div key={i} style={{
                         padding: '10px 12px',
@@ -369,6 +378,11 @@ export default function UploadPage() {
                         {detail && (
                           <div style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: 5, fontFamily: 'monospace' }}>
                             {detail}
+                          </div>
+                        )}
+                        {schedule && (
+                          <div style={{ fontSize: '0.74rem', color: '#2a9d85', marginTop: 4, fontFamily: 'monospace' }}>
+                            {schedule} · reminder
                           </div>
                         )}
                         {edited && (
