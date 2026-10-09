@@ -40,12 +40,24 @@ class TranscribedMedication:
 
 
 @dataclass
+class TranscribedObservation:
+    name: str                           # e.g. "Hemoglobin"
+    value: Optional[str] = None         # e.g. "14.5"
+    unit: Optional[str] = None          # e.g. "g/dL"
+    reference_range: Optional[str] = None  # e.g. "13.0–16.5 g/dL"
+    abnormal: bool = False
+    legible: bool = True
+
+
+@dataclass
 class TranscriptionResult:
     text: str
     medications: list[TranscribedMedication] = field(default_factory=list)
+    observations: list[TranscribedObservation] = field(default_factory=list)
     confidence: float = 0.0
     warnings: list[str] = field(default_factory=list)
     model: str = ""
+    doc_kind: Optional[str] = None      # "prescription" | "lab_report" | "other"
     clinic_name: Optional[str] = None
     doctor_name: Optional[str] = None
     patient_name: Optional[str] = None
@@ -55,16 +67,19 @@ class TranscriptionResult:
 _PROMPT = (
     "You are a careful medical transcriptionist reading a scanned or photographed "
     "medical document (often a handwritten prescription).\n\n"
+    "The document may be a PRESCRIPTION (medicines) or a LAB REPORT (test results) "
+    "or both. Extract whichever is present.\n\n"
     "Return a SINGLE JSON object and nothing else, with exactly this shape:\n"
     "{\n"
     '  "verbatim_text": string,            // faithful printed-text transcription of the whole document\n'
+    '  "doc_kind": "prescription" | "lab_report" | "other",\n'
     '  "clinic_name": string | null,\n'
     '  "doctor_name": string | null,\n'
     '  "patient_name": string | null,\n'
     '  "report_date": string | null,       // ISO yyyy-mm-dd if present\n'
     '  "overall_confidence": number,        // your honest 0..1 confidence\n'
     '  "warnings": string[],                // notes about illegible/uncertain content\n'
-    '  "medications": [\n'
+    '  "medications": [                      // [] if not a prescription\n'
     "    {\n"
     '      "name": string,                  // drug name exactly as written\n'
     '      "strength": string | null,       // e.g. "0.5 mg"\n'
@@ -74,15 +89,25 @@ _PROMPT = (
     '      "instructions": string | null,   // e.g. "after food"\n'
     '      "legible": boolean\n'
     "    }\n"
+    "  ],\n"
+    '  "lab_values": [                       // [] if not a lab report\n'
+    "    {\n"
+    '      "name": string,                  // test name, e.g. "Hemoglobin"\n'
+    '      "value": string | null,          // e.g. "14.5"\n'
+    '      "unit": string | null,           // e.g. "g/dL"\n'
+    '      "reference_range": string | null,// e.g. "13.0-16.5 g/dL"\n'
+    '      "abnormal": boolean,             // true if out of range\n'
+    '      "legible": boolean\n'
+    "    }\n"
     "  ]\n"
     "}\n\n"
-    "In `verbatim_text`, preserve the prescription layout: clinic/doctor header, "
-    "patient, date, then one line per medicine, then any signature line.\n\n"
+    "In `verbatim_text`, preserve the document layout: clinic/doctor header, "
+    "patient, date, then one line per medicine or test result, then any signature.\n\n"
     "STRICT RULES:\n"
-    "- NEVER invent or 'correct' a drug name, strength, or dose. Transcribe exactly "
-    "what is written.\n"
+    "- NEVER invent or 'correct' a drug name, test name, value, or dose. Transcribe "
+    "exactly what is written.\n"
     "- If a token is illegible, write '[?]' in its place in `verbatim_text`, set "
-    "`legible=false` on that medication, and add a short note to `warnings`.\n"
+    "`legible=false` on that item, and add a short note to `warnings`.\n"
     "- Use null (not empty string) for fields that are not present.\n"
 )
 
@@ -168,6 +193,22 @@ async def transcribe_handwritten(
             )
         )
 
+    labs = []
+    for o in parsed.get("lab_values", []) or []:
+        name = (o.get("name") or "").strip()
+        if not name:
+            continue
+        labs.append(
+            TranscribedObservation(
+                name=name,
+                value=o.get("value"),
+                unit=o.get("unit"),
+                reference_range=o.get("reference_range"),
+                abnormal=bool(o.get("abnormal", False)),
+                legible=bool(o.get("legible", True)),
+            )
+        )
+
     try:
         confidence = float(parsed.get("overall_confidence", 0.0))
     except (TypeError, ValueError):
@@ -176,9 +217,11 @@ async def transcribe_handwritten(
     return TranscriptionResult(
         text=parsed.get("verbatim_text") or "",
         medications=meds,
+        observations=labs,
         confidence=max(0.0, min(1.0, confidence)),
         warnings=[str(w) for w in (parsed.get("warnings") or [])],
         model=model,
+        doc_kind=parsed.get("doc_kind"),
         clinic_name=parsed.get("clinic_name"),
         doctor_name=parsed.get("doctor_name"),
         patient_name=parsed.get("patient_name"),

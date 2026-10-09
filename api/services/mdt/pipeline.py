@@ -74,7 +74,7 @@ def _obs_from_parsed(parsed) -> list[dict]:
 
 
 def _obs_from_transcription(tx: TranscriptionResult) -> list[dict]:
-    """Gemini medication list → normalized, UI-ready dicts."""
+    """Gemini medication + lab-value lists → normalized, UI-ready dicts."""
     out = []
     for m in tx.medications:
         out.append(
@@ -92,6 +92,24 @@ def _obs_from_transcription(tx: TranscriptionResult) -> list[dict]:
                 "duration": m.duration,
                 "instructions": m.instructions,
                 "legible": m.legible,
+            }
+        )
+    for o in tx.observations:
+        out.append(
+            {
+                "loinc_code": None,
+                "display": o.name,
+                "original_display": o.name,
+                "edited": False,
+                "value": o.value,
+                "unit": o.unit,
+                "reference_range": o.reference_range,
+                "recorded_at": None,
+                "dosage": None,
+                "frequency": None,
+                "duration": None,
+                "instructions": None,
+                "legible": o.legible,
             }
         )
     return out
@@ -166,10 +184,11 @@ async def extract_document(content: bytes, mime: str, settings) -> ExtractionOut
                 obs = _obs_from_parsed(parsed2)
                 # Attach Gemini's medication detail where names line up, so the
                 # user still sees dose/frequency even though MDT provided structure.
+                _fallback_title = "Lab Report" if tx.doc_kind == "lab_report" else "Prescription"
                 return ExtractionOutcome(
                     observations=obs,
                     patient_name=parsed2.patient_name or tx.patient_name,
-                    report_title=parsed2.report_title or "Prescription",
+                    report_title=parsed2.report_title or _fallback_title,
                     report_date=(
                         parsed2.report_date.isoformat() if parsed2.report_date else tx.report_date
                     ),
@@ -186,18 +205,23 @@ async def extract_document(content: bytes, mime: str, settings) -> ExtractionOut
             logger.warning("[pipeline] Render/re-feed failed, using Flash structure: %s", exc)
 
     # 2c. Flash-only structured fallback (MDT still returned nothing, or low conf).
-    observations = [] if low_conf else _obs_from_transcription(tx)
+    # Always surface what Gemini extracted so the user can review/edit it; low
+    # confidence is flagged, not blanked (the review + editable names handle it).
+    observations = _obs_from_transcription(tx)
     warnings = list(tx.warnings)
     if low_conf:
         warnings.insert(
             0,
-            "Low transcription confidence — please enter the medicines manually "
-            "against the original document.",
+            "Low transcription confidence — please check every value carefully "
+            "against the original document before saving.",
         )
+    report_title = "Lab Report" if tx.doc_kind == "lab_report" else (
+        "Prescription" if tx.doc_kind == "prescription" else "Document"
+    )
     return ExtractionOutcome(
         observations=observations,
         patient_name=tx.patient_name,
-        report_title="Prescription",
+        report_title=report_title,
         report_date=tx.report_date,
         fhir_bundle={},
         method=METHOD_FLASH_ONLY,
