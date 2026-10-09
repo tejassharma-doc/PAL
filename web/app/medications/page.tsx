@@ -119,35 +119,62 @@ export default function MedicationsPage() {
     sub: 'medication schedule',
   };
 
-  const label = { fontSize: 13, opacity: 0.8, marginBottom: 4, display: 'block' } as const;
+  // Light theme, matching the rest of the app (PhoneShell is cream with dark ink).
+  const ink = '#0d1f24';
+  const jade = '#37b59b';
+  const jadeD = '#1f7d6b';
+  const rose = '#b4433a';
+  const border = 'rgba(13,31,36,0.12)';
+  const muted = 'rgba(13,31,36,0.58)';
+
+  const label = { fontSize: 12.5, color: muted, marginBottom: 5, display: 'block', fontWeight: 600 } as const;
   const input = {
     width: '100%',
+    boxSizing: 'border-box' as const,
     padding: '10px 12px',
     borderRadius: 10,
-    border: '1px solid #27423a',
-    background: '#0c2429',
-    color: '#eaf5f1',
+    border: `1px solid ${border}`,
+    background: '#fff',
+    color: ink,
     fontSize: 14,
+    outline: 'none',
   } as const;
   const card = {
-    background: 'linear-gradient(160deg,#13343b,#0c2429)',
+    background: '#fff',
     borderRadius: 16,
     padding: 16,
     margin: '0 0 14px',
+    border: `1px solid ${border}`,
+    boxShadow: '0 1px 2px rgba(13,31,36,.04)',
   } as const;
+
+  const DOW_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+  function scheduleSummary(s: MedicationSchedule): string {
+    const t = (s.times || []).join(', ') || '—';
+    const d = s.days_of_week?.length ? s.days_of_week.map((x) => DAYS[x]).join(', ') : 'Every day';
+    return `${t} · ${d}`;
+  }
 
   return (
     <PhoneShell>
       <AppBar person={person} />
 
-      <div className="scr" style={{ flex: 1, overflowY: 'auto', padding: '10px 18px 92px' }}>
-        <h2 style={{ fontSize: 20, margin: '6px 0 14px' }}>Medication reminders</h2>
+      <div className="scr" style={{ flex: 1, overflowY: 'auto', padding: '10px 18px 92px', color: ink }}>
+        <h2 style={{ fontSize: 20, margin: '6px 0 2px', color: ink, fontWeight: 700 }}>
+          Medication reminders
+        </h2>
+        <div style={{ fontSize: 12.5, color: muted, marginBottom: 14 }}>
+          {schedules.length > 0
+            ? `${schedules.filter((s) => s.active).length} active · ${schedules.length} total`
+            : 'Add medicines to get reminders at the right time'}
+        </div>
 
         {!patientId && (
-          <div style={card}>Select a patient to manage medication reminders.</div>
+          <div style={{ ...card, color: ink }}>Select a patient to manage medication reminders.</div>
         )}
         {error && (
-          <div style={{ ...card, color: '#ffb4ab' }}>{error}</div>
+          <div style={{ ...card, color: rose, borderColor: 'rgba(180,67,58,.35)' }}>{error}</div>
         )}
 
         {patientId && (
@@ -155,8 +182,9 @@ export default function MedicationsPage() {
             <div style={{
               fontFamily: "'Space Mono', monospace",
               fontSize: '0.58rem',
+              letterSpacing: '0.12em',
               textTransform: 'uppercase',
-              color: '#37b59b',
+              color: jadeD,
               marginBottom: 12,
             }}>
               ✶ add a medicine
@@ -179,32 +207,38 @@ export default function MedicationsPage() {
                        onChange={(e) => updateTime(i, e.target.value)} />
                 {times.length > 1 && (
                   <button onClick={() => removeTimeRow(i)}
-                          style={{ ...input, width: 44, cursor: 'pointer' }}>✕</button>
+                          style={{ ...input, width: 44, cursor: 'pointer', color: rose, fontWeight: 700 }}>✕</button>
                 )}
               </div>
             ))}
             <button onClick={addTimeRow}
-                    style={{ ...input, width: 'auto', cursor: 'pointer', fontSize: 13 }}>
+                    style={{ background: 'transparent', border: 'none', color: jadeD,
+                             fontSize: 13, fontWeight: 600, cursor: 'pointer', padding: '2px 0' }}>
               + add another time
             </button>
 
             <div style={{ height: 14 }} />
             <label style={label}>Days (none = every day)</label>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {DAYS.map((d, i) => (
-                <button key={d} onClick={() => toggleDay(i)}
-                        style={{
-                          padding: '8px 10px',
-                          borderRadius: 999,
-                          border: '1px solid #27423a',
-                          background: days.includes(i) ? '#37b59b' : 'transparent',
-                          color: days.includes(i) ? '#06201a' : '#eaf5f1',
-                          fontSize: 13,
-                          cursor: 'pointer',
-                        }}>
-                  {d}
-                </button>
-              ))}
+              {DAYS.map((d, i) => {
+                const on = days.includes(i);
+                return (
+                  <button key={d} onClick={() => toggleDay(i)}
+                          title={d}
+                          style={{
+                            width: 36, height: 36,
+                            borderRadius: 999,
+                            border: on ? 'none' : `1px solid ${border}`,
+                            background: on ? jade : '#fff',
+                            color: on ? '#06201a' : ink,
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}>
+                    {DOW_SHORT[i]}
+                  </button>
+                );
+              })}
             </div>
 
             <div style={{ height: 16 }} />
@@ -214,47 +248,55 @@ export default function MedicationsPage() {
                       padding: '12px',
                       borderRadius: 10,
                       border: 'none',
-                      background: '#37b59b',
+                      background: jade,
                       color: '#06201a',
                       fontWeight: 700,
                       fontSize: 15,
                       cursor: saving ? 'default' : 'pointer',
                       opacity: saving || !medicine.trim() ? 0.6 : 1,
                     }}>
-              {saving ? 'Saving…' : 'Add reminder'}
+              {saving ? 'Saving…' : '＋ Add reminder'}
             </button>
           </div>
         )}
 
         {loading ? (
-          <div style={{ opacity: 0.7 }}>Loading…</div>
+          <div style={{ color: muted }}>Loading…</div>
         ) : (
           schedules.map((s) => (
-            <div key={s.id} style={{ ...card, opacity: s.active ? 1 : 0.55 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 600 }}>{s.medicine_name}</div>
-                  {s.dosage && <div style={{ fontSize: 13, opacity: 0.8 }}>{s.dosage}</div>}
-                  <div style={{ fontSize: 13, opacity: 0.8, marginTop: 6 }}>
-                    ⏰ {(s.times || []).join(', ') || '—'}
+            <div key={s.id} style={{
+              ...card,
+              opacity: s.active ? 1 : 0.6,
+              borderLeft: `3px solid ${s.active ? jade : border}`,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 10 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: ink, wordBreak: 'break-word' }}>
+                    {s.medicine_name}
                   </div>
-                  <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>
-                    {s.days_of_week?.length
-                      ? s.days_of_week.map((d) => DAYS[d]).join(', ')
-                      : 'Every day'}
+                  {s.dosage && <div style={{ fontSize: 13, color: muted, marginTop: 2 }}>{s.dosage}</div>}
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8,
+                    background: 'rgba(55,181,155,.12)', color: jadeD,
+                    borderRadius: 8, padding: '4px 9px', fontSize: 12.5, fontWeight: 600,
+                  }}>
+                    ⏰ {scheduleSummary(s)}
                   </div>
+                  {!s.active && (
+                    <div style={{ fontSize: 11.5, color: muted, marginTop: 6, fontStyle: 'italic' }}>Paused</div>
+                  )}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
                   <button onClick={() => void toggleActive(s)}
-                          style={{ fontSize: 12, padding: '6px 10px', borderRadius: 8,
-                                   border: '1px solid #27423a', background: 'transparent',
-                                   color: '#eaf5f1', cursor: 'pointer' }}>
+                          style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 8,
+                                   border: `1px solid ${border}`, background: '#fff',
+                                   color: ink, cursor: 'pointer' }}>
                     {s.active ? 'Pause' : 'Resume'}
                   </button>
                   <button onClick={() => void remove(s)}
-                          style={{ fontSize: 12, padding: '6px 10px', borderRadius: 8,
-                                   border: '1px solid #5a2b2b', background: 'transparent',
-                                   color: '#ffb4ab', cursor: 'pointer' }}>
+                          style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 8,
+                                   border: `1px solid rgba(180,67,58,.35)`, background: '#fff',
+                                   color: rose, cursor: 'pointer' }}>
                     Delete
                   </button>
                 </div>
@@ -264,8 +306,10 @@ export default function MedicationsPage() {
         )}
 
         {!loading && patientId && schedules.length === 0 && (
-          <div style={{ opacity: 0.7, textAlign: 'center', marginTop: 24 }}>
-            No medication reminders yet.
+          <div style={{ textAlign: 'center', marginTop: 32, color: muted }}>
+            <div style={{ fontSize: '1.6rem', marginBottom: 8 }}>💊</div>
+            <div style={{ fontSize: 14, color: ink, fontWeight: 600 }}>No medication reminders yet</div>
+            <div style={{ fontSize: 12.5, marginTop: 4 }}>Add one above, or upload a prescription.</div>
           </div>
         )}
       </div>
