@@ -350,6 +350,7 @@ async def upload_medical_document(
         "report_date": outcome.report_date,
         "observations": outcome.observations,
         # Provenance for the UI (editable-name highlighting) and /confirm.
+        "doc_kind": outcome.doc_kind,
         "source_modality": outcome.modality,
         "extraction_method": outcome.method,
         "needs_review": outcome.needs_review,

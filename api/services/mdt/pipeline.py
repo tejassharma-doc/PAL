@@ -45,6 +45,7 @@ class ExtractionOutcome:
     fhir_bundle: dict = field(default_factory=dict)
     method: str = METHOD_DIRECT
     modality: str = "printed"               # printed | handwritten
+    doc_kind: str = "lab_report"            # lab_report | prescription | other
     needs_review: bool = False
     mdt_discarded: bool = False
     confidence: Optional[float] = None
@@ -150,14 +151,22 @@ async def extract_document(content: bytes, mime: str, settings) -> ExtractionOut
     bundle = await client.document_to_fhir(content, mime)
     if not is_empty_bundle(bundle):
         parsed = parse_fhir_bundle(bundle)
+        # A printed prescription (MedicationRequest) stays editable; otherwise it's
+        # a lab report → read-only direct save.
+        has_meds = any(
+            (e.get("resource") or {}).get("resourceType") in ("MedicationRequest", "MedicationStatement")
+            for e in (bundle.get("entry") or [])
+        )
+        kind = "prescription" if has_meds else "lab_report"
         return ExtractionOutcome(
             observations=_obs_from_parsed(parsed),
             patient_name=parsed.patient_name,
-            report_title=parsed.report_title,
+            report_title=parsed.report_title or ("Prescription" if has_meds else "Lab Report"),
             report_date=parsed.report_date.isoformat() if parsed.report_date else None,
             fhir_bundle=bundle,
             method=METHOD_DIRECT,
             modality="printed",
+            doc_kind=kind,
             needs_review=False,
         )
 
@@ -227,6 +236,7 @@ async def extract_document(content: bytes, mime: str, settings) -> ExtractionOut
                     fhir_bundle=bundle2,
                     method=METHOD_FLASH_THEN_MDT,
                     modality="handwritten",
+                    doc_kind=tx.doc_kind or "lab_report",
                     needs_review=True,
                     confidence=tx.confidence,
                     transcription=tx,
@@ -257,6 +267,7 @@ async def extract_document(content: bytes, mime: str, settings) -> ExtractionOut
         fhir_bundle={},
         method=METHOD_FLASH_ONLY,
         modality="handwritten",
+        doc_kind=tx.doc_kind or "prescription",
         needs_review=True,
         mdt_discarded=True,
         confidence=tx.confidence,

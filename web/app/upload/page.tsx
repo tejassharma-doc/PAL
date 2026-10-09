@@ -307,99 +307,134 @@ export default function UploadPage() {
             <p style={{ fontFamily: 'Georgia, serif', marginBottom: 8 }}>
               <strong>Patient:</strong> {verifyData.patient_name_on_doc || 'Not extracted'}
             </p>
-            {/* Handwritten → verify banner */}
-            {verifyData.source_modality === 'handwritten' && (
-              <div style={{
-                marginTop: 12,
-                padding: '10px 12px',
-                background: '#FFF7E6',
-                border: '1px solid #F0C36D',
-                borderRadius: 8,
-                fontSize: '0.85rem',
-                color: '#7a5b00',
-                fontFamily: 'Georgia, serif',
-              }}>
-                ✍️ Transcribed from handwriting — please check each medicine name and dose carefully before saving.
-              </div>
-            )}
+            {/* Prescriptions are editable; lab reports are read-only (direct save). */}
+            {verifyData.doc_kind === 'prescription' ? (
+              <>
+                {/* Prescription: editable medicine names */}
+                {verifyData.source_modality === 'handwritten' && (
+                  <div style={{
+                    marginTop: 12, padding: '10px 12px', background: '#FFF7E6',
+                    border: '1px solid #F0C36D', borderRadius: 8, fontSize: '0.85rem',
+                    color: '#7a5b00', fontFamily: 'Georgia, serif',
+                  }}>
+                    ✍️ Transcribed from handwriting — please check each medicine name and dose carefully before saving.
+                  </div>
+                )}
 
-            {/* Warnings (illegible tokens, low confidence, etc.) */}
-            {Array.isArray(verifyData.warnings) && verifyData.warnings.length > 0 && (
-              <ul style={{ marginTop: 10, paddingLeft: 18, fontSize: '0.82rem', color: '#9a4a2f' }}>
-                {verifyData.warnings.map((w: string, i: number) => (
-                  <li key={i} style={{ marginBottom: 4 }}>{w}</li>
-                ))}
-              </ul>
-            )}
+                {Array.isArray(verifyData.warnings) && verifyData.warnings.length > 0 && (
+                  <ul style={{ marginTop: 10, paddingLeft: 18, fontSize: '0.82rem', color: '#9a4a2f' }}>
+                    {verifyData.warnings.map((w: string, i: number) => (
+                      <li key={i} style={{ marginBottom: 4 }}>{w}</li>
+                    ))}
+                  </ul>
+                )}
 
-            {obsEdits.length > 0 ? (
-              <div style={{ marginTop: 16 }}>
-                <strong style={{ fontFamily: 'Georgia, serif' }}>
-                  {verifyData.source_modality === 'handwritten' ? 'Medicines (editable)' : 'Lab Values (editable)'}
-                </strong>
-                <div style={{ marginTop: 8 }}>
-                  {obsEdits.map((obs: any, i: number) => {
-                    const edited = obs.display !== (obs.original_display ?? obs.display);
-                    const detail = [obs.value, obs.unit, obs.dosage, obs.frequency, obs.duration]
-                      .filter(Boolean).join(' · ');
-                    const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-                    const timesStr = Array.isArray(obs.times) && obs.times.length ? obs.times.join(', ') : '';
-                    const dows = Array.isArray(obs.days_of_week) && obs.days_of_week.length
-                      ? obs.days_of_week
-                      : (Array.isArray(obs.days_of_week) ? [0, 1, 2, 3, 4, 5, 6] : []);
-                    const daysStr = dows.map((d: number) => DOW[d] ?? d).join(', ');
-                    const schedule = (timesStr || obs.duration_days)
-                      ? [timesStr && `⏰ ${timesStr}`, daysStr, obs.duration_days && `${obs.duration_days} days`]
-                          .filter(Boolean).join(' · ')
-                      : '';
-                    return (
-                      <div key={i} style={{
-                        padding: '10px 12px',
-                        background: '#fbf9f4',
-                        borderRadius: 8,
-                        marginBottom: 8,
-                        border: obs.legible === false ? '1px solid #F0C36D' : '1px solid rgba(13,31,36,0.08)',
-                      }}>
-                        <input
-                          value={obs.display}
-                          onChange={e => updateObsName(i, e.target.value)}
-                          placeholder="Medicine / test name"
-                          style={{
-                            width: '100%',
-                            boxSizing: 'border-box',
-                            padding: '7px 9px',
-                            borderRadius: 6,
-                            border: '1px solid rgba(13,31,36,0.2)',
-                            fontSize: '0.92rem',
-                            fontFamily: 'Georgia, serif',
-                            background: '#fff',
-                            color: '#0d1f24',
-                          }}
-                        />
-                        {detail && (
-                          <div style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: 5, fontFamily: 'monospace' }}>
-                            {detail}
+                {obsEdits.length > 0 ? (
+                  <div style={{ marginTop: 16 }}>
+                    <strong style={{ fontFamily: 'Georgia, serif' }}>Medicines (editable)</strong>
+                    <div style={{ marginTop: 8 }}>
+                      {obsEdits.map((obs: any, i: number) => {
+                        const edited = obs.display !== (obs.original_display ?? obs.display);
+                        const detail = [obs.value, obs.unit, obs.dosage, obs.frequency, obs.duration]
+                          .filter(Boolean).join(' · ');
+                        const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                        const timesStr = Array.isArray(obs.times) && obs.times.length ? obs.times.join(', ') : '';
+                        const dows = Array.isArray(obs.days_of_week) && obs.days_of_week.length
+                          ? obs.days_of_week
+                          : (Array.isArray(obs.days_of_week) ? [0, 1, 2, 3, 4, 5, 6] : []);
+                        const daysStr = dows.map((d: number) => DOW[d] ?? d).join(', ');
+                        const schedule = (timesStr || obs.duration_days)
+                          ? [timesStr && `⏰ ${timesStr}`, daysStr, obs.duration_days && `${obs.duration_days} days`]
+                              .filter(Boolean).join(' · ')
+                          : '';
+                        return (
+                          <div key={i} style={{
+                            padding: '10px 12px', background: '#fbf9f4', borderRadius: 8, marginBottom: 8,
+                            border: obs.legible === false ? '1px solid #F0C36D' : '1px solid rgba(13,31,36,0.08)',
+                          }}>
+                            <input
+                              value={obs.display}
+                              onChange={e => updateObsName(i, e.target.value)}
+                              placeholder="Medicine name"
+                              style={{
+                                width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: 6,
+                                border: '1px solid rgba(13,31,36,0.2)', fontSize: '0.92rem',
+                                fontFamily: 'Georgia, serif', background: '#fff', color: '#0d1f24',
+                              }}
+                            />
+                            {detail && (
+                              <div style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: 5, fontFamily: 'monospace' }}>
+                                {detail}
+                              </div>
+                            )}
+                            {schedule && (
+                              <div style={{ fontSize: '0.74rem', color: '#2a9d85', marginTop: 4, fontFamily: 'monospace' }}>
+                                {schedule} · reminder
+                              </div>
+                            )}
+                            {edited && (
+                              <div style={{ fontSize: '0.72rem', color: '#2a9d85', marginTop: 4 }}>
+                                edited · was “{obs.original_display}”
+                              </div>
+                            )}
                           </div>
-                        )}
-                        {schedule && (
-                          <div style={{ fontSize: '0.74rem', color: '#2a9d85', marginTop: 4, fontFamily: 'monospace' }}>
-                            {schedule} · reminder
-                          </div>
-                        )}
-                        {edited && (
-                          <div style={{ fontSize: '0.72rem', color: '#2a9d85', marginTop: 4 }}>
-                            edited · was “{obs.original_display}”
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 16, fontSize: '0.88rem', color: '#9a4a2f', fontFamily: 'Georgia, serif' }}>
+                    We couldn’t read this prescription automatically. The original is saved — you can add medicines in your records.
+                  </div>
+                )}
+              </>
             ) : (
-              <div style={{ marginTop: 16, fontSize: '0.88rem', color: '#9a4a2f', fontFamily: 'Georgia, serif' }}>
-                We couldn’t read this document automatically. The original is saved — you can add medicines in your records.
-              </div>
+              <>
+                {/* Lab report: read-only extracted values, direct save */}
+                <div style={{
+                  marginTop: 12, padding: '10px 12px', background: 'rgba(55,181,155,.1)',
+                  border: '1px solid rgba(55,181,155,.3)', borderRadius: 8, fontSize: '0.85rem',
+                  color: '#1f7d6b', fontFamily: 'Georgia, serif',
+                }}>
+                  ✓ Extracted from your lab report. Review the values below and save to your records.
+                </div>
+
+                {obsEdits.length > 0 ? (
+                  <div style={{ marginTop: 16 }}>
+                    <strong style={{ fontFamily: 'Georgia, serif' }}>Lab values</strong>
+                    <div style={{ marginTop: 8 }}>
+                      {obsEdits.map((obs: any, i: number) => {
+                        const amount = [obs.value, obs.unit].filter(Boolean).join(' ');
+                        return (
+                          <div key={i} style={{
+                            padding: '9px 12px', background: '#fbf9f4', borderRadius: 8, marginBottom: 8,
+                            display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline',
+                          }}>
+                            <span style={{ fontSize: '0.88rem', color: '#0d1f24', fontFamily: 'Georgia, serif' }}>
+                              {obs.display}
+                            </span>
+                            <span style={{
+                              fontSize: '0.86rem', fontWeight: 600, whiteSpace: 'nowrap',
+                              color: obs.abnormal ? '#b4433a' : '#0d1f24', fontFamily: 'monospace',
+                            }}>
+                              {amount}
+                              {obs.reference_range && (
+                                <span style={{ fontSize: '0.72rem', opacity: 0.5, marginLeft: 6 }}>
+                                  ({obs.reference_range})
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 16, fontSize: '0.88rem', color: '#9a4a2f', fontFamily: 'Georgia, serif' }}>
+                    We couldn’t read this report automatically. The original is saved to your records.
+                  </div>
+                )}
+              </>
             )}
           </div>
 
