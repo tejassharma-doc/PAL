@@ -152,7 +152,9 @@ export default function MedicationsPage() {
 
   function scheduleSummary(s: MedicationSchedule): string {
     const t = (s.times || []).join(', ') || '—';
-    const d = s.days_of_week?.length ? s.days_of_week.map((x) => DAYS[x]).join(', ') : 'Every day';
+    // Always list the days explicitly; an empty array means every day → list all 7.
+    const dows = s.days_of_week?.length ? s.days_of_week : [0, 1, 2, 3, 4, 5, 6];
+    const d = dows.map((x) => DAYS[x]).join(', ');
     return `${t} · ${d}`;
   }
 

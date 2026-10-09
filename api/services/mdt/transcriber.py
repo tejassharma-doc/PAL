@@ -116,15 +116,17 @@ _PROMPT = (
     "- If a token is illegible, write '[?]' in its place in `verbatim_text`, set "
     "`legible=false` on that item, and add a short note to `warnings`.\n"
     "- Use null (not empty string) for fields that are not present.\n"
-    "\nSCHEDULE MAPPING (for medications) — infer a concrete reminder schedule:\n"
-    "- 'once daily'/'OD'/'HS' → times ['09:00'] (HS → ['21:00']), days_of_week [].\n"
+    "\nSCHEDULE MAPPING (for medications) — infer a concrete reminder schedule.\n"
+    "ALWAYS list every applicable day explicitly in days_of_week (0=Mon..6=Sun). "
+    "For a daily medicine use the FULL week [0,1,2,3,4,5,6] — never an empty list.\n"
+    "- 'once daily'/'OD' → times ['09:00'] (HS → ['21:00']), days_of_week [0,1,2,3,4,5,6].\n"
     "- 'twice daily'/'BD' → ['09:00','21:00']; 'thrice daily'/'TDS' → "
     "['08:00','14:00','20:00']; 'four times'/'QID' → ['08:00','12:00','16:00','20:00']; "
-    "days_of_week [].\n"
+    "days_of_week [0,1,2,3,4,5,6].\n"
     "- 'once weekly'/'weekly' → times ['09:00'], days_of_week [0] (Monday).\n"
     "- 'twice weekly' → times ['09:00'], days_of_week [0,3] (Mon & Thu).\n"
     "- Convert duration to duration_days: '4 weeks'→28, '10 days'→10, '1 month'→30.\n"
-    "- If frequency is unclear, use times ['09:00'], days_of_week [], and note it in warnings.\n"
+    "- If frequency is unclear, use times ['09:00'], days_of_week [0,1,2,3,4,5,6], and note it in warnings.\n"
 )
 
 

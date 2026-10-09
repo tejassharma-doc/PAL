@@ -344,9 +344,10 @@ export default function UploadPage() {
                       .filter(Boolean).join(' · ');
                     const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
                     const timesStr = Array.isArray(obs.times) && obs.times.length ? obs.times.join(', ') : '';
-                    const daysStr = Array.isArray(obs.days_of_week) && obs.days_of_week.length
-                      ? obs.days_of_week.map((d: number) => DOW[d] ?? d).join(', ')
-                      : (Array.isArray(obs.days_of_week) ? 'every day' : '');
+                    const dows = Array.isArray(obs.days_of_week) && obs.days_of_week.length
+                      ? obs.days_of_week
+                      : (Array.isArray(obs.days_of_week) ? [0, 1, 2, 3, 4, 5, 6] : []);
+                    const daysStr = dows.map((d: number) => DOW[d] ?? d).join(', ');
                     const schedule = (timesStr || obs.duration_days)
                       ? [timesStr && `⏰ ${timesStr}`, daysStr, obs.duration_days && `${obs.duration_days} days`]
                           .filter(Boolean).join(' · ')

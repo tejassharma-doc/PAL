@@ -523,7 +523,8 @@ async def confirm_medical_document(
                 medicine_name=o.display,
                 dosage=o.dosage or o.value,
                 times=o.times or ["09:00"],
-                days_of_week=o.days_of_week or [],
+                # Daily meds list the full week explicitly (not an empty list).
+                days_of_week=o.days_of_week or [0, 1, 2, 3, 4, 5, 6],
                 start_date=start,
                 end_date=end,
                 active=True,
