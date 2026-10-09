@@ -182,8 +182,10 @@ export default function UploadPage() {
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      justifyContent: 'center',
+      // Center short phases; let the long verify list scroll from the top.
+      justifyContent: phase === 'verifying' ? 'flex-start' : 'center',
       padding: 24,
+      overflowY: 'auto',
     }}>
       <input
         ref={fileInputRef}
@@ -279,7 +281,7 @@ export default function UploadPage() {
 
       {/* VERIFYING STATE */}
       {phase === 'verifying' && verifyData && (
-        <div style={{ textAlign: 'center', maxWidth: 500, width: '100%' }}>
+        <div style={{ textAlign: 'center', maxWidth: 500, width: '100%', flexShrink: 0, margin: '8px 0 32px' }}>
           <h2 style={{
             fontFamily: 'Georgia, serif',
             fontSize: '1.5rem',
