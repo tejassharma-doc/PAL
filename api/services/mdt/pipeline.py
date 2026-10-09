@@ -38,6 +38,8 @@ METHOD_FLASH_ONLY = "flash_only"
 class ExtractionOutcome:
     observations: list[dict] = field(default_factory=list)
     patient_name: Optional[str] = None
+    doctor_name: Optional[str] = None
+    clinic_name: Optional[str] = None
     report_title: Optional[str] = None
     report_date: Optional[str] = None       # ISO string
     fhir_bundle: dict = field(default_factory=dict)
@@ -71,6 +73,20 @@ def _obs_from_parsed(parsed) -> list[dict]:
         }
         for o in parsed.observations
     ]
+
+
+def _title_for(tx: TranscriptionResult) -> str:
+    """Build a record title that carries the lab name (lab reports) or doctor
+    name (prescriptions), as requested for the Records section."""
+    if tx.doc_kind == "lab_report":
+        return f"Lab Report · {tx.clinic_name}" if tx.clinic_name else "Lab Report"
+    if tx.doc_kind == "prescription" or tx.medications:
+        if tx.doctor_name:
+            return f"Prescription · {tx.doctor_name}"
+        if tx.clinic_name:
+            return f"Prescription · {tx.clinic_name}"
+        return "Prescription"
+    return "Document"
 
 
 def _obs_from_transcription(tx: TranscriptionResult) -> list[dict]:
@@ -195,11 +211,16 @@ async def extract_document(content: bytes, mime: str, settings) -> ExtractionOut
                 obs = _obs_from_parsed(parsed2)
                 # Attach Gemini's medication detail where names line up, so the
                 # user still sees dose/frequency even though MDT provided structure.
-                _fallback_title = "Lab Report" if tx.doc_kind == "lab_report" else "Prescription"
+                # Prefer a title that names the lab/clinic, keeping MDT's panel name.
+                _lab_title = " · ".join(
+                    b for b in (tx.clinic_name, parsed2.report_title) if b
+                ) or _title_for(tx)
                 return ExtractionOutcome(
                     observations=obs,
                     patient_name=parsed2.patient_name or tx.patient_name,
-                    report_title=parsed2.report_title or _fallback_title,
+                    doctor_name=tx.doctor_name,
+                    clinic_name=tx.clinic_name,
+                    report_title=_lab_title,
                     report_date=(
                         parsed2.report_date.isoformat() if parsed2.report_date else tx.report_date
                     ),
@@ -226,13 +247,12 @@ async def extract_document(content: bytes, mime: str, settings) -> ExtractionOut
             "Low transcription confidence — please check every value carefully "
             "against the original document before saving.",
         )
-    report_title = "Lab Report" if tx.doc_kind == "lab_report" else (
-        "Prescription" if tx.doc_kind == "prescription" else "Document"
-    )
     return ExtractionOutcome(
         observations=observations,
         patient_name=tx.patient_name,
-        report_title=report_title,
+        doctor_name=tx.doctor_name,
+        clinic_name=tx.clinic_name,
+        report_title=_title_for(tx),
         report_date=tx.report_date,
         fhir_bundle={},
         method=METHOD_FLASH_ONLY,

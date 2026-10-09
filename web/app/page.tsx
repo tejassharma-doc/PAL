@@ -1600,15 +1600,24 @@ export default function PAL() {
                             {expandedRecordId === test.id && test.results && (
                               <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(13,31,36,.10)' }}>
                                 <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.1em', textTransform: 'uppercase', opacity: .5, marginBottom: 8 }}>Results</div>
-                                {Object.entries(test.results).map(([key, value]: [string, any]) => (
-                                  <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(13,31,36,.05)' }}>
-                                    <span style={{ fontSize: '.8rem', textTransform: 'capitalize' }}>{key.replace(/_/g, ' ')}</span>
-                                    <span style={{ fontSize: '.8rem', fontWeight: 600, color: value.abnormal ? c.rose : c.ink }}>
-                                      {value.value} {value.unit}
-                                      {value.range && <span style={{ fontSize: '.7rem', opacity: .5, marginLeft: 6 }}>({value.range})</span>}
-                                    </span>
-                                  </div>
-                                ))}
+                                {(Array.isArray(test.results) ? test.results : Object.values(test.results || {})).map((value: any, idx: number) => {
+                                  const name = value?.name || value?.display || `Item ${idx + 1}`;
+                                  const amount = [value?.value, value?.unit].filter(Boolean).join(' ');
+                                  const extra = [value?.dosage, value?.frequency, value?.duration]
+                                    .filter(Boolean).join(' · ');
+                                  return (
+                                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '6px 0', borderBottom: '1px solid rgba(13,31,36,.05)' }}>
+                                      <span style={{ fontSize: '.8rem', minWidth: 0 }}>
+                                        {name}
+                                        {extra && <span style={{ display: 'block', fontSize: '.68rem', opacity: .55 }}>{extra}</span>}
+                                      </span>
+                                      <span style={{ fontSize: '.8rem', fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap', color: value?.abnormal ? c.rose : c.ink }}>
+                                        {amount}
+                                        {value?.range && <span style={{ fontSize: '.7rem', opacity: .5, marginLeft: 6 }}>({value.range})</span>}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
 
                                 {test.interpretation && (
                                   <div style={{ marginTop: 12, padding: 12, background: 'rgba(55,181,155,.08)', borderRadius: 10 }}>
