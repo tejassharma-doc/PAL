@@ -167,6 +167,29 @@ class LabTest(Base, UUIDMixin, TimestampMixin):
     # Notes
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
+    # ── Extraction provenance (handwriting pipeline) ─────────────────────────────
+    # How this row was produced, so a transcribed handwritten doc is never confused
+    # with a clean printed one. See services/mdt/pipeline.py.
+    extraction_method: Mapped[Optional[str]] = mapped_column(
+        String(32), default="mdt_direct",
+        comment="mdt_direct | flash_then_mdt | flash_only",
+    )
+    source_modality: Mapped[Optional[str]] = mapped_column(
+        String(16), default="printed", comment="printed | handwritten",
+    )
+    transcription_text: Mapped[Optional[str]] = mapped_column(
+        Text, comment="Verbatim Gemini transcription (NULL for printed docs)",
+    )
+    transcription_model: Mapped[Optional[str]] = mapped_column(String(64))
+    needs_review: Mapped[bool] = mapped_column(
+        Boolean, default=False,
+        comment="True until a human confirms (handwritten always starts True)",
+    )
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
+    raw_source_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), comment="Original uploaded file (raw_sources.id)",
+    )
+
     # Relationships
     patient: Mapped["Patient"] = relationship("Patient", back_populates="lab_tests")
 

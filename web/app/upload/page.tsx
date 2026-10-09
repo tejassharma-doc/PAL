@@ -9,6 +9,12 @@ export default function UploadPage() {
   const [phase, setPhase] = useState<'idle' | 'uploading' | 'verifying' | 'success' | 'error'>('idle');
   const [error, setError] = useState('');
   const [verifyData, setVerifyData] = useState<any>(null);
+  // Editable copy of the extracted rows — the user can correct each medicine name.
+  const [obsEdits, setObsEdits] = useState<any[]>([]);
+
+  function updateObsName(i: number, value: string) {
+    setObsEdits(prev => prev.map((o, idx) => (idx === i ? { ...o, display: value } : o)));
+  }
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -89,6 +95,12 @@ export default function UploadPage() {
       if (result.type === 'pending_verification') {
         console.log('Success: pending verification');
         setVerifyData(result);
+        setObsEdits(
+          (result.observations || []).map((o: any) => ({
+            ...o,
+            original_display: o.original_display ?? o.display,
+          }))
+        );
         setPhase('verifying');
       } else if (result.type === 'document_accepted') {
         console.log('Success: document accepted (MDT disabled)');
@@ -126,10 +138,20 @@ export default function UploadPage() {
         body: JSON.stringify({
           raw_source_id: verifyData.raw_source_id,
           patient_id: patientId, // Backend uses current_user.id
-          observations: verifyData.observations || [],
+          observations: obsEdits.map(o => ({
+            ...o,
+            edited: o.display !== (o.original_display ?? o.display),
+          })),
           report_date: verifyData.report_date,
           report_title: verifyData.report_title,
           fhir_bundle: null,
+          // Provenance threaded back from /upload
+          extraction_id: verifyData.extraction_id,
+          source_modality: verifyData.source_modality,
+          extraction_method: verifyData.extraction_method,
+          transcription_text: verifyData.transcription_text,
+          transcription_model: verifyData.transcription_model,
+          needs_review: verifyData.needs_review,
         }),
       });
 
@@ -285,28 +307,83 @@ export default function UploadPage() {
             <p style={{ fontFamily: 'Georgia, serif', marginBottom: 8 }}>
               <strong>Patient:</strong> {verifyData.patient_name_on_doc || 'Not extracted'}
             </p>
-            {verifyData.observations && verifyData.observations.length > 0 && (
+            {/* Handwritten → verify banner */}
+            {verifyData.source_modality === 'handwritten' && (
+              <div style={{
+                marginTop: 12,
+                padding: '10px 12px',
+                background: '#FFF7E6',
+                border: '1px solid #F0C36D',
+                borderRadius: 8,
+                fontSize: '0.85rem',
+                color: '#7a5b00',
+                fontFamily: 'Georgia, serif',
+              }}>
+                ✍️ Transcribed from handwriting — please check each medicine name and dose carefully before saving.
+              </div>
+            )}
+
+            {/* Warnings (illegible tokens, low confidence, etc.) */}
+            {Array.isArray(verifyData.warnings) && verifyData.warnings.length > 0 && (
+              <ul style={{ marginTop: 10, paddingLeft: 18, fontSize: '0.82rem', color: '#9a4a2f' }}>
+                {verifyData.warnings.map((w: string, i: number) => (
+                  <li key={i} style={{ marginBottom: 4 }}>{w}</li>
+                ))}
+              </ul>
+            )}
+
+            {obsEdits.length > 0 ? (
               <div style={{ marginTop: 16 }}>
-                <strong style={{ fontFamily: 'Georgia, serif' }}>Lab Values:</strong>
+                <strong style={{ fontFamily: 'Georgia, serif' }}>
+                  {verifyData.source_modality === 'handwritten' ? 'Medicines (editable)' : 'Lab Values (editable)'}
+                </strong>
                 <div style={{ marginTop: 8 }}>
-                  {verifyData.observations.slice(0, 5).map((obs: any, i: number) => (
-                    <div key={i} style={{
-                      padding: '8px 12px',
-                      background: '#fbf9f4',
-                      borderRadius: 8,
-                      marginBottom: 8,
-                      fontSize: '0.9rem',
-                      fontFamily: 'monospace',
-                    }}>
-                      {obs.display}: {obs.value} {obs.unit}
-                    </div>
-                  ))}
-                  {verifyData.observations.length > 5 && (
-                    <p style={{ fontSize: '0.85rem', opacity: 0.6, marginTop: 8 }}>
-                      + {verifyData.observations.length - 5} more values
-                    </p>
-                  )}
+                  {obsEdits.map((obs: any, i: number) => {
+                    const edited = obs.display !== (obs.original_display ?? obs.display);
+                    const detail = [obs.value, obs.unit, obs.dosage, obs.frequency, obs.duration]
+                      .filter(Boolean).join(' · ');
+                    return (
+                      <div key={i} style={{
+                        padding: '10px 12px',
+                        background: '#fbf9f4',
+                        borderRadius: 8,
+                        marginBottom: 8,
+                        border: obs.legible === false ? '1px solid #F0C36D' : '1px solid rgba(13,31,36,0.08)',
+                      }}>
+                        <input
+                          value={obs.display}
+                          onChange={e => updateObsName(i, e.target.value)}
+                          placeholder="Medicine / test name"
+                          style={{
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            padding: '7px 9px',
+                            borderRadius: 6,
+                            border: '1px solid rgba(13,31,36,0.2)',
+                            fontSize: '0.92rem',
+                            fontFamily: 'Georgia, serif',
+                            background: '#fff',
+                            color: '#0d1f24',
+                          }}
+                        />
+                        {detail && (
+                          <div style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: 5, fontFamily: 'monospace' }}>
+                            {detail}
+                          </div>
+                        )}
+                        {edited && (
+                          <div style={{ fontSize: '0.72rem', color: '#2a9d85', marginTop: 4 }}>
+                            edited · was “{obs.original_display}”
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
+              </div>
+            ) : (
+              <div style={{ marginTop: 16, fontSize: '0.88rem', color: '#9a4a2f', fontFamily: 'Georgia, serif' }}>
+                We couldn’t read this document automatically. The original is saved — you can add medicines in your records.
               </div>
             )}
           </div>

@@ -67,7 +67,44 @@ def parse_fhir_bundle(bundle: dict) -> FhirParseResult:
         elif rtype == "Observation":
             result.observations.append(_parse_observation(resource))
 
+        elif rtype in ("MedicationRequest", "MedicationStatement"):
+            med = _parse_medication(resource)
+            if med:
+                result.observations.append(med)
+
     return result
+
+
+def _parse_medication(resource: dict) -> Optional[ExtractedObservation]:
+    """Flatten a MedicationRequest/MedicationStatement into an observation-like row.
+
+    display = medicine name; value = dosage instruction text (dose/frequency).
+    Lets prescription output share the same verification/persistence path as labs.
+    """
+    med_cc = resource.get("medicationCodeableConcept", {})
+    name = med_cc.get("text")
+    if not name:
+        for coding in med_cc.get("coding", []):
+            if coding.get("display"):
+                name = coding["display"]
+                break
+    if not name:
+        return None
+
+    dosage_text: Optional[str] = None
+    instructions = resource.get("dosageInstruction") or resource.get("dosage") or []
+    if instructions:
+        first = instructions[0]
+        dosage_text = first.get("text")
+
+    return ExtractedObservation(
+        loinc_code=None,
+        display=name,
+        value=dosage_text,
+        unit=None,
+        reference_range=None,
+        recorded_at=None,
+    )
 
 
 def _parse_observation(resource: dict) -> ExtractedObservation:

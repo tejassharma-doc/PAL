@@ -174,6 +174,20 @@ class Settings(BaseSettings):
     # exercise the full flow quickly in testing.
     medication_ack_delay_seconds: int = 600
 
+    # ── Handwritten-document transcription (Gemini Flash → MDT) ────────────────
+    # ADDITIVE, fallback-only. When MDT discards a document (e.g. a handwritten
+    # prescription), and this flag is on, the original is transcribed by Gemini
+    # Flash into clean text, rendered to a printed PDF, and re-fed to MDT for
+    # structuring. If MDT still returns nothing, Flash's own structured medication
+    # list is used so the user always gets editable fields. Handwritten results
+    # ALWAYS require human review (and name editing) before they are saved.
+    handwriting_transcription_enabled: bool = False
+    handwriting_transcription_model: str = "gemini-2.5-flash"
+    # Below this transcription confidence we do NOT pre-fill structured fields —
+    # the user is asked to enter medicines manually against the original image.
+    handwriting_min_confidence: float = 0.60
+    gemini_api_base: str = "https://generativelanguage.googleapis.com/v1beta"
+
     def effective_hindsight_key(self) -> str:
         return self.hindsight_llm_api_key or self.anthropic_api_key
 
