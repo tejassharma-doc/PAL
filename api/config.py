@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     docehr_enabled: bool = False
     docehr_url: str = ""       # e.g. http://docehr.internal  (REST)
     docehr_mcp_url: str = ""   # e.g. https://docehr.internal/mcp  (MCP)
+    # DocEHR MCP now requires OAuth2 client-credentials: we fetch a bearer token
+    # once and send it on every MCP call. Leave the secret blank to disable auth
+    # (calls go out unauthenticated, as before).
+    docehr_mcp_client_id: str = "pal"
+    docehr_mcp_client_secret: str = ""
+    # Blank => derive "{scheme}://{host}/oauth/token" from docehr_mcp_url.
+    docehr_mcp_token_url: str = ""
 
     # Document upload
     upload_dir: str = "./uploads"

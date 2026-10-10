@@ -400,8 +400,18 @@ class FastMCPClient:
             logger.info(f"MCP-DocEHR: Original arguments: {arguments}")
             logger.info(f"MCP-DocEHR: Translated arguments: {translated_args}")
 
+            from services.docehr.mcp_auth import get_docehr_mcp_token
+            token = await get_docehr_mcp_token()
+            headers = {"Authorization": f"Bearer {token}"} if token else None
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(url, json=payload)
+                response = await client.post(url, json=payload, headers=headers)
+
+                # Bearer may have expired/rotated — refresh once and retry.
+                if response.status_code == 401 and token:
+                    logger.info("MCP-DocEHR: 401 — refreshing token and retrying")
+                    token = await get_docehr_mcp_token(force=True)
+                    headers = {"Authorization": f"Bearer {token}"} if token else None
+                    response = await client.post(url, json=payload, headers=headers)
 
                 # Log response details
                 logger.info(f"MCP-DocEHR: Response status: {response.status_code}")
@@ -494,8 +504,17 @@ class FastMCPClient:
         try:
             logger.info(f"MCP-DocEHR: Fetching tools from {url}")
 
+            from services.docehr.mcp_auth import get_docehr_mcp_token
+            token = await get_docehr_mcp_token()
+            headers = {"Authorization": f"Bearer {token}"} if token else None
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(url)
+                response = await client.get(url, headers=headers)
+
+                if response.status_code == 401 and token:
+                    logger.info("MCP-DocEHR: 401 on tools/list — refreshing token and retrying")
+                    token = await get_docehr_mcp_token(force=True)
+                    headers = {"Authorization": f"Bearer {token}"} if token else None
+                    response = await client.get(url, headers=headers)
 
                 logger.info(f"MCP-DocEHR: Tools list response status: {response.status_code}")
 

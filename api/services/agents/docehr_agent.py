@@ -134,18 +134,19 @@ class DocEHRAgent:
             f"Use the DocEHR MCP tools to fulfil this request, then respond in "
             f"the structured DocEHR format defined in your system prompt."
         )
+        # DocEHR MCP requires an OAuth2 bearer token — attach it to the connector.
+        from services.docehr.mcp_auth import get_docehr_mcp_token
+        mcp_token = await get_docehr_mcp_token()
+        mcp_server: dict = {"type": "url", "url": self._mcp_url, "name": "docehr"}
+        if mcp_token:
+            mcp_server["authorization_token"] = mcp_token
+
         try:
             resp = await self._ai.beta.messages.create(
                 model=HAIKU,
                 max_tokens=300,
                 betas=["mcp-client-2025-04-04"],
-                mcp_servers=[
-                    {
-                        "type": "url",
-                        "url": self._mcp_url,
-                        "name": "docehr",
-                    }
-                ],
+                mcp_servers=[mcp_server],
                 system=DOCEHR_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_msg}],
             )
