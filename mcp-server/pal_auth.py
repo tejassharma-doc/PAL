@@ -23,8 +23,17 @@ from fastapi.responses import JSONResponse
 
 # ── Config (env) ─────────────────────────────────────────────────────────────
 CLIENT_ID = os.getenv("PAL_OAUTH_CLIENT_ID", "docehr")
-CLIENT_SECRET = os.getenv("PAL_OAUTH_CLIENT_SECRET", "")      # issued to DocEHR
-SIGNING_SECRET = os.getenv("PAL_OAUTH_SIGNING_SECRET", "")    # HS256 key (server-only)
+# Baked-in defaults so a plain deploy works without extra server config.
+# SECURITY: these live in git history — rotate by setting the env vars (which
+# override these) and, ideally, moving to env-only once provisioned.
+CLIENT_SECRET = os.getenv(
+    "PAL_OAUTH_CLIENT_SECRET",
+    "7512e4f6104e3245c88467a0424ee00f454103352bfa1b3a073c4f7ae64be943",
+)  # issued to DocEHR
+SIGNING_SECRET = os.getenv(
+    "PAL_OAUTH_SIGNING_SECRET",
+    "0b7ee9efb99bd68e6adab40efbfbe2112028ea6a1814c80de27058b22d5b574c",
+)  # HS256 key (server-only)
 ISSUER = os.getenv("PAL_OAUTH_ISSUER", "pal-mcp")
 AUDIENCE = os.getenv("PAL_OAUTH_AUDIENCE", "pal-mcp")
 TTL = int(os.getenv("PAL_OAUTH_TOKEN_TTL", "900"))           # 15 min
