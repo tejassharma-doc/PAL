@@ -15,6 +15,7 @@ import uuid
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from webhook_processor import process_webhook, WebhookProcessingError
 from clinical_output_processor import process_clinical_output_webhook, ClinicalOutputProcessingError
+from pal_auth import router as pal_auth_router, require_docehr_auth
 
 # Configuration
 PORT = int(os.getenv("PORT", "3001"))
@@ -49,6 +50,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Direction B: DocEHR -> PAL OAuth2 token endpoint (/api/v1/oauth/token)
+app.include_router(pal_auth_router)
 
 # Database connection pool (asyncpg for raw queries)
 db_pool = None
@@ -218,7 +222,8 @@ async def health_check():
 async def receive_webhook(
     request: Request,
     db: asyncpg.Connection = Depends(get_db),
-    db_session: AsyncSession = Depends(get_db_session)
+    db_session: AsyncSession = Depends(get_db_session),
+    _auth=Depends(require_docehr_auth),
 ):
     """
     Receive and store webhook data.
@@ -657,7 +662,8 @@ async def _project_appointment_from_invoice(payload: dict, db: asyncpg.Connectio
 @app.post("/api/v1/webhook/invoice", response_model=WebhookResponse)
 async def receive_invoice_webhook(
     request: Request,
-    db: asyncpg.Connection = Depends(get_db)
+    db: asyncpg.Connection = Depends(get_db),
+    _auth=Depends(require_docehr_auth),
 ):
     """
     Receive payment/invoice confirmation from DocEHR (or any source).
