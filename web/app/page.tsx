@@ -18,6 +18,7 @@ import { useTranslation } from '../lib/useTranslation';
 import { useAuthStore } from '../lib/store';
 import { SUPPORTED_LANGUAGES } from '../lib/languages';
 import FamilyHubButton from '../components/family/FamilyHubButton';
+import PrevisitSlider from '../components/PrevisitSlider';
 import {
   listMedicationSchedules, pendingDoses, respondToDose,
   type MedicationSchedule, type PendingDose, type DoseResponse,
@@ -2036,6 +2037,14 @@ export default function PAL() {
 
                           {open && (
                             <div style={{ borderTop: '1px solid rgba(13,31,36,.08)', padding: 14, background: 'rgba(13,31,36,.015)' }}>
+                              {/* Pre-visit interview — slide to open the public link */}
+                              {v.previsit_url && v.previsit_status !== 'completed' && (
+                                <div style={{ marginBottom: 14 }}>
+                                  <div style={{ fontFamily: mono, fontSize: '.56rem', letterSpacing: '.1em', textTransform: 'uppercase', color: c.jadeD, marginBottom: 8 }}>Pre-visit interview</div>
+                                  <PrevisitSlider url={v.previsit_url} />
+                                  <div style={{ fontSize: '.68rem', opacity: .55, marginTop: 6, textAlign: 'center' }}>Takes 3–5 minutes · helps the doctor prepare</div>
+                                </div>
+                              )}
                               {v.has_prescription ? (
                                 <>
                                   {(v.patient_summary || v.management_plan) && (

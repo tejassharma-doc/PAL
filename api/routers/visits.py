@@ -114,6 +114,8 @@ async def get_patient_visits(
             "time": appt.slot_time.strftime("%H:%M") if appt.slot_time else None,
             "reason": appt.reason_for_visit or "General Consultation",
             "status": appt.status,
+            "previsit_url": appt.previsit_url,
+            "previsit_status": appt.previsit_status,
             "has_prescription": has_prescription,
             "soap_note": clinical_output.soap_note if clinical_output else None,
             "management_plan": clinical_output.management_plan if clinical_output else None,

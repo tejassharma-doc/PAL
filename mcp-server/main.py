@@ -619,6 +619,11 @@ async def _project_appointment_from_invoice(payload: dict, db: asyncpg.Connectio
     doctor_name = doctor.get("name")
     clinic_name = clinic.get("name")
 
+    # Pre-visit interview link (public URL the patient can open to fill it in).
+    previsit = payload.get("previsit") or {}
+    previsit_url = previsit.get("public_url")
+    previsit_status = previsit.get("status")
+
     existing = await db.fetchrow(
         "SELECT id FROM appointments WHERE external_appointment_id = $1 LIMIT 1",
         str(ext_appt_id),
@@ -631,11 +636,13 @@ async def _project_appointment_from_invoice(payload: dict, db: asyncpg.Connectio
                 appointment_date = $5::timestamptz, slot_time = $5::timestamptz,
                 duration_minutes = $6, type = $7, status = $8,
                 reason_for_visit = $9, notes = $10,
-                doctor_name = $11, clinic_name = $12, updated_at = NOW()
+                doctor_name = $11, clinic_name = $12,
+                previsit_url = $13, previsit_status = $14, updated_at = NOW()
             WHERE id = $1
             """,
             existing["id"], patient_id, doctor_id, clinic_id,
             slot_dt, duration, appt_type, status, reason, notes, doctor_name, clinic_name,
+            previsit_url, previsit_status,
         )
         print(f"✅ Appointment updated in appointments — id: {existing['id']}")
     else:
@@ -645,15 +652,18 @@ async def _project_appointment_from_invoice(payload: dict, db: asyncpg.Connectio
                 (id, external_appointment_id, patient_id, doctor_id, clinic_id,
                  appointment_date, slot_time, duration_minutes, type, status,
                  reason_for_visit, notes, doctor_name, clinic_name,
+                 previsit_url, previsit_status,
                  created_at, updated_at)
             VALUES
                 (gen_random_uuid(), $1, $2, $3, $4,
                  $5::timestamptz, $5::timestamptz, $6, $7, $8,
                  $9, $10, $11, $12,
+                 $13, $14,
                  NOW(), NOW())
             """,
             str(ext_appt_id), patient_id, doctor_id, clinic_id,
             slot_dt, duration, appt_type, status, reason, notes, doctor_name, clinic_name,
+            previsit_url, previsit_status,
         )
         print(f"✅ Appointment inserted into appointments for patient {patient_id} "
               f"(external_appointment_id: {ext_appt_id})")

@@ -35,6 +35,10 @@ class Appointment(Base, UUIDMixin, TimestampMixin):
     doctor_name: Mapped[Optional[str]] = mapped_column(String(255))
     clinic_name: Mapped[Optional[str]] = mapped_column(String(255))
 
+    # Pre-visit interview (from the appointment_payment_completed webhook)
+    previsit_url: Mapped[Optional[str]] = mapped_column(Text)
+    previsit_status: Mapped[Optional[str]] = mapped_column(String(20))
+
     # Relationships
     clinic: Mapped[Optional["Clinic"]] = relationship("Clinic", back_populates="appointments")
     patient: Mapped[Optional["Patient"]] = relationship("Patient", back_populates="appointments")
