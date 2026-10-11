@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
 COPY main.py .
+COPY pal_auth.py .
 COPY webhook_helper.py .
 COPY webhook_processor.py .
 COPY clinical_output_processor.py .
