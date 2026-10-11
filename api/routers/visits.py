@@ -51,10 +51,32 @@ async def get_patient_visits(
     # ✅ SECURITY FIX: Verify user owns or has permission for this patient record
     patient = await verify_patient_ownership(patient_id, current_user, db)
 
-    # Get appointments
+    # A booking webhook may attach to a different `patients` row that shares this
+    # phone (e.g. a clinic-created record), so match appointments across every
+    # patient row with the same phone (last 10 digits), not just this id.
+    import re
+    from sqlalchemy import func
+    patient_ids = {patient_id}
+    phone_digits = ""
+    for cand in (patient.phone, getattr(current_user, "phone_number", None)):
+        d = re.sub(r"\D", "", cand or "")[-10:]
+        if len(d) == 10:
+            phone_digits = d
+            break
+    if len(phone_digits) == 10:
+        sib = await db.execute(
+            select(Patient.id).where(
+                func.right(
+                    func.regexp_replace(func.coalesce(Patient.phone, ""), r"\D", "", "g"), 10
+                ) == phone_digits
+            )
+        )
+        patient_ids |= {str(x) for x in sib.scalars().all()}
+
+    # Get appointments for any of those patient rows
     appointments_result = await db.execute(
         select(Appointment)
-        .where(Appointment.patient_id == patient_id)
+        .where(Appointment.patient_id.in_(list(patient_ids)))
         .order_by(desc(Appointment.slot_time))
     )
     appointments = appointments_result.scalars().all()
