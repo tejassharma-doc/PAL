@@ -95,7 +95,7 @@ export default function RecordsPage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading records...</p>
+          <p className="text-[#4a5a5f]">Loading records...</p>
         </div>
       </div>
     )
@@ -108,11 +108,11 @@ export default function RecordsPage() {
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <button
             onClick={() => router.push('/')}
-            className="text-gray-600 hover:text-gray-900"
+            className="text-[#4a5a5f] hover:text-[#0d1f24]"
           >
             ← Back
           </button>
-          <h1 className="text-xl font-semibold text-gray-900">Medical Records</h1>
+          <h1 className="text-xl font-semibold text-[#0d1f24]">Medical Records</h1>
           <div className="w-16"></div>
         </div>
       </div>
@@ -133,15 +133,15 @@ export default function RecordsPage() {
                     <span className="text-2xl">💊</span>
                   </div>
                   <div>
-                    <h2 className="text-lg font-semibold text-gray-900">
+                    <h2 className="text-lg font-semibold text-[#0d1f24]">
                       Latest Prescription
                     </h2>
-                    <p className="text-sm text-gray-600">
+                    <p className="text-[15px] text-[#4a5a5f]">
                       {prescription.items.length} medication{prescription.items.length !== 1 ? 's' : ''} • {new Date(prescription.created_at).toLocaleDateString()}
                     </p>
                   </div>
                 </div>
-                <span className="text-gray-400">
+                <span className="text-[#4a5a5f]">
                   {expandedSection === 'prescription' ? '▼' : '▶'}
                 </span>
               </div>
@@ -152,24 +152,24 @@ export default function RecordsPage() {
                 {/* SOAP Notes Section */}
                 {clinicalOutput && (
                   <div className="mb-6 p-4 bg-blue-50 border-l-4 border-blue-500 rounded">
-                    <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                    <h3 className="font-semibold text-[#0d1f24] mb-3 flex items-center gap-2">
                       <span>📋</span> Clinical Notes (SOAP)
                     </h3>
-                    <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                    <div className="text-[15px] text-[#0d1f24] whitespace-pre-wrap">
                       {clinicalOutput.soap_note}
                     </div>
 
                     {clinicalOutput.management_plan && (
                       <div className="mt-4 pt-4 border-t border-blue-200">
-                        <h4 className="font-semibold text-gray-900 mb-2">Management Plan:</h4>
-                        <p className="text-sm text-gray-700">{clinicalOutput.management_plan}</p>
+                        <h4 className="font-semibold text-[#0d1f24] mb-2">Management Plan:</h4>
+                        <p className="text-[15px] text-[#0d1f24]">{clinicalOutput.management_plan}</p>
                       </div>
                     )}
                   </div>
                 )}
 
                 {/* Medications */}
-                <h3 className="font-semibold text-gray-900 mb-4">Prescribed Medications:</h3>
+                <h3 className="font-semibold text-[#0d1f24] mb-4">Prescribed Medications:</h3>
                 <div className="space-y-4">
                   {prescription.items.map((item, idx) => (
                     <div
@@ -178,50 +178,50 @@ export default function RecordsPage() {
                     >
                       <div className="flex items-start justify-between mb-2">
                         <div>
-                          <h4 className="font-semibold text-gray-900 text-lg">
+                          <h4 className="font-semibold text-[#0d1f24] text-lg">
                             {item.name}
                           </h4>
-                          <p className="text-sm text-gray-600">{item.generic_name}</p>
+                          <p className="text-[15px] text-[#4a5a5f]">{item.generic_name}</p>
                         </div>
-                        <span className="px-3 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
+                        <span className="px-3 py-1 bg-blue-100 text-blue-800 text-[13px] font-medium rounded-full">
                           {item.type}
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3 my-3 text-sm">
+                      <div className="grid grid-cols-2 gap-3 my-3 text-[15px]">
                         <div>
-                          <span className="text-gray-600">Dosage:</span>
-                          <span className="ml-2 font-medium text-gray-900">{item.dosage}</span>
+                          <span className="text-[#4a5a5f]">Dosage:</span>
+                          <span className="ml-2 font-medium text-[#0d1f24]">{item.dosage}</span>
                         </div>
                         <div>
-                          <span className="text-gray-600">Frequency:</span>
-                          <span className="ml-2 font-medium text-gray-900">{item.frequency}</span>
+                          <span className="text-[#4a5a5f]">Frequency:</span>
+                          <span className="ml-2 font-medium text-[#0d1f24]">{item.frequency}</span>
                         </div>
                         <div>
-                          <span className="text-gray-600">Duration:</span>
-                          <span className="ml-2 font-medium text-gray-900">{item.duration}</span>
+                          <span className="text-[#4a5a5f]">Duration:</span>
+                          <span className="ml-2 font-medium text-[#0d1f24]">{item.duration}</span>
                         </div>
                         <div>
-                          <span className="text-gray-600">Quantity:</span>
-                          <span className="ml-2 font-medium text-gray-900">{item.quantity}</span>
+                          <span className="text-[#4a5a5f]">Quantity:</span>
+                          <span className="ml-2 font-medium text-[#0d1f24]">{item.quantity}</span>
                         </div>
                       </div>
 
                       <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 mb-2">
-                        <p className="text-sm font-medium text-gray-900 mb-1">Instructions:</p>
-                        <p className="text-sm text-gray-700">{item.instructions}</p>
+                        <p className="text-[15px] font-medium text-[#0d1f24] mb-1">Instructions:</p>
+                        <p className="text-[15px] text-[#0d1f24]">{item.instructions}</p>
                       </div>
 
                       <div className="bg-green-50 p-3 rounded">
-                        <p className="text-sm font-medium text-gray-900 mb-1">Reason:</p>
-                        <p className="text-sm text-gray-700">{item.reason}</p>
+                        <p className="text-[15px] font-medium text-[#0d1f24] mb-1">Reason:</p>
+                        <p className="text-[15px] text-[#0d1f24]">{item.reason}</p>
                       </div>
                     </div>
                   ))}
                 </div>
 
                 {prescription.refillable && (
-                  <div className="mt-4 p-3 bg-blue-50 rounded text-sm">
+                  <div className="mt-4 p-3 bg-blue-50 rounded text-[15px]">
                     <span className="font-medium">Refills:</span> {prescription.refills_remaining} remaining
                   </div>
                 )}
@@ -243,15 +243,15 @@ export default function RecordsPage() {
                     <span className="text-2xl">🔬</span>
                   </div>
                   <div>
-                    <h2 className="text-lg font-semibold text-gray-900">
+                    <h2 className="text-lg font-semibold text-[#0d1f24]">
                       Lab Reports
                     </h2>
-                    <p className="text-sm text-gray-600">
+                    <p className="text-[15px] text-[#4a5a5f]">
                       {labTests.length} test{labTests.length !== 1 ? 's' : ''} • Latest: {labTests[0]?.result_date || 'Pending'}
                     </p>
                   </div>
                 </div>
-                <span className="text-gray-400">
+                <span className="text-[#4a5a5f]">
                   {expandedSection === 'labs' ? '▼' : '▶'}
                 </span>
               </div>
@@ -268,19 +268,19 @@ export default function RecordsPage() {
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <h4 className="font-semibold text-gray-900 flex items-center gap-2">
+                        <h4 className="font-semibold text-[#0d1f24] flex items-center gap-2">
                           {test.report_name}
                           {test.has_abnormal_values && (
-                            <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-800 rounded">
+                            <span className="px-2 py-1 text-[13px] font-medium bg-red-100 text-red-800 rounded">
                               ⚠️ Abnormal
                             </span>
                           )}
                         </h4>
-                        <p className="text-sm text-gray-600 mt-1">
+                        <p className="text-[15px] text-[#4a5a5f] mt-1">
                           {test.result_date || 'Pending'} • {test.status}
                         </p>
                         {test.interpretation && (
-                          <p className="text-sm text-gray-700 mt-2 bg-blue-50 p-2 rounded">
+                          <p className="text-[15px] text-[#0d1f24] mt-2 bg-blue-50 p-2 rounded">
                             {test.interpretation}
                           </p>
                         )}
@@ -304,10 +304,10 @@ export default function RecordsPage() {
         {!prescription && labTests.length === 0 && (
           <div className="bg-white rounded-lg shadow-sm p-12 text-center">
             <div className="text-6xl mb-4">📋</div>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">
+            <h2 className="text-xl font-semibold text-[#0d1f24] mb-2">
               No Medical Records Yet
             </h2>
-            <p className="text-gray-600">
+            <p className="text-[#4a5a5f]">
               Your prescriptions and lab reports will appear here.
             </p>
           </div>

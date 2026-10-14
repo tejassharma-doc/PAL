@@ -1,5 +1,7 @@
 'use client'
 
+import Markdown, { CopyAnswerButton } from '@/components/Markdown'
+
 interface Citation {
   title: string
   source: string
@@ -46,16 +48,19 @@ export function AnswerCard({ result, onSecondOpinion }: Props) {
     <div className="w-full space-y-4">
       {/* Answer text */}
       <div className="bg-ground-light rounded-2xl p-6 space-y-4">
-        <p className="font-serif text-surface text-lg leading-relaxed">
-          {answer.answer_text}
-        </p>
+        <div className="bg-white rounded-xl p-4">
+          <Markdown text={answer.answer_text} />
+          <div className="mt-2">
+            <CopyAnswerButton text={answer.answer_text} />
+          </div>
+        </div>
 
         {/* Clinical disagreement warning */}
         {answer.clinical_disagreement && (
           <div className="border border-rose/40 rounded-xl p-4 space-y-1">
             <p className="text-rose text-sm font-medium">Note: conflicting information</p>
             <p className="text-surface/70 text-sm">{answer.clinical_disagreement}</p>
-            <p className="text-surface/50 text-xs">We recommend discussing this with your clinician.</p>
+            <p className="text-surface/80 text-[13px]">We recommend discussing this with your clinician.</p>
           </div>
         )}
 
@@ -83,12 +88,12 @@ export function AnswerCard({ result, onSecondOpinion }: Props) {
       {/* Agents used */}
       <div className="flex flex-wrap gap-2">
         {agents_used.map((a) => (
-          <span key={a} className="font-mono text-xs bg-ground-light border border-surface/10 text-jade px-3 py-1 rounded-full">
+          <span key={a} className="font-mono text-[13px] bg-ground-light border border-surface/10 text-jade px-3 py-1 rounded-full">
             {AGENT_LABELS[a] ?? a}
           </span>
         ))}
         {scope === 'personal' && (
-          <span className="font-mono text-xs bg-jade/10 border border-jade/30 text-jade px-3 py-1 rounded-full">
+          <span className="font-mono text-[13px] bg-jade/10 border border-jade/30 text-jade px-3 py-1 rounded-full">
             Personalised to your records
           </span>
         )}
@@ -97,10 +102,10 @@ export function AnswerCard({ result, onSecondOpinion }: Props) {
       {/* Citations */}
       {answer.citations?.length > 0 && (
         <div className="bg-ground-light rounded-xl p-4 space-y-2">
-          <p className="text-amber text-xs font-mono uppercase tracking-wider">Sources</p>
+          <p className="text-amber text-[13px] font-mono uppercase tracking-wider">Sources</p>
           <ul className="space-y-1">
             {answer.citations.map((c, i) => (
-              <li key={i} className="text-sm text-surface/60">
+              <li key={i} className="text-sm text-surface/80">
                 {c.url ? (
                   <a href={c.url} target="_blank" rel="noopener noreferrer" className="hover:text-amber transition-colors underline underline-offset-2">
                     {c.title} — {c.source}
@@ -116,8 +121,8 @@ export function AnswerCard({ result, onSecondOpinion }: Props) {
 
       {/* Provenance */}
       {answer.provenance_summary && (
-        <details className="text-surface/40 text-xs">
-          <summary className="cursor-pointer hover:text-surface/60 transition-colors">Why do I think this?</summary>
+        <details className="text-surface/80 text-[13px]">
+          <summary className="cursor-pointer hover:text-surface/80 transition-colors">Why do I think this?</summary>
           <p className="mt-2 pl-4 border-l border-surface/10">{answer.provenance_summary}</p>
         </details>
       )}
@@ -126,7 +131,7 @@ export function AnswerCard({ result, onSecondOpinion }: Props) {
       <div className="flex justify-end">
         <button
           onClick={onSecondOpinion}
-          className="text-surface/40 text-xs hover:text-surface/70 transition-colors underline underline-offset-2"
+          className="text-surface/80 text-[13px] hover:text-surface transition-colors underline underline-offset-2"
         >
           This doesn&apos;t seem right — get a second look
         </button>

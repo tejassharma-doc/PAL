@@ -138,6 +138,18 @@ if settings.family_plan_enabled:
 
     app.include_router(family_router.router)       # REST /family/*
 
+# ── Medication reminders (Celery + Flower) (ADDITIVE) ─────────────────────────
+# Guarded import + flag: with MEDICATION_REMINDER_ENABLED=false the routes are not
+# mounted, and any import problem here must never stop the API from booting. The
+# Celery worker/beat/flower run as separate services (see docker-compose.prod.yml).
+if settings.medication_reminder_enabled:
+    try:
+        from routers import medications as medications_router
+        app.include_router(medications_router.router)   # REST /medications/*
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).error("medications: mount failed, continuing: %s", exc)
+
 
 @app.get("/health")
 async def health():
@@ -152,5 +164,6 @@ async def health():
             "chat": settings.chat_enabled,
             "chat_transport": _chat_transport() if settings.chat_enabled else None,
             "family_plan": settings.family_plan_enabled,
+            "medication_reminder": settings.medication_reminder_enabled,
         },
     }

@@ -1,135 +1,165 @@
-import React, { useEffect, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, Pressable, ActivityIndicator, RefreshControl } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import { useIsFocused } from '@react-navigation/native'
-import { PAL, FONT, RADIUS, SPACE } from '../theme'
-import { listConversations, ConversationSummary } from '../lib/api'
+/**
+ * History — the website's "Your conversations": serif title, search box,
+ * mono day groups (TODAY / YESTERDAY / EARLIER), white cards with a serif
+ * question, a jade bar + "used your record" pill for personal threads.
+ */
+import React, { useMemo, useState } from 'react'
+import { Alert, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native'
+import { C, F, T } from '../theme'
+import { Badge, Body, Empty, ErrorBox, Loading, PageTitle, Slab, useFocusLoad } from '../components/ui'
+import { TabChrome } from '../components/Chrome'
+import { LineIcon } from '../components/icons'
+import * as api from '../lib/api'
 
-function formatDate(iso: string) {
+function groupOf(iso: string): string {
   const d = new Date(iso)
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+  const now = new Date()
+  const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const days = Math.round((start(now) - start(d)) / 86400000)
+  if (days <= 0) return 'Today'
+  if (days === 1) return 'Yesterday'
+  if (days < 7) return 'Earlier this week'
+  return d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
 }
 
-function formatTime(iso: string) {
+function when(iso: string): string {
   const d = new Date(iso)
-  return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+  const g = groupOf(iso)
+  const t = d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })
+  if (g === 'Today') return t
+  if (g === 'Yesterday' || g === 'Earlier this week') return `${d.toLocaleDateString('en-IN', { weekday: 'short' })} ${t}`
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
 }
 
-export default function HistoryScreen() {
-  const [convs, setConvs] = useState<ConversationSummary[]>([])
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const isFocused = useIsFocused()
+export default function HistoryScreen({ navigation }: any) {
+  const { data, error, loading, refreshing, reload, setData } = useFocusLoad(api.listConversations)
+  const [q, setQ] = useState('')
 
-  const loadConversations = () => {
-    setLoading(true)
-    listConversations()
-      .then(c => {
-        console.log('✅ Loaded conversations from backend:', c.length, JSON.stringify(c, null, 2))
-        setConvs(c)
-      })
-      .catch(err => {
-        console.error('❌ Error loading conversations:', err)
-        setConvs([])
-      })
-      .finally(() => setLoading(false))
-  }
-
-  const onRefresh = () => {
-    setRefreshing(true)
-    listConversations()
-      .then(c => {
-        console.log('🔄 Refreshed conversations:', c.length)
-        setConvs(c)
-      })
-      .catch(err => {
-        console.error('❌ Error refreshing:', err)
-        setConvs([])
-      })
-      .finally(() => setRefreshing(false))
-  }
-
-  useEffect(() => {
-    if (isFocused) {
-      loadConversations()
+  const groups = useMemo(() => {
+    const list = (data ?? []).filter(c =>
+      !q.trim() ? true : `${c.title ?? ''} ${c.hindsight_summary ?? ''}`.toLowerCase().includes(q.trim().toLowerCase()),
+    )
+    const out: { label: string; items: api.ConversationSummary[] }[] = []
+    for (const c of list) {
+      const g = groupOf(c.updated_at || c.created_at)
+      const last = out[out.length - 1]
+      if (last && last.label === g) last.items.push(c)
+      else out.push({ label: g, items: [c] })
     }
-  }, [isFocused])
+    return out
+  }, [data, q])
+
+  const remove = (c: api.ConversationSummary) =>
+    Alert.alert(
+      'Delete this conversation?',
+      'This permanently removes the thread and everything PAL derived from it. It can’t be undone.',
+      [
+        { text: 'Keep it', style: 'cancel' },
+        {
+          text: 'Delete permanently',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.deleteConversation(c.id)
+              setData(d => d?.filter(x => x.id !== c.id))
+            } catch (e: any) {
+              Alert.alert('Could not delete', e?.message ?? '')
+            }
+          },
+        },
+      ],
+    )
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.content}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={PAL.jade} />
-        }
-      >
-        <Text style={styles.heading}>History</Text>
-        <Text style={styles.sub}>Your previous conversations</Text>
-
-        {loading && <ActivityIndicator color={PAL.jade} style={{ marginTop: 40 }} />}
-
-        {!loading && convs.length === 0 && (
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>No conversations yet.</Text>
-            <Text style={styles.emptyHint}>Start by asking PAL a question.</Text>
+    <View style={{ flex: 1, backgroundColor: C.soft }}>
+      <TabChrome title="History" sub="your conversations" />
+      {loading ? (
+        <Loading />
+      ) : (
+        <Body refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} colors={[C.jade]} />}>
+          <PageTitle title="Your conversations" lead="Saved so you can continue. Yours to delete." />
+          <View style={s.search}>
+            <LineIcon name="search" size={20} />
+            <TextInput
+              value={q}
+              onChangeText={setQ}
+              placeholder="Search your history…"
+              placeholderTextColor="rgba(13,31,36,0.4)"
+              style={s.searchInput}
+              accessibilityLabel="Search your history"
+            />
           </View>
-        )}
 
-        {convs.map((c, i) => (
-          <Pressable key={c.id} style={styles.card}>
-            <View style={styles.iconWrap}>
-              <Text style={styles.iconText}>💬</Text>
+          {error ? <ErrorBox message={error} onRetry={reload} /> : null}
+          {data && data.length === 0 && !error && (
+            <Empty icon="history" title="No conversations yet" body="Your chats with PAL will appear here." />
+          )}
+          {data && data.length > 0 && groups.length === 0 && <Empty title="Nothing matches" body="Try a different word." />}
+
+          {groups.map(g => (
+            <View key={g.label}>
+              <Slab>{g.label}</Slab>
+              {g.items.map(c => {
+                const personal = c.scope_tag ? c.scope_tag !== 'generic' && c.scope_tag !== 'general' : false
+                return (
+                  <Pressable
+                    key={c.id}
+                    onPress={() => navigation.navigate('Conversation', { id: c.id, title: c.title })}
+                    onLongPress={() => remove(c)}
+                    style={({ pressed }) => [s.card, personal && s.cardPersonal, pressed && { opacity: 0.85 }]}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                      <Text style={s.title} numberOfLines={3}>
+                        {c.title || 'Conversation'}
+                      </Text>
+                      <Pressable onPress={() => remove(c)} hitSlop={10} accessibilityLabel="Conversation options">
+                        <Text style={{ color: C.muted, fontSize: 17, letterSpacing: 1 }}>···</Text>
+                      </Pressable>
+                    </View>
+                    {c.hindsight_summary ? (
+                      <Text style={[T.meta, { marginTop: 6, lineHeight: 14 }]} numberOfLines={2}>
+                        {c.hindsight_summary}
+                      </Text>
+                    ) : null}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
+                      {personal ? <Badge text="used your record" dot /> : <Badge text="general" tone="grey" dot />}
+                      <Text style={T.meta}>{when(c.updated_at || c.created_at)}</Text>
+                    </View>
+                  </Pressable>
+                )
+              })}
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle} numberOfLines={2}>
-                {c.title ?? 'Conversation'}
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={styles.cardDate}>{formatDate(c.updated_at)}</Text>
-                <Text style={styles.cardTime}>{formatTime(c.updated_at)}</Text>
-              </View>
-            </View>
-            <Text style={styles.arrow}>→</Text>
-          </Pressable>
-        ))}
-      </ScrollView>
-    </SafeAreaView>
+          ))}
+        </Body>
+      )}
+    </View>
   )
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: PAL.bg },
-  scroll: { flex: 1 },
-  content: { padding: SPACE.lg, paddingBottom: 100 },
-  heading: {
-    fontFamily: FONT.serif, fontSize: 26, fontWeight: '300',
-    color: PAL.textDark, marginBottom: 4,
+const s = StyleSheet.create({
+  search: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: C.line2,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    marginBottom: 6,
   },
-  sub: {
-    fontFamily: FONT.mono, fontSize: 10, color: PAL.textMuted,
-    marginBottom: SPACE.xl, textTransform: 'uppercase',
-  },
+  searchInput: { flex: 1, fontFamily: F.sans, fontSize: 16.5, color: C.ink, paddingVertical: 11 },
   card: {
-    backgroundColor: PAL.surface, borderRadius: RADIUS.md,
-    padding: SPACE.md, marginBottom: SPACE.sm,
-    flexDirection: 'row', alignItems: 'center', gap: SPACE.md,
-    borderWidth: 1, borderColor: PAL.surfaceBorder,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: C.line,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    marginBottom: 10,
+    borderLeftWidth: 4,
+    borderLeftColor: 'rgba(13,31,36,0.08)',
   },
-  iconWrap: {
-    width: 38, height: 38, borderRadius: RADIUS.sm,
-    backgroundColor: PAL.jadeFaint,
-    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-  },
-  iconText: { fontFamily: FONT.mono, fontSize: 18, color: PAL.jade },
-  cardTitle: { fontSize: 14, fontWeight: '600', color: PAL.textDark, marginBottom: 4 },
-  cardDate: { fontFamily: FONT.mono, fontSize: 10, color: PAL.textMuted },
-  cardTime: { fontFamily: FONT.mono, fontSize: 10, color: PAL.jade },
-  arrow: { fontFamily: FONT.mono, fontSize: 14, color: PAL.jade },
-  empty: { alignItems: 'center', marginTop: 60 },
-  emptyTitle: {
-    fontFamily: FONT.serif, fontSize: 20, color: PAL.textDark,
-    fontWeight: '300', marginBottom: 8,
-  },
-  emptyHint: { fontFamily: FONT.mono, fontSize: 11, color: PAL.textMuted },
+  cardPersonal: { borderLeftColor: C.jade },
+  title: { flex: 1, fontFamily: F.serif, fontSize: 17, lineHeight: 23, color: C.ink },
 })

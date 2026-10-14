@@ -7,7 +7,7 @@ buildscript {
         minSdkVersion    = 24          // Android 7.0+ (covers 97% of active devices)
         compileSdkVersion = 35         // Android 15
         targetSdkVersion  = 35
-        ndkVersion        = "27.1.12297006"
+        ndkVersion        = "26.1.10909125"  // React Native 0.76 template value
         kotlinVersion     = "1.9.25"
     }
     repositories {
@@ -15,14 +15,12 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath("com.android.tools.build:gradle:8.7.2")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
+        classpath("com.android.tools.build:gradle")          // version pinned by the React Native gradle plugin
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        classpath("com.facebook.react:react-native-gradle-plugin")
     }
 }
 
-plugins {
-    id("com.facebook.react") version "0.76.9" apply false
-}
 
 allprojects {
     repositories {
@@ -31,3 +29,8 @@ allprojects {
         maven { url("https://www.jitpack.io") }
     }
 }
+
+// Makes library modules evaluate after :app so the React Native plugin can set a
+// namespace on autolinked libraries that lack one (tts, voice, onnxruntime).
+// Same as the React Native 0.76 template.
+apply plugin: "com.facebook.react.rootproject"

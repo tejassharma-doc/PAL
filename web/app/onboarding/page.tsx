@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { markSignedIn } from '../../lib/sessionCookie';
 import { translations } from '../../lib/i18n';
 import { SUPPORTED_LANGUAGES, type LangCode } from '../../lib/languages';
 
@@ -18,7 +19,7 @@ const sans = "'Space Grotesk', sans-serif";
 // ─── Small helpers ──────────────────────────────────────────────────────────────
 function Label({ text }: { text: string }) {
   return (
-    <div style={{ fontFamily: mono, fontSize: '.57rem', letterSpacing: '.1em', textTransform: 'uppercase', color: c.ink, opacity: .5, marginBottom: 5 }}>
+    <div style={{ fontFamily: mono, fontSize: '0.8rem', letterSpacing: '.1em', textTransform: 'uppercase', color: c.ink, opacity: .85, marginBottom: 5 }}>
       {text}
     </div>
   );
@@ -32,11 +33,11 @@ function FieldInput({ label, type = 'text', value, onChange, placeholder, prefix
     <div style={{ marginBottom: 14 }}>
       <Label text={label} />
       <div style={{ display: 'flex', alignItems: 'center', background: '#fff', border: `1px solid ${error ? c.rose : 'rgba(13,31,36,.16)'}`, borderRadius: 11, overflow: 'hidden' }}>
-        {prefix && <span style={{ fontFamily: mono, fontSize: '.7rem', color: c.ink, opacity: .5, paddingLeft: 12, paddingRight: 4, whiteSpace: 'nowrap' }}>{prefix}</span>}
+        {prefix && <span style={{ fontFamily: mono, fontSize: '0.8rem', color: c.ink, opacity: .85, paddingLeft: 12, paddingRight: 4, whiteSpace: 'nowrap' }}>{prefix}</span>}
         <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-          style={{ flex: 1, border: 'none', outline: 'none', padding: '11px 12px', fontFamily: sans, fontSize: '.88rem', color: c.ink, background: 'transparent' }} />
+          style={{ flex: 1, border: 'none', outline: 'none', padding: '11px 12px', fontFamily: sans, fontSize: '0.95rem', color: c.ink, background: 'transparent' }} />
       </div>
-      {error && <div style={{ fontFamily: mono, fontSize: '.6rem', color: c.rose, marginTop: 4 }}>{error}</div>}
+      {error && <div style={{ fontFamily: mono, fontSize: '0.8rem', color: c.rose, marginTop: 4 }}>{error}</div>}
     </div>
   );
 }
@@ -46,7 +47,7 @@ function PrimaryBtn({ label, onClick, disabled }: { label: string; onClick: () =
     <button onClick={onClick} disabled={disabled} style={{
       width: '100%', background: disabled ? 'rgba(13,31,36,.12)' : c.jade,
       color: disabled ? 'rgba(13,31,36,.35)' : '#fff',
-      border: 'none', fontFamily: sans, fontWeight: 600, fontSize: '.9rem',
+      border: 'none', fontFamily: sans, fontWeight: 600, fontSize: '1rem',
       padding: 14, borderRadius: 13, cursor: disabled ? 'default' : 'pointer',
       transition: 'background .2s, color .2s', marginTop: 4,
     }}>
@@ -56,7 +57,7 @@ function PrimaryBtn({ label, onClick, disabled }: { label: string; onClick: () =
 }
 
 function ErrorMsg({ msg }: { msg: string }) {
-  return <div style={{ fontFamily: mono, fontSize: '.62rem', color: c.rose, marginBottom: 10, textAlign: 'center' }}>{msg}</div>;
+  return <div style={{ fontFamily: mono, fontSize: '0.8rem', color: c.rose, marginBottom: 10, textAlign: 'center' }}>{msg}</div>;
 }
 
 const DEV_BYPASS = process.env.NODE_ENV === 'development';
@@ -183,6 +184,7 @@ export default function Onboarding() {
     if (DEV_BYPASS) {
       setAuthToken('dev-mock-token');
       localStorage.setItem('pal_token', 'dev-mock-token');
+      markSignedIn();
       setStep(3);
       return;
     }
@@ -199,6 +201,7 @@ export default function Onboarding() {
       const token: string = data.access_token;
       setAuthToken(token);
       localStorage.setItem('pal_token', token);
+      markSignedIn();
       if (data.user?.id) localStorage.setItem('pal_user_id', data.user.id);
 
       if (data.has_ehr) setEhrFound(true);
@@ -309,7 +312,7 @@ export default function Onboarding() {
       display: 'flex', flexDirection: 'column', alignItems: 'center',
       justifyContent: 'center', padding: '20px 16px 48px', fontFamily: sans,
     }}>
-      <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.2em', textTransform: 'uppercase', color: c.jade, marginBottom: 20 }}>PAL</div>
+      <div style={{ fontFamily: mono, fontSize: '0.8rem', letterSpacing: '.2em', textTransform: 'uppercase', color: c.jade, marginBottom: 20 }}>PAL</div>
 
       {/* Phone shell */}
       <div style={{ width: 344, background: c.paper, borderRadius: 40, padding: 11, boxShadow: '0 1px 2px rgba(13,31,36,.06),0 30px 70px -22px rgba(0,0,0,.6),0 0 0 2px rgba(255,255,255,.06)', flexShrink: 0 }}>
@@ -331,7 +334,7 @@ export default function Onboarding() {
                 <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.4rem', lineHeight: 1.2, marginBottom: 4 }}>
                   Verify your number
                 </div>
-                <div style={{ fontFamily: mono, fontSize: '.57rem', opacity: .45, marginBottom: 24, letterSpacing: '.04em' }}>
+                <div style={{ fontFamily: mono, fontSize: '0.8rem', opacity: .85, marginBottom: 24, letterSpacing: '.04em' }}>
                   Your phone is your patient ID. No password needed.
                 </div>
 
@@ -349,7 +352,7 @@ export default function Onboarding() {
 
                 {/* Toggle: SMS ↔ email */}
                 <button onClick={() => { setUseEmail(u => !u); setStep1Err(''); }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 0 18px', fontFamily: mono, fontSize: '.58rem', color: c.jade, textDecoration: 'underline dotted', display: 'block' }}>
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 0 18px', fontFamily: mono, fontSize: '0.8rem', color: c.jade, textDecoration: 'underline dotted', display: 'block' }}>
                   {useEmail ? '← Receive OTP via SMS instead' : 'Travelling abroad? Receive OTP on email →'}
                 </button>
 
@@ -367,13 +370,13 @@ export default function Onboarding() {
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                     <path d="M10 3L6 8l4 5" stroke={c.ink} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" strokeOpacity=".5"/>
                   </svg>
-                  <span style={{ fontFamily: mono, fontSize: '.6rem', color: c.ink, opacity: .5 }}>Back</span>
+                  <span style={{ fontFamily: mono, fontSize: '0.8rem', color: c.ink, opacity: .85 }}>Back</span>
                 </button>
 
                 <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.4rem', lineHeight: 1.2, marginBottom: 4 }}>
                   Enter the code
                 </div>
-                <div style={{ fontFamily: mono, fontSize: '.57rem', opacity: .45, marginBottom: 24, letterSpacing: '.04em' }}>
+                <div style={{ fontFamily: mono, fontSize: '0.8rem', opacity: .85, marginBottom: 24, letterSpacing: '.04em' }}>
                   {deliveryHint}
                 </div>
 
@@ -406,8 +409,8 @@ export default function Onboarding() {
                   <div style={{ background: 'rgba(55,181,155,.12)', border: `1px solid ${c.jade}`, borderRadius: 10, padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
                     <span style={{ fontSize: '1.1rem' }}>🗂</span>
                     <div>
-                      <div style={{ fontFamily: sans, fontWeight: 600, fontSize: '.82rem', color: c.jade }}>Health record found</div>
-                      <div style={{ fontFamily: mono, fontSize: '.54rem', color: c.ink, opacity: .6 }}>Your existing records will be loaded.</div>
+                      <div style={{ fontFamily: sans, fontWeight: 600, fontSize: '0.95rem', color: c.jade }}>Health record found</div>
+                      <div style={{ fontFamily: mono, fontSize: '0.8rem', color: c.ink, opacity: .85 }}>Your existing records will be loaded.</div>
                     </div>
                   </div>
                 )}
@@ -422,7 +425,7 @@ export default function Onboarding() {
                     width: '100%',
                     background: otp.join('').length === 6 && !verifying ? c.jade : 'rgba(13,31,36,.12)',
                     color: otp.join('').length === 6 && !verifying ? '#fff' : 'rgba(13,31,36,.35)',
-                    border: 'none', fontFamily: sans, fontWeight: 600, fontSize: '.9rem',
+                    border: 'none', fontFamily: sans, fontWeight: 600, fontSize: '1rem',
                     padding: 14, borderRadius: 13, cursor: otp.join('').length === 6 && !verifying ? 'pointer' : 'default',
                     transition: 'background .2s, color .2s',
                   }}
@@ -433,7 +436,7 @@ export default function Onboarding() {
                 {/* Resend */}
                 <div style={{ textAlign: 'center', marginTop: 16 }}>
                   <button onClick={handleResend} disabled={resend > 0 || sending}
-                    style={{ background: 'none', border: 'none', cursor: resend > 0 ? 'default' : 'pointer', fontFamily: mono, fontSize: '.58rem', color: resend > 0 ? 'rgba(13,31,36,.3)' : c.jade, textDecoration: resend > 0 ? 'none' : 'underline dotted' }}>
+                    style={{ background: 'none', border: 'none', cursor: resend > 0 ? 'default' : 'pointer', fontFamily: mono, fontSize: '0.8rem', color: resend > 0 ? 'rgba(13,31,36,.3)' : c.jade, textDecoration: resend > 0 ? 'none' : 'underline dotted' }}>
                     {resend > 0 ? `Resend in ${resend}s` : 'Resend OTP'}
                   </button>
                 </div>
@@ -446,7 +449,7 @@ export default function Onboarding() {
                 <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.4rem', lineHeight: 1.2, marginBottom: 4 }}>
                   {ot('onboard_tell_us')}
                 </div>
-                <div style={{ fontFamily: mono, fontSize: '.57rem', opacity: .45, marginBottom: 24, letterSpacing: '.04em' }}>
+                <div style={{ fontFamily: mono, fontSize: '0.8rem', opacity: .85, marginBottom: 24, letterSpacing: '.04em' }}>
                   {ot('onboard_subtitle')}
                 </div>
 
@@ -454,8 +457,8 @@ export default function Onboarding() {
                   <div style={{ background: 'rgba(55,181,155,.12)', border: `1px solid ${c.jade}`, borderRadius: 10, padding: '10px 14px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 10 }}>
                     <span style={{ fontSize: '1.1rem' }}>🗂</span>
                     <div>
-                      <div style={{ fontFamily: sans, fontWeight: 600, fontSize: '.82rem', color: c.jade }}>Health record found</div>
-                      <div style={{ fontFamily: mono, fontSize: '.54rem', color: c.ink, opacity: .6 }}>Your records will be ready once you sign in.</div>
+                      <div style={{ fontFamily: sans, fontWeight: 600, fontSize: '0.95rem', color: c.jade }}>Health record found</div>
+                      <div style={{ fontFamily: mono, fontSize: '0.8rem', color: c.ink, opacity: .85 }}>Your records will be ready once you sign in.</div>
                     </div>
                   </div>
                 )}
@@ -473,11 +476,11 @@ export default function Onboarding() {
                           color: selected ? '#fff' : c.ink,
                           border: `1.5px solid ${selected ? c.jade : 'transparent'}`,
                           borderRadius: 11, padding: '10px 6px', cursor: 'pointer',
-                          fontFamily: sans, fontSize: '.78rem', fontWeight: selected ? 600 : 500,
+                          fontFamily: sans, fontSize: '0.95rem', fontWeight: selected ? 600 : 500,
                           lineHeight: 1.3, textAlign: 'center', transition: 'background .15s, color .15s',
                         }}>
                         <div style={{ fontSize: '1rem', marginBottom: 2 }}>{l.native}</div>
-                        {l.code !== 'en' && <div style={{ fontFamily: mono, fontSize: '.52rem', opacity: selected ? .8 : .45 }}>{l.name}</div>}
+                        {l.code !== 'en' && <div style={{ fontFamily: mono, fontSize: '0.8rem', opacity: selected ? .8 : .45 }}>{l.name}</div>}
                       </button>
                     );
                   })}

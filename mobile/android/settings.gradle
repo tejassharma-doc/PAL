@@ -17,3 +17,7 @@ extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
 
 rootProject.name = "PALHealth"
 include(":app")
+
+// Lets the buildscript classpath resolve com.facebook.react:react-native-gradle-plugin
+// (same as the React Native 0.76 template).
+includeBuild('../node_modules/@react-native/gradle-plugin')

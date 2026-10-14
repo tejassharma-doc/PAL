@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { PalEmblem } from '../../components/PalEmblem'
+import { markSignedIn } from '../../lib/sessionCookie'
 import {
   loginWithPassword,
   requestLoginOTP,
@@ -33,6 +35,7 @@ export default function LoginPage() {
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('pal_token')
       if (token) {
+        markSignedIn()
         router.push('/')
       }
     }
@@ -221,22 +224,19 @@ export default function LoginPage() {
         padding: '20px 16px',
       }}
     >
-      <div
-        style={{
-          fontFamily: mono,
-          fontSize: '.62rem',
-          letterSpacing: '.2em',
-          textTransform: 'uppercase',
-          color: c.jade,
-          marginBottom: 20,
-        }}
-      >
-        PAL
+      {/* Brand lockup, as on palcare.life: jade emblem, PAL, doctor-anchored care */}
+      <PalEmblem width={760} color={c.jade} style={{ position: 'fixed', top: 40, right: -300, opacity: 0.07, pointerEvents: 'none' }} />
+      <div role="img" aria-label="PAL — doctor-anchored care" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 22, position: 'relative' }}>
+        <PalEmblem width={230} color={c.jade} />
+        <div style={{ fontFamily: sans, fontWeight: 700, fontSize: '1.9rem', letterSpacing: '.03em', color: c.paper, marginTop: 10 }}>PAL</div>
+        <div style={{ fontFamily: mono, fontSize: '.78rem', letterSpacing: '.2em', textTransform: 'uppercase', color: '#dfe6e3', marginTop: 4 }}>doctor-anchored care</div>
       </div>
 
       <div
         style={{
           width: 420,
+          position: 'relative',
+          zIndex: 1,
           maxWidth: '100%',
           background: c.soft,
           borderRadius: 24,
@@ -259,8 +259,8 @@ export default function LoginPage() {
         <p
           style={{
             fontFamily: mono,
-            fontSize: '.6rem',
-            opacity: 0.5,
+            fontSize: '0.8rem',
+            opacity: .85,
             marginBottom: 28,
             letterSpacing: '.04em',
           }}
@@ -275,11 +275,11 @@ export default function LoginPage() {
               <label
                 style={{
                   fontFamily: mono,
-                  fontSize: '.57rem',
+                  fontSize: '0.8rem',
                   letterSpacing: '.1em',
                   textTransform: 'uppercase',
                   color: c.ink,
-                  opacity: 0.5,
+                  opacity: .85,
                   marginBottom: 8,
                   display: 'block',
                 }}
@@ -294,9 +294,9 @@ export default function LoginPage() {
                     top: '50%',
                     transform: 'translateY(-50%)',
                     fontFamily: sans,
-                    fontSize: '.9rem',
+                    fontSize: '1rem',
                     color: c.ink,
-                    opacity: 0.5,
+                    opacity: .85,
                   }}
                 >
                   +91
@@ -327,7 +327,7 @@ export default function LoginPage() {
               <div
                 style={{
                   fontFamily: mono,
-                  fontSize: '.6rem',
+                  fontSize: '0.8rem',
                   color: c.rose,
                   marginBottom: 16,
                   textAlign: 'center',
@@ -347,7 +347,7 @@ export default function LoginPage() {
                 width: '100%',
                 padding: '14px',
                 fontFamily: sans,
-                fontSize: '.95rem',
+                fontSize: '1rem',
                 fontWeight: 600,
                 color: '#fff',
                 background: loading || !phone ? '#ccc' : c.jade,
@@ -370,9 +370,9 @@ export default function LoginPage() {
                 }}
                 style={{
                   fontFamily: mono,
-                  fontSize: '.6rem',
+                  fontSize: '0.8rem',
                   color: c.ink,
-                  opacity: 0.5,
+                  opacity: .85,
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
@@ -392,11 +392,11 @@ export default function LoginPage() {
               <label
                 style={{
                   fontFamily: mono,
-                  fontSize: '.57rem',
+                  fontSize: '0.8rem',
                   letterSpacing: '.1em',
                   textTransform: 'uppercase',
                   color: c.ink,
-                  opacity: 0.5,
+                  opacity: .85,
                   marginBottom: 8,
                   display: 'block',
                 }}
@@ -406,9 +406,9 @@ export default function LoginPage() {
               <p
                 style={{
                   fontFamily: sans,
-                  fontSize: '.75rem',
+                  fontSize: '0.95rem',
                   color: c.ink,
-                  opacity: 0.6,
+                  opacity: .85,
                   marginBottom: 16,
                 }}
               >
@@ -454,7 +454,7 @@ export default function LoginPage() {
               <div
                 style={{
                   fontFamily: mono,
-                  fontSize: '.6rem',
+                  fontSize: '0.8rem',
                   color: c.rose,
                   marginBottom: 16,
                   textAlign: 'center',
@@ -474,7 +474,7 @@ export default function LoginPage() {
                 width: '100%',
                 padding: '14px',
                 fontFamily: sans,
-                fontSize: '.95rem',
+                fontSize: '1rem',
                 fontWeight: 600,
                 color: '#fff',
                 background: loading || otp.join('').length < 6 ? '#ccc' : c.jade,
@@ -493,9 +493,9 @@ export default function LoginPage() {
                 <p
                   style={{
                     fontFamily: mono,
-                    fontSize: '.6rem',
+                    fontSize: '0.8rem',
                     color: c.ink,
-                    opacity: 0.5,
+                    opacity: .85,
                   }}
                 >
                   Resend OTP in {resendCountdown}s
@@ -507,7 +507,7 @@ export default function LoginPage() {
                   disabled={loading}
                   style={{
                     fontFamily: mono,
-                    fontSize: '.6rem',
+                    fontSize: '0.8rem',
                     color: c.jade,
                     background: 'none',
                     border: 'none',
@@ -531,9 +531,9 @@ export default function LoginPage() {
                 }}
                 style={{
                   fontFamily: mono,
-                  fontSize: '.6rem',
+                  fontSize: '0.8rem',
                   color: c.ink,
-                  opacity: 0.5,
+                  opacity: .85,
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
@@ -553,11 +553,11 @@ export default function LoginPage() {
               <label
                 style={{
                   fontFamily: mono,
-                  fontSize: '.57rem',
+                  fontSize: '0.8rem',
                   letterSpacing: '.1em',
                   textTransform: 'uppercase',
                   color: c.ink,
-                  opacity: 0.5,
+                  opacity: .85,
                   marginBottom: 6,
                   display: 'block',
                 }}
@@ -574,7 +574,7 @@ export default function LoginPage() {
                   width: '100%',
                   padding: '12px 14px',
                   fontFamily: sans,
-                  fontSize: '.9rem',
+                  fontSize: '1rem',
                   color: c.ink,
                   background: '#fff',
                   border: `1px solid ${error ? c.rose : 'rgba(13,31,36,.16)'}`,
@@ -588,11 +588,11 @@ export default function LoginPage() {
               <label
                 style={{
                   fontFamily: mono,
-                  fontSize: '.57rem',
+                  fontSize: '0.8rem',
                   letterSpacing: '.1em',
                   textTransform: 'uppercase',
                   color: c.ink,
-                  opacity: 0.5,
+                  opacity: .85,
                   marginBottom: 6,
                   display: 'block',
                 }}
@@ -611,7 +611,7 @@ export default function LoginPage() {
                     padding: '12px 14px',
                     paddingRight: '45px',
                     fontFamily: sans,
-                    fontSize: '.9rem',
+                    fontSize: '1rem',
                     color: c.ink,
                     background: '#fff',
                     border: `1px solid ${error ? c.rose : 'rgba(13,31,36,.16)'}`,
@@ -631,9 +631,9 @@ export default function LoginPage() {
                     border: 'none',
                     cursor: 'pointer',
                     fontFamily: mono,
-                    fontSize: '.65rem',
+                    fontSize: '0.8rem',
                     color: c.ink,
-                    opacity: 0.4,
+                    opacity: .85,
                   }}
                 >
                   {showPassword ? 'hide' : 'show'}
@@ -645,7 +645,7 @@ export default function LoginPage() {
               <div
                 style={{
                   fontFamily: mono,
-                  fontSize: '.6rem',
+                  fontSize: '0.8rem',
                   color: c.rose,
                   marginBottom: 12,
                   textAlign: 'center',
@@ -662,7 +662,7 @@ export default function LoginPage() {
                 width: '100%',
                 padding: '14px',
                 fontFamily: sans,
-                fontSize: '.95rem',
+                fontSize: '1rem',
                 fontWeight: 600,
                 color: '#fff',
                 background: loading || !email || !password ? '#ccc' : c.jadeD,
@@ -685,7 +685,7 @@ export default function LoginPage() {
                 }}
                 style={{
                   fontFamily: mono,
-                  fontSize: '.6rem',
+                  fontSize: '0.8rem',
                   color: c.jade,
                   background: 'none',
                   border: 'none',
@@ -712,9 +712,9 @@ export default function LoginPage() {
           <p
             style={{
               fontFamily: sans,
-              fontSize: '.8rem',
+              fontSize: '0.95rem',
               color: c.ink,
-              opacity: 0.6,
+              opacity: .85,
             }}
           >
             Don't have an account?{' '}

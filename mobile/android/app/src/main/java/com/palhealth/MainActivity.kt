@@ -21,7 +21,7 @@ class MainActivity : ReactActivity() {
      * The component registered in index.js (AppRegistry.registerComponent).
      * Must match the first argument passed to AppRegistry.registerComponent.
      */
-    override fun getMainComponentName(): String = "PALHealth"
+    override fun getMainComponentName(): String = "PAL" // must match app.json "name"
 
     /**
      * Creates the delegate that bootstraps the React instance.

@@ -5,8 +5,9 @@
  * gear, so the row reads:  [ chat ]  [ ⚙ ]  [ 🔔 ]
  *
  * Fully self-contained on purpose. It takes no required props, owns its own
- * unread count, and renders NOTHING when the user has no family plan (or when
- * the family/chat feature is off server-side). That is what makes it safe to
+ * unread count. When the user has no family plan (or the family/chat feature is
+ * off server-side) it still renders the same button, which simply opens /family
+ * so a group can be created or joined. That is what makes it safe to
  * drop into three different AppBar implementations without touching their state.
  *
  * Badge behaviour mirrors the bell exactly — same 16px circle, same
@@ -21,6 +22,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { MessagesSquare } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import { getFamilyPlan, getFamilyPlans, listConversations, type FamilyPlanListItem } from '@/lib/family-api';
 import { CHAT_READ_EVENT } from '@/lib/chatSocket';
@@ -106,7 +108,7 @@ export function invalidateFamilyPlanCache(): void {
 }
 
 export interface FamilyHubButtonProps {
-  /** Button edge length. 34 matches the bell; 32 matches the gear. */
+  /** Button edge length. 40 matches the bell and the settings button. */
   size?: number;
   /** Override the destination. Defaults to /family/hub. */
   href?: string;
@@ -117,7 +119,7 @@ export interface FamilyHubButtonProps {
 }
 
 export default function FamilyHubButton({
-  size = 34,
+  size = 40,
   href = '/family/hub',
   forceVisible = false,
   initialUnread,
@@ -151,7 +153,7 @@ export default function FamilyHubButton({
     }
   }, []);
 
-  // Is there a family plan at all? Fail closed — no plan, no button.
+  // Is there a family plan at all? Fail closed — no plan, plain link to /family.
   useEffect(() => {
     mounted.current = true;
     if (forceVisible) return () => { mounted.current = false; };
@@ -236,10 +238,39 @@ export default function FamilyHubButton({
     }
   }
 
-  if (!available) return null;
-
   const onHub = pathname.startsWith('/family/hub');
-  const label = unread > 0 ? `Family groups, ${unread} unread` : 'Family groups';
+  const active = available && (onHub || showPanel);
+  const label = available && unread > 0 ? `Family chat, ${unread} unread` : 'Family chat';
+  const radius = size >= 40 ? 12 : Math.round(size * 0.32);
+  const iconSize = Math.max(18, Math.round(size * 0.5));
+
+  // No family plan (or the feature is off): still show the button so the
+  // family chat is always discoverable — it opens /family, where the user can
+  // create or join a group.
+  if (!available) {
+    return (
+      <button
+        onClick={() => router.push('/family')}
+        aria-label={label}
+        title={label}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: radius,
+          border: '1px solid rgba(13,31,36,.14)',
+          background: '#fff',
+          cursor: 'pointer',
+          display: 'grid',
+          placeItems: 'center',
+          position: 'relative',
+          flexShrink: 0,
+          padding: 0,
+        }}
+      >
+        <MessagesSquare size={iconSize} strokeWidth={2} color="#2f3b40" aria-hidden="true" />
+      </button>
+    );
+  }
 
   return (
     <>
@@ -250,9 +281,9 @@ export default function FamilyHubButton({
         style={{
           width: size,
           height: size,
-          borderRadius: Math.round(size * 0.32),
-          border: (onHub || showPanel) ? '1px solid rgba(55,181,155,.55)' : '1px solid rgba(13,31,36,.10)',
-          background: '#fff',
+          borderRadius: radius,
+          border: active ? '1px solid rgba(31,125,107,.55)' : '1px solid rgba(13,31,36,.14)',
+          background: active ? 'rgba(31,125,107,.12)' : '#fff',
           cursor: 'pointer',
           display: 'grid',
           placeItems: 'center',
@@ -261,25 +292,26 @@ export default function FamilyHubButton({
           padding: 0,
         }}
       >
-        <ChatBubblesIcon size={Math.round(size * 0.56)} color={(onHub || showPanel) ? '#1f7d6b' : '#0d1f24'} />
+        <MessagesSquare size={iconSize} strokeWidth={2} color={active ? '#1f7d6b' : '#2f3b40'} aria-hidden="true" />
 
         {unread > 0 ? (
           <span
             style={{
               position: 'absolute',
-              top: -4,
-              right: -4,
-              minWidth: 16,
-              height: 16,
-              borderRadius: 8,
+              top: -5,
+              right: -5,
+              minWidth: 18,
+              height: 18,
+              borderRadius: 9,
               background: '#c2675e',
               color: '#fff',
-              fontFamily: "'Space Mono', monospace",
-              fontSize: '0.54rem',
+              fontFamily: "'Space Grotesk', ui-sans-serif, sans-serif",
+              fontSize: 12,
               fontWeight: 700,
               display: 'grid',
               placeItems: 'center',
-              padding: unread > 9 ? '0 4px' : 0,
+              padding: '0 4px',
+              boxSizing: 'border-box',
               lineHeight: 1,
             }}
           >
@@ -302,7 +334,7 @@ export default function FamilyHubButton({
           {/* sheet — constrained to the phone shell width (322px inner) */}
           <div style={{
             position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)',
-            width: 322, zIndex: 201,
+            width: 'min(400px, 100vw)', zIndex: 201,
             background: '#fbf9f4', borderRadius: '20px 20px 0 0',
             padding: '0 0 40px', maxHeight: '60vh',
             display: 'flex', flexDirection: 'column',
@@ -320,7 +352,7 @@ export default function FamilyHubButton({
               </p>
               <button
                 onClick={() => setShowPanel(false)}
-                style={{ background: 'none', border: 'none', fontSize: 20, color: 'rgba(13,31,36,.4)', cursor: 'pointer', padding: 0 }}
+                style={{ background: 'none', border: 'none', fontSize: 20, color: '#4a5a5f', cursor: 'pointer', padding: 0 }}
               >
                 ×
               </button>
@@ -329,11 +361,11 @@ export default function FamilyHubButton({
             {/* content */}
             <div style={{ overflowY: 'auto', flex: 1, padding: '0 14px' }}>
               {panelLoading ? (
-                <p style={{ fontFamily: "'Space Mono',monospace", fontSize: '0.6rem', opacity: 0.4, textAlign: 'center', marginTop: 24 }}>
+                <p style={{ fontFamily: "'Space Mono',monospace", fontSize: 12, color: '#4a5a5f', textAlign: 'center', marginTop: 24 }}>
                   Loading…
                 </p>
               ) : plansWithUnread.length === 0 ? (
-                <p style={{ fontFamily: "'Space Mono',monospace", fontSize: '0.6rem', opacity: 0.4, textAlign: 'center', marginTop: 24 }}>
+                <p style={{ fontFamily: "'Space Mono',monospace", fontSize: 12, color: '#4a5a5f', textAlign: 'center', marginTop: 24 }}>
                   No new messages
                 </p>
               ) : plansWithUnread.map(p => {
@@ -348,7 +380,7 @@ export default function FamilyHubButton({
                     }}
                     style={{
                       width: '100%', textAlign: 'left', cursor: 'pointer',
-                      background: '#fff', border: '1px solid var(--line, rgba(13,31,36,.1))',
+                      background: '#fff', border: '1px solid var(--line, rgba(13,31,36,.14))',
                       borderRadius: 14, padding: '12px 13px', marginBottom: 9,
                       display: 'flex', alignItems: 'center', gap: 12,
                     }}
@@ -367,10 +399,10 @@ export default function FamilyHubButton({
                     </div>
                     {/* info */}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ fontSize: 14, fontWeight: 600, color: '#0d1f24', marginBottom: 2 }}>
+                      <p style={{ fontSize: 16, fontWeight: 600, color: '#0d1f24', marginBottom: 2 }}>
                         {p.name}
                       </p>
-                      <p style={{ fontFamily: "'Space Mono',monospace", fontSize: '0.58rem', color: 'rgba(13,31,36,.42)' }}>
+                      <p style={{ fontFamily: "'Space Mono',monospace", fontSize: 12, color: '#4a5a5f' }}>
                         {p.member_count} member{p.member_count !== 1 ? 's' : ''}
                         {p.is_admin ? ' · admin' : ''}
                       </p>
@@ -381,7 +413,7 @@ export default function FamilyHubButton({
                       background: '#c2675e', flexShrink: 0,
                     }} />
                     {/* chevron */}
-                    <svg width="6" height="11" viewBox="0 0 6 11" fill="none" style={{ flexShrink: 0, opacity: 0.28 }}>
+                    <svg width="6" height="11" viewBox="0 0 6 11" fill="none" style={{ flexShrink: 0, color: '#4a5a5f' }}>
                       <path d="M1 1l4 4.5L1 10" stroke="#0d1f24" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                   </button>
@@ -393,8 +425,8 @@ export default function FamilyHubButton({
                 onClick={() => { setShowPanel(false); router.push('/family'); }}
                 style={{
                   width: '100%', background: 'none', border: 'none',
-                  color: 'rgba(13,31,36,.4)', fontFamily: "'Space Mono',monospace",
-                  fontSize: '0.6rem', cursor: 'pointer', padding: '8px 0 4px',
+                  color: '#4a5a5f', fontFamily: "'Space Mono',monospace",
+                  fontSize: 12, cursor: 'pointer', padding: '8px 0 4px',
                   textAlign: 'center',
                 }}
               >

@@ -5,7 +5,7 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { PAL, FONT, RADIUS, SPACE } from '../theme'
-import { sendCallTurn, endCall, CallSession } from '../lib/api'
+import { sendCallTurn, endCall, CallSession } from '../lib/legacy-calls'
 
 // Optional native modules — app works text-only if not linked
 let Tts: { setDefaultLanguage(l: string): void; speak(t: string): void; stop(): void } | null = null

@@ -105,7 +105,7 @@ async def universal_search(
     db: AsyncSession = Depends(get_db),
     _: None = Depends(require_llm_credit),
 ):
-    return await _run_search(req, user, db)
+    return await _run_search(req, current_user, db)
 
 
 @router.post("/second-opinion")
@@ -120,7 +120,7 @@ async def second_opinion(
     All agents escalate to Claude Sonnet; evidence agent pulls a wider PubMed set.
     Intended for patient-initiated double-check on medication or treatment advice.
     """
-    return await _run_search(req, user, db, force_second_opinion=True)
+    return await _run_search(req, current_user, db, force_second_opinion=True)
 
 
 @router.post("/confirm-action")

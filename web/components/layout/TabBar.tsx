@@ -2,62 +2,78 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { MessageCircle, History, FileText, Upload, CalendarDays, type LucideIcon } from 'lucide-react';
 
-const tabs = [
-  { href: '/search',  label: 'Ask',     icon: '⌕', matches: ['/search', '/'] },
-  { href: '/records', label: 'Record',  icon: '⛁' },
-  { href: '/upload',  label: 'Upload',  icon: '⇪' },
-  { href: '/history', label: 'History', icon: '◴', matches: ['/history'] },
-  { href: '/visits',  label: 'Visits',  icon: '◷' },
+const tabs: { href: string; label: string; Icon: LucideIcon; matches?: string[] }[] = [
+  { href: '/search',  label: 'Ask',     Icon: MessageCircle, matches: ['/search', '/'] },
+  { href: '/history', label: 'History', Icon: History, matches: ['/history'] },
+  { href: '/records', label: 'Records', Icon: FileText },
+  { href: '/upload',  label: 'Upload',  Icon: Upload },
+  { href: '/visits',  label: 'Visits',  Icon: CalendarDays },
 ];
 
 export default function TabBar() {
   const pathname = usePathname();
 
   return (
-    <div style={{
+    <nav aria-label="Main" style={{
       position: 'absolute',
       bottom: 0,
       left: 0,
       right: 0,
-      height: 72,
-      background: 'rgba(251,249,244,.92)',
-      backdropFilter: 'blur(12px)',
-      borderTop: '1px solid rgba(13,31,36,.08)',
+      height: 76,
+      background: '#fbf9f4',
+      borderTop: '1px solid rgba(13,31,36,.14)',
       display: 'flex',
-      alignItems: 'center',
+      alignItems: 'stretch',
       justifyContent: 'space-around',
-      paddingBottom: 8,
+      padding: '6px 4px 8px',
       zIndex: 15,
     }}>
       {tabs.map(tab => {
-        const extra = tab as { matches?: string[] };
-        const active = extra.matches
-          ? extra.matches.some(m => pathname === m || (m !== '/' && pathname.startsWith(m)))
+        const active = tab.matches
+          ? tab.matches.some(m => pathname === m || (m !== '/' && pathname.startsWith(m)))
           : pathname === tab.href || pathname.startsWith(tab.href);
+        const { Icon } = tab;
         return (
-          <Link key={tab.href} href={tab.href} style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 3,
-            textDecoration: 'none',
-            color: active ? 'var(--jade-deep)' : 'var(--ink)',
-            opacity: active ? 1 : 0.35,
-            minWidth: 48,
-          }}>
-            <span style={{ fontSize: '1.15rem', lineHeight: 1 }}>{tab.icon}</span>
+          <Link
+            key={tab.href}
+            href={tab.href}
+            aria-current={active ? 'page' : undefined}
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 3,
+              textDecoration: 'none',
+              color: active ? '#1f7d6b' : '#2f3b40',
+              minWidth: 48,
+              minHeight: 48,
+            }}
+          >
             <span style={{
-              fontFamily: 'var(--mono)',
-              fontSize: '0.56rem',
-              letterSpacing: '0.06em',
-              textTransform: 'uppercase',
+              display: 'grid',
+              placeItems: 'center',
+              padding: '4px 14px',
+              borderRadius: 14,
+              background: active ? 'rgba(31,125,107,.12)' : 'transparent',
+              lineHeight: 0,
+            }}>
+              <Icon size={24} strokeWidth={2} aria-hidden="true" />
+            </span>
+            <span style={{
+              fontFamily: "'Space Grotesk', ui-sans-serif, sans-serif",
+              fontSize: 12,
+              fontWeight: active ? 700 : 600,
+              lineHeight: 1.2,
             }}>
               {tab.label}
             </span>
           </Link>
         );
       })}
-    </div>
+    </nav>
   );
 }

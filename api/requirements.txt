@@ -21,12 +21,16 @@ redis==5.2.1
 sentence-transformers>=3.0.0
 numpy>=1.26.0
 celery==5.4.0
+flower==2.0.1
+tzdata>=2024.1
 anthropic==0.40.0
 openai>=1.12.0
 boto3==1.35.92
 pgvector>=0.4.1
 httpx>=0.28.1
 aiofiles>=24.1.0
+# Handwritten-document pipeline: render transcription → printed PDF for MDT re-feed
+reportlab>=4.0.0
 python-magic>=0.4.27
 pytest>=8.3.4
 pytest-asyncio>=0.24.0

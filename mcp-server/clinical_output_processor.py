@@ -18,7 +18,7 @@ class ClinicalOutputProcessingError(Exception):
 
 
 async def process_clinical_output_webhook(
-    webhook_id: str,
+    webhook_id: int,
     payload: Dict[str, Any],
     db: AsyncSession
 ) -> Dict[str, Any]:
@@ -36,7 +36,7 @@ async def process_clinical_output_webhook(
 
     All with deduplication using external_id fields.
     """
-
+    webhook_id = int(webhook_id)
     try:
         # Extract data from payload
         event = payload.get("event")

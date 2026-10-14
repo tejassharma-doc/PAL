@@ -76,7 +76,7 @@ export default function VisitsPage() {
         }}>
           Your visits
         </div>
-        <div style={{ fontSize: '0.8rem', opacity: .6, marginBottom: 16, color: '#0d1f24' }}>
+        <div style={{ fontSize: 14,  marginBottom: 16, color: '#4a5a5f' }}>
           Every plan here comes from your care team.
         </div>
 
@@ -85,11 +85,10 @@ export default function VisitsPage() {
           <>
             <div style={{
               fontFamily: "'Space Mono', monospace",
-              fontSize: '0.62rem',
+              fontSize: 12,
               textTransform: 'uppercase',
-              opacity: .5,
               margin: '2px 2px 12px',
-              color: '#0d1f24',
+              color: '#4a5a5f',
             }}>
               Upcoming
             </div>
@@ -103,7 +102,7 @@ export default function VisitsPage() {
               }}>
                 <div style={{
                   fontFamily: "'Space Mono', monospace",
-                  fontSize: '0.58rem',
+                  fontSize: 12,
                   textTransform: 'uppercase',
                   color: '#37b59b',
                   marginBottom: 9,
@@ -113,7 +112,7 @@ export default function VisitsPage() {
                 <div style={{ fontFamily: "'Newsreader', serif", fontSize: '1.05rem', marginBottom: 3 }}>
                   {visit.reason}
                 </div>
-                <div style={{ fontSize: '0.76rem', opacity: .7 }}>
+                <div style={{ fontSize: 14, color: '#4a5a5f' }}>
                   {visit.date}
                 </div>
               </div>
@@ -124,11 +123,10 @@ export default function VisitsPage() {
         {/* CARE PLANS (PAST VISITS) */}
         <div style={{
           fontFamily: "'Space Mono', monospace",
-          fontSize: '0.62rem',
+          fontSize: 12,
           textTransform: 'uppercase',
-          opacity: .5,
           margin: '2px 2px 12px',
-          color: '#0d1f24',
+          color: '#4a5a5f',
         }}>
           Care plans
         </div>
@@ -136,13 +134,13 @@ export default function VisitsPage() {
         {loading ? (
           <div style={{
             background: '#fff',
-            border: '1px solid rgba(13,31,36,.10)',
+            border: '1px solid rgba(13,31,36,.14)',
             borderRadius: 14,
             padding: 20,
             textAlign: 'center',
             marginBottom: 11,
           }}>
-            <div style={{ fontSize: '0.85rem', opacity: 0.6, color: '#0d1f24' }}>
+            <div style={{ fontSize: 15,  color: '#4a5a5f' }}>
               Loading care plans...
             </div>
           </div>
@@ -163,7 +161,7 @@ export default function VisitsPage() {
             return (
               <div key={visit.id} style={{
                 background: '#fff',
-                border: '1px solid rgba(13,31,36,.10)',
+                border: '1px solid rgba(13,31,36,.14)',
                 borderRadius: 14,
                 padding: 14,
                 marginBottom: 11,
@@ -177,23 +175,23 @@ export default function VisitsPage() {
                       width: 38, height: 38, borderRadius: 11,
                       background: getDoctorGradient(index),
                       display: 'grid', placeItems: 'center',
-                      color: '#fff', fontWeight: 700, fontSize: '0.85rem', flexShrink: 0,
+                      color: '#fff', fontWeight: 700, fontSize: 15, flexShrink: 0,
                     }}>
                       {doctorInitial}
                     </div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: '0.88rem', color: '#0d1f24' }}>
+                      <div style={{ fontWeight: 600, fontSize: 16, color: '#0d1f24' }}>
                         {doctorLabel}
                       </div>
-                      <div style={{ fontFamily: "'Space Mono', monospace", fontSize: '0.58rem', opacity: .55, color: '#0d1f24' }}>
+                      <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 12,  color: '#4a5a5f' }}>
                         {visit.reason}
                       </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontWeight: 600, fontSize: '0.82rem', color: '#0d1f24' }}>
+                      <div style={{ fontWeight: 600, fontSize: 15, color: '#0d1f24' }}>
                         {day} {month}
                       </div>
-                      <div style={{ fontFamily: "'Space Mono', monospace", fontSize: '0.58rem', opacity: .5, color: '#0d1f24' }}>
+                      <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 12,  color: '#4a5a5f' }}>
                         {year}
                       </div>
                     </div>
@@ -201,14 +199,14 @@ export default function VisitsPage() {
 
                   {hasDetails && (
                     <div style={{
-                      borderTop: '1px solid rgba(13,31,36,.08)',
+                      borderTop: '1px solid rgba(13,31,36,.14)',
                       paddingTop: 10,
                       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     }}>
-                      <span style={{ fontSize: '0.78rem', color: '#1f7d6b' }}>
+                      <span style={{ fontSize: 14, color: '#1f7d6b' }}>
                         ⛁ {visit.reason}
                       </span>
-                      <span style={{ fontFamily: "'Space Mono', monospace", fontSize: '0.7rem', color: '#1f7d6b' }}>
+                      <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 12, color: '#1f7d6b' }}>
                         {isExpanded ? 'close ↑' : 'open →'}
                       </span>
                     </div>
@@ -217,23 +215,23 @@ export default function VisitsPage() {
 
                 {/* EXPANDED DETAILS */}
                 {isExpanded && hasDetails && (
-                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(13,31,36,.10)' }}>
+                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(13,31,36,.14)' }}>
                     {/* Patient Summary */}
                     {visit.patient_summary && (
                       <div style={{ marginBottom: 14 }}>
                         <div style={{
                           fontFamily: "'Space Mono', monospace",
-                          fontSize: '0.62rem',
+                          fontSize: 12,
                           letterSpacing: '.1em',
                           textTransform: 'uppercase',
-                          opacity: .5,
+                          color: '#4a5a5f',
                           marginBottom: 6
                         }}>Summary</div>
                         <div style={{
                           background: 'rgba(55,181,155,.08)',
                           borderRadius: 10,
                           padding: 12,
-                          fontSize: '0.8rem',
+                          fontSize: 14,
                           lineHeight: 1.5,
                           color: '#0d1f24'
                         }}>
@@ -247,14 +245,14 @@ export default function VisitsPage() {
                       <div style={{ marginBottom: 14 }}>
                         <div style={{
                           fontFamily: "'Space Mono', monospace",
-                          fontSize: '0.62rem',
+                          fontSize: 12,
                           letterSpacing: '.1em',
                           textTransform: 'uppercase',
-                          opacity: .5,
+                          color: '#4a5a5f',
                           marginBottom: 6
                         }}>Clinical Notes (SOAP)</div>
                         <div style={{
-                          fontSize: '0.75rem',
+                          fontSize: 14,
                           lineHeight: 1.6,
                           whiteSpace: 'pre-wrap',
                           color: '#0d1f24',
@@ -270,17 +268,17 @@ export default function VisitsPage() {
                       <div style={{ marginBottom: 14 }}>
                         <div style={{
                           fontFamily: "'Space Mono', monospace",
-                          fontSize: '0.62rem',
+                          fontSize: 12,
                           letterSpacing: '.1em',
                           textTransform: 'uppercase',
-                          opacity: .5,
+                          color: '#4a5a5f',
                           marginBottom: 6
                         }}>Management Plan</div>
                         <div style={{
                           background: 'rgba(90,143,168,.08)',
                           borderRadius: 10,
                           padding: 12,
-                          fontSize: '0.8rem',
+                          fontSize: 14,
                           lineHeight: 1.5,
                           color: '#0d1f24'
                         }}>
@@ -294,10 +292,10 @@ export default function VisitsPage() {
                       <div>
                         <div style={{
                           fontFamily: "'Space Mono', monospace",
-                          fontSize: '0.62rem',
+                          fontSize: 12,
                           letterSpacing: '.1em',
                           textTransform: 'uppercase',
-                          opacity: .5,
+                          color: '#4a5a5f',
                           marginBottom: 6
                         }}>Lab Tests</div>
                         {visit.lab_tests.map((test) => (
@@ -310,13 +308,13 @@ export default function VisitsPage() {
                           }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                               <div>
-                                <div style={{ fontWeight: 600, fontSize: '0.8rem', color: '#0d1f24' }}>
+                                <div style={{ fontWeight: 600, fontSize: 14, color: '#0d1f24' }}>
                                   {test.test_name}
                                   {test.abnormal_flag && (
                                     <span style={{
                                       marginLeft: 6,
                                       fontFamily: "'Space Mono', monospace",
-                                      fontSize: '0.55rem',
+                                      fontSize: 12,
                                       background: 'rgba(194,103,94,.14)',
                                       color: '#c2675e',
                                       padding: '2px 6px',
@@ -325,7 +323,7 @@ export default function VisitsPage() {
                                   )}
                                 </div>
                                 {test.interpretation && (
-                                  <div style={{ fontSize: '0.7rem', opacity: .7, marginTop: 4, lineHeight: 1.4 }}>
+                                  <div style={{ fontSize: 13, color: '#4a5a5f', marginTop: 4, lineHeight: 1.4 }}>
                                     {test.interpretation}
                                   </div>
                                 )}
@@ -333,8 +331,8 @@ export default function VisitsPage() {
                               {test.result_date && (
                                 <div style={{
                                   fontFamily: "'Space Mono', monospace",
-                                  fontSize: '0.6rem',
-                                  opacity: .5,
+                                  fontSize: 12,
+                                  color: '#4a5a5f',
                                   whiteSpace: 'nowrap',
                                   marginLeft: 8
                                 }}>
@@ -354,13 +352,13 @@ export default function VisitsPage() {
         ) : (
           <div style={{
             background: '#fff',
-            border: '1px solid rgba(13,31,36,.10)',
+            border: '1px solid rgba(13,31,36,.14)',
             borderRadius: 14,
             padding: 20,
             textAlign: 'center',
             marginBottom: 11,
           }}>
-            <div style={{ fontSize: '0.85rem', opacity: 0.6, color: '#0d1f24' }}>
+            <div style={{ fontSize: 15,  color: '#4a5a5f' }}>
               No past visits
             </div>
           </div>

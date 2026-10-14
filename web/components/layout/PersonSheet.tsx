@@ -68,10 +68,9 @@ export default function PersonSheet({ onClose, onSelect }: PersonSheetProps) {
         </div>
         <div style={{
           fontFamily: "'Space Mono', monospace",
-          fontSize: '0.58rem',
-          opacity: 0.5,
+          fontSize: 12,
           marginBottom: 14,
-          color: '#0d1f24',
+          color: '#4a5a5f',
         }}>
           Each person, their own consent.
         </div>
@@ -83,7 +82,7 @@ export default function PersonSheet({ onClose, onSelect }: PersonSheetProps) {
             style={{
               width: '100%',
               background: '#fff',
-              border: '1px solid rgba(13,31,36,.10)',
+              border: '1px solid rgba(13,31,36,.14)',
               borderRadius: 12,
               padding: '11px 12px',
               marginBottom: 8,
@@ -103,21 +102,20 @@ export default function PersonSheet({ onClose, onSelect }: PersonSheetProps) {
               placeItems: 'center',
               color: '#fff',
               fontWeight: 700,
-              fontSize: '0.88rem',
+              fontSize: 16,
               flexShrink: 0,
             }}>
               {p.initial}
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0d1f24' }}>
-                {p.name} <span style={{ fontWeight: 400, opacity: 0.5 }}>{p.role}</span>
+              <div style={{ fontWeight: 700, fontSize: 16, color: '#0d1f24' }}>
+                {p.name} <span style={{ fontWeight: 400, color: '#4a5a5f' }}>{p.role}</span>
               </div>
               <div style={{
                 fontFamily: "'Space Mono', monospace",
-                fontSize: '0.58rem',
-                opacity: 0.55,
+                fontSize: 12,
                 marginTop: 2,
-                color: '#0d1f24',
+                color: '#4a5a5f',
               }}>
                 {p.note}
               </div>
@@ -125,7 +123,7 @@ export default function PersonSheet({ onClose, onSelect }: PersonSheetProps) {
             {p.active ? (
               <span style={{
                 fontFamily: "'Space Mono', monospace",
-                fontSize: '0.54rem',
+                fontSize: 12,
                 color: '#1f7d6b',
                 background: 'rgba(55,181,155,.12)',
                 padding: '3px 8px',
@@ -134,7 +132,7 @@ export default function PersonSheet({ onClose, onSelect }: PersonSheetProps) {
                 you
               </span>
             ) : (
-              <span style={{ fontSize: '1rem', opacity: 0.4, color: '#0d1f24' }}>›</span>
+              <span style={{ fontSize: '1rem',  color: '#4a5a5f' }}>›</span>
             )}
           </button>
         ))}
@@ -170,11 +168,49 @@ export default function PersonSheet({ onClose, onSelect }: PersonSheetProps) {
           </div>
           <span style={{
             fontFamily: "'Space Grotesk', sans-serif",
-            fontSize: '0.82rem',
-            color: 'rgba(13,31,36,0.45)',
+            fontSize: 15,
+            color: '#4a5a5f',
             fontWeight: 500,
           }}>
             Add family member
+          </span>
+        </button>
+
+        {/* Medication reminders link */}
+        <button
+          onClick={() => { onClose(); router.push('/medications'); }}
+          style={{
+            width: '100%',
+            background: 'transparent',
+            border: '1.5px solid rgba(13,31,36,.14)',
+            borderRadius: 12,
+            padding: '10px 12px',
+            marginBottom: 4,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            cursor: 'pointer',
+          }}
+        >
+          <div style={{
+            width: 36,
+            height: 36,
+            borderRadius: 11,
+            background: 'rgba(55,181,155,.12)',
+            display: 'grid',
+            placeItems: 'center',
+            flexShrink: 0,
+            fontSize: '1rem',
+          }}>
+            💊
+          </div>
+          <span style={{
+            fontFamily: "'Space Grotesk', sans-serif",
+            fontSize: 15,
+            color: '#0d1f24',
+            fontWeight: 500,
+          }}>
+            Medication reminders
           </span>
         </button>
 
@@ -182,13 +218,13 @@ export default function PersonSheet({ onClose, onSelect }: PersonSheetProps) {
         <button
           onClick={() => { onClose(); router.push('/history/settings'); }}
           style={{
-            width: '100%', background: 'none', border: 'none', borderTop: '1px solid rgba(13,31,36,.08)',
+            width: '100%', background: 'none', border: 'none', borderTop: '1px solid rgba(13,31,36,.14)',
             padding: '12px 0 0', marginTop: 4, cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           }}
         >
-          <span style={{ fontSize: '0.9rem', opacity: 0.45 }}>⚙</span>
-          <span style={{ fontFamily: "'Space Mono', monospace", fontSize: '0.58rem', opacity: 0.4, color: '#0d1f24' }}>
+          <span style={{ fontSize: 16, color: '#4a5a5f' }}>⚙</span>
+          <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 12,  color: '#4a5a5f' }}>
             Settings
           </span>
           <span style={{

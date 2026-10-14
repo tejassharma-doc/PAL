@@ -27,6 +27,8 @@ from .patient_document import PatientDocument
 from .prescription import Prescription
 from .lab_test import LabTest
 from .audit_log import AuditLog
+from .medication import MedicationSchedule, MedicationDoseEvent, DeviceToken
+from .document_extraction import DocumentExtraction
 
 __all__ = [
     "Base",
@@ -47,6 +49,8 @@ __all__ = [
     "Prescription",
     "LabTest",
     "AuditLog",
+    "MedicationSchedule", "MedicationDoseEvent", "DeviceToken",
+    "DocumentExtraction",
     # Legacy stubs (tables deleted but enums/classes kept for compatibility)
     "ConsentBasis", "ConsentScope", "RelationshipType", "AppointmentRequestStatus",
     "AppointmentRequest", "CallSession", "ConsentGrant", "MemberRelationship", "PHIAuditLog",

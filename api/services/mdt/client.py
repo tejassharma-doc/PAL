@@ -8,6 +8,31 @@ from typing import Optional
 
 import httpx
 
+# Resource types that mean MDT actually structured something useful.
+_USEFUL_RESOURCE_TYPES = {
+    "Observation",
+    "MedicationRequest",
+    "MedicationStatement",
+    "DiagnosticReport",
+    "Condition",
+}
+
+
+def is_empty_bundle(bundle: Optional[dict]) -> bool:
+    """True when MDT returned nothing usable (e.g. a discarded handwritten doc).
+
+    A bundle with only a Patient entry (or no entries at all) counts as empty —
+    there is no clinical content to verify or save.
+    """
+    if not bundle or not isinstance(bundle, dict):
+        return True
+    entries = bundle.get("entry") or []
+    for entry in entries:
+        rtype = (entry.get("resource") or {}).get("resourceType")
+        if rtype in _USEFUL_RESOURCE_TYPES:
+            return False
+    return True
+
 
 class MDTClient:
     def __init__(self, base_url: str, gemini_api_key: Optional[str] = None, model: Optional[str] = None):

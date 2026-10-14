@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
+import { Bell, ChevronLeft, Plus, Settings } from 'lucide-react';
 import FamilyHubButton from '@/components/family/FamilyHubButton';
 import { useNotificationBadge } from '@/lib/useNotificationBadge';
 
@@ -32,60 +33,66 @@ export default function AppBar({ person, showBack, onBack, onAvatarTap, onBell, 
 
   return (
     <div style={{
-      padding: '30px 18px 12px',
+      padding: '30px 16px 12px',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
+      gap: 8,
       flexShrink: 0,
     }}>
       {/* Left: back + avatar + name + add "+" */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
         {showBack && (
-          <button onClick={onBack} style={{
+          <button onClick={onBack} aria-label="Back" style={{
             background: 'none',
             border: 'none',
             cursor: 'pointer',
-            fontSize: '1.3rem',
-            color: '#0d1f24',
-            opacity: 0.55,
-            padding: '0 4px 0 0',
-            lineHeight: 1,
+            color: '#2f3b40',
+            padding: 0,
+            width: 32,
+            height: 40,
+            display: 'grid',
+            placeItems: 'center',
+            flexShrink: 0,
           }}>
-            ‹
+            <ChevronLeft size={24} strokeWidth={2} />
           </button>
         )}
         <button onClick={onAvatarTap} style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 9,
+          gap: 10,
           background: 'none',
           border: 'none',
           cursor: 'pointer',
           padding: 0,
+          minWidth: 0,
         }}>
           <div style={{
-            width: 34,
-            height: 34,
-            borderRadius: 11,
+            width: 38,
+            height: 38,
+            borderRadius: 12,
             background: person.grad,
             display: 'grid',
             placeItems: 'center',
             color: '#fff',
             fontWeight: 700,
-            fontSize: '0.9rem',
+            fontSize: 16,
             flexShrink: 0,
           }}>
             {person.initial}
           </div>
-          <div style={{ textAlign: 'left' }}>
-            <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#0d1f24', lineHeight: 1.2 }}>
+          <div style={{ textAlign: 'left', minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 16, color: '#0d1f24', lineHeight: 1.25, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {person.name}
             </div>
             <div style={{
-              fontFamily: "'Space Mono', monospace",
-              fontSize: '0.6rem',
-              color: '#0d1f24',
-              opacity: 0.5,
+              fontSize: 12,
+              color: '#4a5a5f',
+              lineHeight: 1.3,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
             }}>
               {person.sub}
             </div>
@@ -99,79 +106,55 @@ export default function AppBar({ person, showBack, onBack, onAvatarTap, onBell, 
             background: 'none',
             border: 'none',
             cursor: 'pointer',
-            padding: '2px 3px',
-            lineHeight: 1,
+            padding: 0,
+            width: 32,
+            height: 40,
+            display: 'grid',
+            placeItems: 'center',
             color: '#1f7d6b',
-            opacity: 0.6,
-            fontSize: '1.15rem',
-            fontWeight: 300,
-            marginLeft: 2,
+            flexShrink: 0,
           }}
           title="Add family member"
+          aria-label="Add family member"
         >
-          +
+          <Plus size={20} strokeWidth={2} />
         </button>
       </div>
 
-      {/* Right: Family Hub chat + settings gear + bell */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-        {/* Family Care Hub — renders nothing when the account has no family plan */}
-        <FamilyHubButton size={34} />
+      {/* Right: Family group chat + settings + bell */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        {/* Family group chat — always shown; without a plan it opens /family */}
+        <FamilyHubButton size={40} />
 
-        {/* Settings gear */}
+        {/* Settings */}
         <button
           onClick={() => router.push('/history/settings')}
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 10,
-            border: '1px solid rgba(13,31,36,.10)',
-            background: '#fff',
-            cursor: 'pointer',
-            display: 'grid',
-            placeItems: 'center',
-            fontSize: '0.85rem',
-            color: 'rgba(13,31,36,0.45)',
-          }}
+          aria-label="Settings"
+          title="Settings"
+          style={TOP_BTN}
         >
-          ⚙
+          <Settings size={20} strokeWidth={2} color="#2f3b40" />
         </button>
 
         {/* Bell with badge */}
-        <button onClick={onBell} style={{
-          width: 34,
-          height: 34,
-          borderRadius: 11,
-          border: '1px solid rgba(13,31,36,.10)',
-          background: '#fff',
-          cursor: 'pointer',
-          display: 'grid',
-          placeItems: 'center',
-          position: 'relative',
-          flexShrink: 0,
-        }}>
-          <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-            <path
-              d="M8.5 17.5h3M10 3C7 3 4.5 5.5 4.5 8.5V13l-1.5 2.5h14L15.5 13V8.5C15.5 5.5 13 3 10 3z"
-              stroke="#0d1f24"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+        <button onClick={onBell} aria-label="Notifications" title="Notifications" style={{ ...TOP_BTN, position: 'relative' }}>
+          <Bell size={20} strokeWidth={2} color="#2f3b40" />
           {bellCount > 0 ? (
             <span style={{
               position: 'absolute',
-              top: -4,
-              right: -4,
-              width: 16,
-              height: 16,
-              borderRadius: '50%',
+              top: -5,
+              right: -5,
+              minWidth: 18,
+              height: 18,
+              padding: '0 4px',
+              boxSizing: 'border-box',
+              borderRadius: 9,
               background: '#c2675e',
               color: '#fff',
-              fontFamily: "'Space Mono', monospace",
-              fontSize: '0.54rem',
+              fontFamily: "'Space Grotesk', ui-sans-serif, sans-serif",
+              fontSize: 12,
               fontWeight: 700,
+              lineHeight: 1,
               display: 'grid',
               placeItems: 'center',
             }}>
@@ -183,3 +166,16 @@ export default function AppBar({ person, showBack, onBack, onAvatarTap, onBell, 
     </div>
   );
 }
+
+const TOP_BTN: React.CSSProperties = {
+  width: 40,
+  height: 40,
+  borderRadius: 12,
+  border: '1px solid rgba(13,31,36,.14)',
+  background: '#fff',
+  cursor: 'pointer',
+  display: 'grid',
+  placeItems: 'center',
+  padding: 0,
+  flexShrink: 0,
+};

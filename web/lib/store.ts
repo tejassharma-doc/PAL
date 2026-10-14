@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { markSignedIn, markSignedOut } from './sessionCookie'
 
 interface AuthState {
   token: string | null
@@ -30,6 +31,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
   setAuth: (token, userId, lang) => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('pal_token', token)
+      markSignedIn()
       localStorage.setItem('pal_user_id', userId)
       localStorage.setItem('pal_preferred_lang', lang)
     }
@@ -39,6 +41,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
   clearAuth: () => {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('pal_token')
+      markSignedOut()
       localStorage.removeItem('pal_user_id')
       localStorage.removeItem('pal_preferred_lang')
     }

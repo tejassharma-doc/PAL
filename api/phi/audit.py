@@ -39,7 +39,7 @@ class PHIAudit:
                      conversation_id, detail, occurred_at)
                 VALUES
                     (gen_random_uuid(), :event_type, :tenant_id, :actor_user_id,
-                     :subject_member_id, :conversation_id, :detail::jsonb, :occurred_at)
+                     :subject_member_id, :conversation_id, CAST(:detail AS jsonb), :occurred_at)
             """),
             {
                 "event_type": event.event_type,

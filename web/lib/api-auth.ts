@@ -4,6 +4,7 @@
  */
 
 export const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001'
+import { markSignedIn, markSignedOut } from './sessionCookie'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Storage helpers
@@ -16,6 +17,7 @@ export function saveAuth(token: string, user: any, sessionId: string, patientId?
   localStorage.removeItem('pal_patient_id')
 
   localStorage.setItem('pal_token', token)
+  markSignedIn()
   localStorage.setItem('pal_user_id', user.id)
   localStorage.setItem('pal_session_id', sessionId)
   localStorage.setItem('pal_preferred_lang', user.preferred_language || 'en')
@@ -36,6 +38,7 @@ export function clearAuth() {
   if (typeof window === 'undefined') return
 
   localStorage.removeItem('pal_token')
+  markSignedOut()
   localStorage.removeItem('pal_user_id')
   localStorage.removeItem('pal_session_id')
   localStorage.removeItem('pal_preferred_lang')
@@ -140,6 +143,7 @@ export async function loginWithPassword(
 
   // Save auth data (including patient_id from new response)
   localStorage.setItem('pal_token', json.access_token)
+  markSignedIn()
   localStorage.setItem('pal_user_id', json.user.id)
   localStorage.setItem('pal_session_id', json.session_id)
   localStorage.setItem('pal_username', json.user.username)
@@ -517,6 +521,7 @@ export async function verifyOTPLegacy(
   // Save auth data (minimal)
   if (typeof window !== 'undefined') {
     localStorage.setItem('pal_token', json.access_token)
+    markSignedIn()
     if (json.user?.id) localStorage.setItem('pal_user_id', json.user.id)
     if (json.user?.preferred_language) localStorage.setItem('pal_preferred_lang', json.user.preferred_language)
   }

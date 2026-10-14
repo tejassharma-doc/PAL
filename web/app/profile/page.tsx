@@ -33,7 +33,7 @@ export default function ProfilePage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading profile...</p>
+          <p className="text-[#4a5a5f]">Loading profile...</p>
         </div>
       </div>
     )
@@ -43,8 +43,8 @@ export default function ProfilePage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Profile Not Found</h2>
-          <p className="text-gray-600 mb-6">
+          <h2 className="text-xl font-semibold text-[#0d1f24] mb-4">Profile Not Found</h2>
+          <p className="text-[#4a5a5f] mb-6">
             {error || 'No profile found. Please create your profile first.'}
           </p>
           <button
@@ -67,11 +67,11 @@ export default function ProfilePage() {
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <button
             onClick={() => router.push('/')}
-            className="text-gray-600 hover:text-gray-900"
+            className="text-[#4a5a5f] hover:text-[#0d1f24]"
           >
             ← Back
           </button>
-          <h1 className="text-xl font-semibold text-gray-900">My Profile</h1>
+          <h1 className="text-xl font-semibold text-[#0d1f24]">My Profile</h1>
           <button
             onClick={() => router.push('/profile/edit')}
             className="text-blue-600 hover:text-blue-700 font-medium"
@@ -93,14 +93,14 @@ export default function ProfilePage() {
 
             {/* Basic Info */}
             <div className="flex-1">
-              <h2 className="text-2xl font-bold text-gray-900 mb-1">
+              <h2 className="text-2xl font-bold text-[#0d1f24] mb-1">
                 {patient.full_name || 'No name set'}
               </h2>
-              <p className="text-gray-600 mb-2">
+              <p className="text-[#4a5a5f] mb-2">
                 {patient.email || user.email}
               </p>
               {patient.phone && (
-                <p className="text-gray-600">📱 {patient.phone}</p>
+                <p className="text-[#4a5a5f]">📱 {patient.phone}</p>
               )}
             </div>
 
@@ -109,14 +109,14 @@ export default function ProfilePage() {
               <div className="text-3xl font-bold text-blue-600">
                 {credits.balance}
               </div>
-              <div className="text-sm text-gray-600">Credits</div>
+              <div className="text-[15px] text-[#4a5a5f]">Credits</div>
             </div>
           </div>
         </div>
 
         {/* Personal Information */}
         <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Personal Information</h3>
+          <h3 className="text-lg font-semibold text-[#0d1f24] mb-4">Personal Information</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <InfoField label="MRN" value={patient.mrn} />
             <InfoField label="ABHA ID" value={patient.abha_id} />
@@ -132,14 +132,14 @@ export default function ProfilePage() {
         {/* Address */}
         {patient.address && (
           <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Address</h3>
-            <p className="text-gray-700">{patient.address}</p>
+            <h3 className="text-lg font-semibold text-[#0d1f24] mb-4">Address</h3>
+            <p className="text-[#0d1f24]">{patient.address}</p>
           </div>
         )}
 
         {/* Medical Information */}
         <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Medical Information</h3>
+          <h3 className="text-lg font-semibold text-[#0d1f24] mb-4">Medical Information</h3>
           <div className="space-y-4">
             <MedicalField
               label="Allergies"
@@ -162,7 +162,7 @@ export default function ProfilePage() {
         {/* Emergency Contact */}
         {patient.emergency_contact && (
           <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Emergency Contact</h3>
+            <h3 className="text-lg font-semibold text-[#0d1f24] mb-4">Emergency Contact</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <InfoField
                 label="Name"
@@ -182,7 +182,7 @@ export default function ProfilePage() {
 
         {/* Account Information */}
         <div className="bg-white rounded-lg shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Information</h3>
+          <h3 className="text-lg font-semibold text-[#0d1f24] mb-4">Account Information</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <InfoField label="Username" value={user.username} />
             <InfoField label="Account Status" value={user.is_active ? 'Active' : 'Inactive'} />
@@ -200,19 +200,19 @@ export default function ProfilePage() {
 
         {/* Credits Info */}
         <div className="bg-blue-50 rounded-lg p-6 mt-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Credits Summary</h3>
+          <h3 className="text-lg font-semibold text-[#0d1f24] mb-4">Credits Summary</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <div className="text-sm text-gray-600">Current Balance</div>
+              <div className="text-[15px] text-[#4a5a5f]">Current Balance</div>
               <div className="text-2xl font-bold text-blue-600">{credits.balance}</div>
             </div>
             <div>
-              <div className="text-sm text-gray-600">Total Purchased</div>
-              <div className="text-2xl font-bold text-gray-900">{credits.total_purchased}</div>
+              <div className="text-[15px] text-[#4a5a5f]">Total Purchased</div>
+              <div className="text-2xl font-bold text-[#0d1f24]">{credits.total_purchased}</div>
             </div>
             <div>
-              <div className="text-sm text-gray-600">Total Used</div>
-              <div className="text-2xl font-bold text-gray-900">{credits.total_used}</div>
+              <div className="text-[15px] text-[#4a5a5f]">Total Used</div>
+              <div className="text-2xl font-bold text-[#0d1f24]">{credits.total_used}</div>
             </div>
           </div>
         </div>
@@ -224,9 +224,9 @@ export default function ProfilePage() {
 function InfoField({ label, value }: { label: string; value?: string | null }) {
   return (
     <div>
-      <div className="text-sm text-gray-600 mb-1">{label}</div>
-      <div className="text-gray-900 font-medium">
-        {value || <span className="text-gray-400">Not set</span>}
+      <div className="text-[15px] text-[#4a5a5f] mb-1">{label}</div>
+      <div className="text-[#0d1f24] font-medium">
+        {value || <span className="text-[#4a5a5f]">Not set</span>}
       </div>
     </div>
   )
@@ -243,12 +243,12 @@ function MedicalField({
 }) {
   return (
     <div>
-      <div className="text-sm font-medium text-gray-700 mb-2">{label}</div>
-      <div className="text-gray-900">
+      <div className="text-[15px] font-medium text-[#0d1f24] mb-2">{label}</div>
+      <div className="text-[#0d1f24]">
         {value ? (
           <div className="bg-gray-50 rounded p-3">{value}</div>
         ) : (
-          <div className="text-gray-400 italic">{empty}</div>
+          <div className="text-[#4a5a5f] italic">{empty}</div>
         )}
       </div>
     </div>

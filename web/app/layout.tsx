@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import ClientPreloader from './ClientPreloader'
+import MedicationReminderHost from '@/components/medications/MedicationReminderHost'
 import { Newsreader, Space_Grotesk, Space_Mono } from 'next/font/google'
 
 const newsreader = Newsreader({ subsets: ['latin'], variable: '--font-serif', display: 'swap' })
@@ -36,6 +37,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Warm up SmolLM2 classifier + Whisper STT in background Web Workers */}
         <ClientPreloader />
         {children}
+        {/* Medication reminder toasts + "did you take it?" prompt (global) */}
+        <MedicationReminderHost />
       </body>
     </html>
   )

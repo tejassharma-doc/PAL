@@ -18,7 +18,14 @@ react {
     // Uncomment to point at a custom Metro bundler host (e.g. dev machine IP):
     // bundleAssetName = "index.android.bundle"
     // bundleCommand = "ram-bundle"
+
+    // Wire every native library in node_modules into the app (PackageList +
+    // Gradle deps). This replaces the old hand-written `implementation project(...)`
+    // list, which referenced packages that are not installed.
+    autolinkLibrariesWithApp()
 }
+
+def palMinify = (project.findProperty("palMinify") ?: "false").toString().toBoolean()
 
 android {
     namespace  "com.palhealth"
@@ -40,7 +47,7 @@ android {
         debug {
             // Debug keystore — pre-installed on every Android SDK installation.
             // For release builds, replace with your team's signing config.
-            storeFile      file(System.getProperty("user.home") + "/.android/debug.keystore")
+            storeFile      file("debug.keystore")   // the standard React Native debug key, shipped in android/app
             storePassword  "android"
             keyAlias       "androiddebugkey"
             keyPassword    "android"
@@ -60,8 +67,10 @@ android {
         }
         release {
             signingConfig signingConfigs.debug   // Replace with signingConfigs.release for production
-            minifyEnabled true
-            shrinkResources true
+            // R8 shrinking is opt-in (gradlew assembleRelease -PpalMinify=true) until a
+            // minified build has been smoke-tested on a device.
+            minifyEnabled  palMinify
+            shrinkResources palMinify
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
     }
@@ -121,14 +130,8 @@ dependencies {
     // Kotlin standard library
     implementation "org.jetbrains.kotlin:kotlin-stdlib:${rootProject.ext.kotlinVersion}"
 
-    // Manual fallback for autolinked libraries if plugin fails to add them to classpath
-    implementation project(':react-native-async-storage_async-storage')
-    implementation project(':react-native-document-picker')
-    implementation project(':react-native-image-picker')
-    implementation project(':react-native-safe-area-context')
-    implementation project(':react-native-screens')
-    implementation project(':react-native-voice_voice')
-    implementation project(':react-native-tts')
+    // Third-party native modules (async-storage, document picker, screens,
+    // safe-area, voice, tts, onnxruntime) are added by autolinkLibrariesWithApp().
 }
 
 // NOTE: Autolinking for third-party native modules (document picker, image picker, etc.)

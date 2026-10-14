@@ -95,11 +95,11 @@ function SettingRow({ icon, label, sublabel, right, danger }: {
         {icon}
       </div>
       <div style={{ flex: 1 }}>
-        <p style={{ fontSize: 13.5, fontWeight: 600, color: danger ? 'var(--rose)' : 'var(--ink)', lineHeight: 1.3 }}>
+        <p style={{ fontSize: 15, fontWeight: 600, color: danger ? 'var(--rose)' : 'var(--ink)', lineHeight: 1.3 }}>
           {label}
         </p>
         {sublabel && (
-          <p style={{ fontSize: 11, color: 'rgba(13,31,36,0.45)', marginTop: 2, lineHeight: 1.4 }}>
+          <p style={{ fontSize: 13, color: '#4a5a5f', marginTop: 2, lineHeight: 1.4 }}>
             {sublabel}
           </p>
         )}
@@ -145,7 +145,7 @@ export default function SettingsPage() {
 
         {/* Privacy & Consent */}
         <div style={{ padding: '8px 16px 4px' }}>
-          <p style={{ fontSize: 10, fontWeight: 700, color: 'rgba(13,31,36,0.4)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+          <p style={{ fontSize: 12.5, fontWeight: 700, color: '#4a5a5f', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
             Privacy &amp; Consent
           </p>
         </div>
@@ -166,7 +166,7 @@ export default function SettingsPage() {
 
         {/* History */}
         <div style={{ padding: '12px 16px 4px' }}>
-          <p style={{ fontSize: 10, fontWeight: 700, color: 'rgba(13,31,36,0.4)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+          <p style={{ fontSize: 12.5, fontWeight: 700, color: '#4a5a5f', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
             History
           </p>
         </div>
@@ -177,7 +177,7 @@ export default function SettingsPage() {
 
         {/* Account */}
         <div style={{ padding: '12px 16px 4px' }}>
-          <p style={{ fontSize: 10, fontWeight: 700, color: 'rgba(13,31,36,0.4)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+          <p style={{ fontSize: 12.5, fontWeight: 700, color: '#4a5a5f', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
             Account
           </p>
         </div>
@@ -186,7 +186,7 @@ export default function SettingsPage() {
           <SettingRow icon={ICONS.signout} label="Sign out" danger />
         </div>
 
-        <p style={{ fontSize: 11, color: 'rgba(13,31,36,0.3)', textAlign: 'center', padding: '20px 16px 0' }}>
+        <p style={{ fontSize: 13, color: '#4a5a5f', textAlign: 'center', padding: '20px 16px 0' }}>
           PAL v0.1.0 · Not a medical device
         </p>
       </div>

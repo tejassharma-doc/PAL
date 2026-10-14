@@ -43,6 +43,22 @@ const nextConfig = {
     config.experiments = { ...config.experiments, asyncWebAssembly: true, layers: true }
     return config
   },
+  // Public site pages (static HTML in /public, built by scripts/build_site_pages.py).
+  //   "/"         → landing page for visitors; signed-in users (pal_session cookie,
+  //                 see lib/sessionCookie.ts) get the app home as before.
+  //   /welcome    → landing page for everyone
+  //   /pricing, /terms, /privacy → their pages
+  async rewrites() {
+    return {
+      beforeFiles: [
+        { source: '/', missing: [{ type: 'cookie', key: 'pal_session' }], destination: '/landing.html' },
+        { source: '/welcome', destination: '/landing.html' },
+        { source: '/pricing', destination: '/pricing.html' },
+        { source: '/terms', destination: '/terms.html' },
+        { source: '/privacy', destination: '/privacy.html' },
+      ],
+    }
+  },
   // Cross-origin isolation — required for WebGPU SharedArrayBuffer in Web Workers
   async headers() {
     return [

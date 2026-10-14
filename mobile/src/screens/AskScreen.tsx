@@ -1,241 +1,418 @@
-import React, { useState, useRef, useCallback } from 'react'
-import {
-  View, Text, ScrollView, StyleSheet, KeyboardAvoidingView,
-  Platform, Pressable, Keyboard,
-} from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import { PAL, FONT, RADIUS, SPACE } from '../theme'
-import { search, SearchResult } from '../lib/api'
-import { SearchBar } from '../components/SearchBar'
+/**
+ * Ask — the website's home tab: serif greeting with the jade italic
+ * "What's on your mind?", "TRY ASKING" two-column prompt cards, chat bubbles
+ * (user = deep green, PAL = white serif), breathing "thinking…" dot, a rose
+ * consent card for "general vs my record", and the white composer pill.
+ */
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { C, F, T } from '../theme'
+import * as api from '../lib/api'
 import { SafetyBanner } from '../components/SafetyBanner'
+import { BreathDot, Slab } from '../components/ui'
+import { TabChrome } from '../components/Chrome'
+import { LineIcon } from '../components/icons'
+import { CopyButton, Markdown } from '../components/Markdown'
+import { PalRosette, PalVoice } from '../components/PalEmblem'
+import { useAuth } from '../context/AuthContext'
+import { route as fuguRoute } from '../services/fuguRouter'
 import type { SafetyCategory } from '../services/fuguRouter'
-
-// Optional on-device router — graceful degradation if ONNX not loaded
-let FuguRouterClass: any = null
-try { FuguRouterClass = require('../services/fuguRouter').FuguRouter } catch {}
 
 interface Message {
   id: string
-  role: 'user' | 'pal'
+  role: 'user' | 'pal' | 'system' | 'consent' | 'thinking'
   text: string
-  citations?: SearchResult['citations']
+  citations?: api.Citation[]
+  query?: string
 }
 
-const SESSION_ID = 'mobile-' + Date.now().toString(36)
+const PROMPTS = [
+  { icon: 'stethoscope', text: 'What is type 2 diabetes?', sub: 'general · no record' },
+  { icon: 'clipboard-list', text: 'Do my meds interact?', sub: 'about you · consent' },
+  { icon: 'file-text', text: 'What do my latest lab results show?', sub: 'about you · record' },
+  { icon: 'folder-heart', text: 'A heart-healthy dinner idea', sub: 'general · nutrition' },
+]
 
-export default function AskScreen({ navigation }: any) {
+const newSessionId = () => 'android-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
+
+function greeting() {
+  const h = new Date().getHours()
+  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
+}
+
+export default function AskScreen({ route }: any) {
+  const { session } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [safetyCategory, setSafetyCategory] = useState<SafetyCategory | null>(null)
-  const [conversationId, setConversationId] = useState<string | undefined>()
+  const [busy, setBusy] = useState(false)
+  const [text, setText] = useState('')
+  const [safety, setSafety] = useState<SafetyCategory | null>(null)
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  const sessionId = useRef(newSessionId())
   const scrollRef = useRef<ScrollView>(null)
-  const fuguRouter = useRef(FuguRouterClass ? new FuguRouterClass() : null)
 
-  const handleSubmit = useCallback(async (query: string) => {
-    if (!query.trim() || isLoading) return
-    Keyboard.dismiss()
-    const msgId = Date.now().toString()
-    setMessages(prev => [...prev, { id: msgId, role: 'user', text: query }])
-    setIsLoading(true)
+  // "Prepare with PAL" on Visits opens Ask with a suggested question filled in.
+  const prefill: string | undefined = route?.params?.prefill
+  useEffect(() => {
+    if (prefill) setText(prefill)
+  }, [prefill])
 
-    try {
-      let classificationJson: string | undefined
+  const name = session?.displayName && !session.displayName.startsWith('+') ? session.displayName : 'there'
 
-      if (fuguRouter.current) {
+  const push = (m: Message) => setMessages(prev => [...prev.filter(x => x.role !== 'thinking'), m])
+
+  const send = useCallback(
+    async (query: string, opts: { consentBasis?: 'per_query'; echo?: boolean } = {}) => {
+      const q = query.trim()
+      if (!q || busy) return
+      Keyboard.dismiss()
+      setText('')
+      const id = Date.now().toString()
+      setMessages(prev => [
+        ...prev.filter(x => x.role !== 'consent'),
+        ...(opts.echo === false ? [] : [{ id, role: 'user' as const, text: q }]),
+        { id: id + '-t', role: 'thinking' as const, text: '' },
+      ])
+      setBusy(true)
+      try {
+        let classificationJson: string | null = null
         try {
-          const decision = await fuguRouter.current.route({
-            query,
-            thread_summary: '',
-            session_id: SESSION_ID,
-            conversation_id: conversationId,
-          })
-          if (decision.safety_short_circuit) {
-            setSafetyCategory(decision.classification?.safety_category ?? 'emergency')
-            setIsLoading(false)
+          const d = await fuguRoute({ query: q, thread_summary: '', session_id: sessionId.current, conversation_id: conversationId ?? undefined })
+          if (d.safety_short_circuit) {
+            setSafety(d.classification?.safety_category === 'crisis' ? 'crisis' : 'emergency')
+            setMessages(prev => prev.filter(x => x.role !== 'thinking'))
             return
           }
-          if (decision.depth === 'on_device' && decision.on_device_answer) {
-            setMessages(prev => [
-              ...prev,
-              { id: msgId + '-r', role: 'pal', text: decision.on_device_answer },
-            ])
-            setIsLoading(false)
-            return
-          }
-          classificationJson = JSON.stringify(decision.classification)
-        } catch {}
+          classificationJson = JSON.stringify(d.classification)
+        } catch {
+          /* router unavailable — the server triages too */
+        }
+
+        const r = await api.ask({
+          query: q,
+          sessionId: sessionId.current,
+          conversationId,
+          consentBasis: opts.consentBasis,
+          onDeviceClassificationJson: classificationJson,
+        })
+        switch (r.kind) {
+          case 'answer':
+            if (r.conversationId) setConversationId(r.conversationId)
+            push({ id: id + '-r', role: 'pal', text: r.text || '(No answer text returned.)', citations: r.citations })
+            break
+          case 'disambiguation':
+            push({ id: id + '-c', role: 'consent', text: r.question, query: q })
+            break
+          case 'safety':
+            setSafety(r.category)
+            push({ id: id + '-s', role: 'system', text: r.message })
+            break
+          case 'referral':
+            push({ id: id + '-ref', role: 'pal', text: r.message + '\n\nYou can raise this at your next visit.' })
+            break
+          case 'on_device':
+            if (r.conversationId) setConversationId(r.conversationId)
+            push({ id: id + '-o', role: 'pal', text: 'Hello! Ask me about your health, your records or your medicines.' })
+            break
+        }
+      } catch (e: any) {
+        push({ id: id + '-e', role: 'system', text: e?.message ?? 'Could not reach PAL.' })
+      } finally {
+        setBusy(false)
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80)
       }
+    },
+    [busy, conversationId],
+  )
 
-      const result = await search(query, SESSION_ID, {
-        conversationId,
-        onDeviceClassificationJson: classificationJson,
-      })
-
-      if (result.conversation_id) setConversationId(result.conversation_id)
-
-      setMessages(prev => [
-        ...prev,
-        {
-          id: msgId + '-r',
-          role: 'pal',
-          text: result.answer_text,
-          citations: result.citations,
-        },
-      ])
-    } catch (err: any) {
-      setMessages(prev => [
-        ...prev,
-        {
-          id: msgId + '-e',
-          role: 'pal',
-          text: err?.message ?? 'Could not reach PAL — is the backend running?',
-        },
-      ])
-    } finally {
-      setIsLoading(false)
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80)
-    }
-  }, [isLoading, conversationId])
+  const newChat = () => {
+    setMessages([])
+    setConversationId(null)
+    sessionId.current = newSessionId()
+  }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>PAL</Text>
-        <Pressable style={styles.gearBtn} onPress={() => navigation?.navigate('Settings')}>
-          <Text style={styles.gearIcon}>⚙</Text>
-        </Pressable>
-      </View>
+    <View style={{ flex: 1, backgroundColor: C.soft }}>
+      <TabChrome title={session?.displayName && !session.displayName.startsWith('+') ? session.displayName : 'PAL'} sub="your health assistant" />
+      {safety && <SafetyBanner visible category={safety} onDismiss={() => setSafety(null)} />}
 
-      {/* Safety banner */}
-      {safetyCategory && (safetyCategory === 'emergency' || safetyCategory === 'crisis') && (
-        <SafetyBanner
-          visible={true}
-          category={safetyCategory}
-          onDismiss={() => setSafetyCategory(null)}
-        />
+      {messages.length > 0 && (
+        <View style={s.chatBar}>
+          <Text style={s.chatBarTitle}>Conversation</Text>
+          <Pressable
+            onPress={newChat}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel="New chat"
+            hitSlop={6}
+            style={({ pressed }) => [s.newChat, (pressed || busy) && { opacity: 0.6 }]}
+          >
+            <LineIcon name="square-pen" size={19} color={C.jadeD} />
+            <Text style={s.newChatText}>New chat</Text>
+          </Pressable>
+        </View>
       )}
 
-      {/* Messages */}
-      <ScrollView
-        ref={scrollRef}
-        style={styles.scroll}
-        contentContainerStyle={[styles.content, messages.length === 0 && styles.contentCentered]}
-        keyboardShouldPersistTaps="handled"
-        onContentSizeChange={() =>
-          messages.length > 0 && scrollRef.current?.scrollToEnd({ animated: false })
-        }
-      >
-        {messages.length === 0 && (
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>Ask PAL</Text>
-            <Text style={styles.emptySub}>
-              Ask anything about your health,{'\n'}medications, or appointments.
-            </Text>
-            <View style={styles.chips}>
-              {['What is my LDL?', 'How does statins work?', 'Prepare for lipid test'].map(q => (
-                <Pressable key={q} style={styles.chip} onPress={() => handleSubmit(q)}>
-                  <Text style={styles.chipText}>{q}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        )}
-
-        {messages.map(m => (
-          <View key={m.id} style={m.role === 'user' ? styles.userRow : styles.palRow}>
-            {m.role === 'pal' && (
-              <View style={styles.palBadge}>
-                <Text style={styles.palBadgeText}>P</Text>
-              </View>
-            )}
-            <View style={[styles.bubble, m.role === 'user' ? styles.userBubble : styles.palBubble]}>
-              <Text style={[styles.bubbleText, m.role === 'user' && styles.userBubbleText]}>
-                {m.text}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView
+          ref={scrollRef}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: 20 }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          onContentSizeChange={() => messages.length > 0 && scrollRef.current?.scrollToEnd({ animated: false })}
+        >
+          {messages.length === 0 ? (
+            <>
+              <Text style={s.greet}>
+                {greeting()}, {name}.{'\n'}
+                <Text style={s.greetItalic}>What's on your mind?</Text>
               </Text>
-              {m.citations && m.citations.length > 0 && (
-                <View style={styles.cites}>
-                  {m.citations.slice(0, 3).map((c, i) => (
-                    <Text key={i} style={styles.cite}>↗ {c.title}</Text>
-                  ))}
-                </View>
-              )}
-            </View>
-          </View>
-        ))}
+              <Text style={[T.lead, { marginBottom: 14 }]}>Ask anything — general, or about you.</Text>
+              <Text style={[T.meta, { textAlign: 'center', letterSpacing: 0.4, marginBottom: 6 }]}>tap a question below to see PAL work</Text>
 
-        {isLoading && (
-          <View style={styles.palRow}>
-            <View style={styles.palBadge}>
-              <Text style={styles.palBadgeText}>P</Text>
-            </View>
-            <View style={[styles.bubble, styles.palBubble]}>
-              <Text style={styles.thinking}>Thinking…</Text>
-            </View>
-          </View>
-        )}
-      </ScrollView>
+              <View style={s.eyebrow}>
+                <PalRosette size={16} color={C.jadeD} />
+                <Slab color={C.jadeD} style={{ marginTop: 0, marginBottom: 0 }}>Try asking</Slab>
+              </View>
+              <View style={s.grid}>
+                {PROMPTS.map(p => (
+                  <Pressable key={p.text} style={({ pressed }) => [s.prompt, pressed && { opacity: 0.8 }]} onPress={() => send(p.text)}>
+                    <LineIcon name={p.icon} size={22} />
+                    <Text style={s.promptText}>{p.text}</Text>
+                    <Text style={[T.meta, { fontSize: 12 }]}>{p.sub}</Text>
+                  </Pressable>
+                ))}
+              </View>
 
-      {/* Search bar */}
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.barWrap}>
-          <SearchBar onSubmit={handleSubmit} isLoading={isLoading} />
+              <Text style={[T.meta, { textAlign: 'center', marginTop: 22, lineHeight: 15 }]}>
+                PAL explains health information. It is not a diagnosis —{'\n'}talk to your doctor about treatment.
+              </Text>
+            </>
+          ) : (
+            <View style={{ gap: 10, paddingTop: 6 }}>
+              {messages.map(m => {
+                if (m.role === 'user')
+                  return (
+                    <View key={m.id} style={{ alignItems: 'flex-end' }}>
+                      <View style={s.userBubble}>
+                        <Text selectable style={s.userText}>
+                          {m.text}
+                        </Text>
+                      </View>
+                    </View>
+                  )
+                if (m.role === 'thinking')
+                  return (
+                    <View key={m.id} style={s.palRow}>
+                    <PalVoice />
+                    <View style={s.thinking}>
+                      <BreathDot />
+                      <Text style={{ fontFamily: F.mono, fontSize: 12, color: C.jadeD, letterSpacing: 0.8 }}>thinking…</Text>
+                    </View>
+                    </View>
+                  )
+                if (m.role === 'consent')
+                  return (
+                    <View key={m.id} style={s.consent}>
+                      <Text style={s.consentTitle}>◆ Use your record?</Text>
+                      <Text style={s.consentBody}>{m.text}</Text>
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <Pressable
+                          style={[s.consentBtn, { backgroundColor: C.jade }]}
+                          onPress={() => send(`About my own records: ${m.query}`, { consentBasis: 'per_query', echo: false })}
+                        >
+                          <Text style={[s.consentBtnText, { color: C.deep2 }]}>Use my record</Text>
+                        </Pressable>
+                        <Pressable
+                          style={[s.consentBtn, { borderWidth: 1, borderColor: C.line2 }]}
+                          onPress={() => send(`In general terms: ${m.query}`, { echo: false })}
+                        >
+                          <Text style={s.consentBtnText}>Keep it general</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  )
+                if (m.role === 'system')
+                  return (
+                    <View key={m.id} style={s.system}>
+                      <Text style={{ fontFamily: F.sans, fontSize: 15, color: C.rose, lineHeight: 22 }}>{m.text}</Text>
+                    </View>
+                  )
+                return (
+                  <View key={m.id} style={s.palRow}>
+                  <PalVoice />
+                  <View style={s.palBubble}>
+                    <Markdown text={m.text} />
+                    {m.citations && m.citations.length > 0 && (
+                      <View style={{ marginTop: 6, gap: 4 }}>
+                        {m.citations.slice(0, 4).map((c, i) => {
+                          const ok = !!c.url && /^https?:\/\//.test(c.url)
+                          return (
+                            <Text
+                              key={i}
+                              numberOfLines={2}
+                              onPress={ok ? () => Linking.openURL(c.url!).catch(() => {}) : undefined}
+                              style={s.cite}
+                            >
+                              {i + 1}. {c.title || c.source}
+                            </Text>
+                          )
+                        })}
+                      </View>
+                    )}
+                    <View style={s.answerActions}>
+                      <CopyButton text={m.text} />
+                    </View>
+                  </View>
+                  </View>
+                )
+              })}
+            </View>
+          )}
+        </ScrollView>
+
+        {/* Composer */}
+        <View style={s.composerWrap}>
+          <View style={s.composer}>
+            <TextInput
+              value={text}
+              onChangeText={setText}
+              placeholder={messages.length > 0 ? 'Ask a follow-up…' : 'Ask about your health…'}
+              placeholderTextColor={C.muted}
+              style={s.composerInput}
+              multiline
+              textAlignVertical="center"
+              returnKeyType="send"
+              onSubmitEditing={() => send(text)}
+              editable={!busy}
+              accessibilityLabel="Ask PAL"
+            />
+            <Pressable
+              onPress={() => send(text)}
+              disabled={!text.trim() || busy}
+              accessibilityLabel="Send"
+              style={[s.cBtn, { backgroundColor: text.trim() && !busy ? C.jadeD : 'rgba(31,125,107,0.35)' }]}
+            >
+              <LineIcon name="arrow-up" size={22} color="#fff" strokeWidth={2.4} />
+            </Pressable>
+          </View>
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   )
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: PAL.bg },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: SPACE.lg, paddingVertical: SPACE.md,
-    borderBottomWidth: 1, borderBottomColor: PAL.surfaceBorder, backgroundColor: '#fff',
+const s = StyleSheet.create({
+  greet: { fontFamily: F.serifLight, fontSize: 27, letterSpacing: -0.2, lineHeight: 31, color: C.ink, marginTop: 12, marginBottom: 6 },
+  greetItalic: { fontFamily: F.serifLightItalic, color: C.jadeD },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
+  prompt: {
+    width: '48.5%',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: C.line,
+    borderRadius: 13,
+    padding: 13,
+    gap: 6,
   },
-  headerTitle: { fontFamily: FONT.serif, fontSize: 20, fontWeight: '300', color: PAL.textDark },
-  gearBtn: { padding: 6 },
-  gearIcon: { fontSize: 18, color: PAL.textMuted },
-  scroll: { flex: 1 },
-  content: { padding: SPACE.lg, paddingBottom: SPACE.md, gap: SPACE.sm },
-  contentCentered: { flex: 1, justifyContent: 'center' },
-  empty: { alignItems: 'center', paddingHorizontal: SPACE.xl },
-  emptyTitle: {
-    fontFamily: FONT.serif, fontSize: 32, fontWeight: '300',
-    color: PAL.textDark, marginBottom: SPACE.sm,
+  promptText: { fontFamily: F.sansSemi, fontSize: 15, lineHeight: 19, color: C.ink },
+  userBubble: {
+    backgroundColor: C.deep,
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    borderBottomRightRadius: 4,
+    borderBottomLeftRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    maxWidth: '82%',
   },
-  emptySub: {
-    fontFamily: FONT.mono, fontSize: 12, color: PAL.textMuted,
-    textAlign: 'center', lineHeight: 20, marginBottom: SPACE.xl,
-  },
-  chips: { gap: SPACE.sm, alignItems: 'center' },
-  chip: {
-    backgroundColor: PAL.surface, borderRadius: RADIUS.pill,
-    paddingHorizontal: SPACE.md, paddingVertical: 9,
-    borderWidth: 1, borderColor: PAL.surfaceBorder,
-  },
-  chipText: { fontFamily: FONT.mono, fontSize: 11, color: PAL.jade },
-  userRow: { flexDirection: 'row', justifyContent: 'flex-end' },
-  palRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm },
-  palBadge: {
-    width: 28, height: 28, borderRadius: 8,
-    backgroundColor: PAL.jadeFaint, borderWidth: 1, borderColor: PAL.jadeBorder,
-    alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2,
-  },
-  palBadgeText: { fontFamily: FONT.serif, fontSize: 12, color: PAL.jade, fontWeight: '700' },
-  bubble: { maxWidth: '84%', borderRadius: RADIUS.md, paddingHorizontal: 14, paddingVertical: 10 },
+  userText: { fontFamily: F.sans, fontSize: 16.5, lineHeight: 25, color: C.paper },
   palBubble: {
-    backgroundColor: PAL.surface, borderWidth: 1, borderColor: PAL.surfaceBorder,
-    borderBottomLeftRadius: 4, flex: 1,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: C.line,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 14,
+    borderBottomRightRadius: 14,
+    borderBottomLeftRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flex: 1,
   },
-  userBubble: { backgroundColor: PAL.jade, borderBottomRightRadius: 4 },
-  bubbleText: { fontSize: 14, color: PAL.textDark, lineHeight: 21 },
-  userBubbleText: { color: PAL.navyDeep },
-  thinking: { fontSize: 14, color: PAL.textMuted, fontStyle: 'italic' },
-  cites: {
-    marginTop: 8, borderTopWidth: 1, borderTopColor: PAL.surfaceBorder,
-    paddingTop: 8, gap: 3,
+  palRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, width: '100%' },
+  eyebrow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16, marginBottom: 10, marginHorizontal: 2 },
+  answerActions: { flexDirection: 'row', marginTop: 8, borderTopWidth: 1, borderTopColor: C.line, paddingTop: 4 },
+  chatBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: C.line,
+    backgroundColor: C.soft,
   },
-  cite: { fontFamily: FONT.mono, fontSize: 10, color: PAL.jade },
-  barWrap: { backgroundColor: PAL.surface, borderTopWidth: 1, borderTopColor: PAL.surfaceBorder, paddingTop: SPACE.sm },
+  chatBarTitle: { fontFamily: F.sansSemi, fontSize: 16, color: C.ink },
+  newChat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(31,125,107,0.4)',
+    backgroundColor: C.activeTint,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  newChatText: { fontFamily: F.sansBold, fontSize: 15, color: C.jadeD },
+  cite: { fontFamily: F.sans, fontSize: 13.5, color: C.amberD, textDecorationLine: 'underline', textDecorationStyle: 'dotted' },
+  thinking: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: C.line,
+    borderRadius: 14,
+    borderTopLeftRadius: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  consent: {
+    alignSelf: 'flex-start',
+    maxWidth: '92%',
+    borderWidth: 1,
+    borderColor: 'rgba(216,162,74,0.55)',
+    backgroundColor: C.roseTint,
+    borderRadius: 14,
+    borderTopLeftRadius: 4,
+    padding: 13,
+  },
+  consentTitle: { fontFamily: F.sansSemi, fontSize: 15, color: C.rose, marginBottom: 5 },
+  consentBody: { fontFamily: F.sans, fontSize: 15, color: C.ink, lineHeight: 22, marginBottom: 12 },
+  consentBtn: { flex: 1, paddingVertical: 10, borderRadius: 9, alignItems: 'center' },
+  consentBtnText: { fontFamily: F.sansSemi, fontSize: 13.5, color: C.ink },
+  system: { backgroundColor: '#fff', borderLeftWidth: 3, borderLeftColor: C.rose, borderRadius: 12, padding: 11 },
+  composerWrap: {
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    paddingBottom: 10,
+    backgroundColor: 'rgba(251,249,244,0.97)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(13,31,36,0.08)',
+  },
+  composer: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: C.line2,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    elevation: 2,
+  },
+  composerInput: { flex: 1, fontFamily: F.sans, fontSize: 17, lineHeight: 23, color: C.ink, paddingVertical: 8, minHeight: 42, maxHeight: 132 },
+  cBtn: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
 })

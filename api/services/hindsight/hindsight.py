@@ -44,7 +44,7 @@ class Hindsight:
                 FROM health_facts
                 WHERE tenant_id = :tenant_id AND member_id = :member_id
                   AND embedding IS NOT NULL
-                ORDER BY embedding <=> :embedding::vector
+                ORDER BY embedding <=> CAST(:embedding AS vector)
                 LIMIT :top_k
             """)
             result = await self.db.execute(stmt, {

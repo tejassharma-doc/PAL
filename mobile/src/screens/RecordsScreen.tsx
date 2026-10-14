@@ -1,140 +1,178 @@
-import React, { useEffect, useState } from 'react'
-import {
-  View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable,
-} from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import { PAL, FONT, RADIUS, SPACE } from '../theme'
-import { getHealthFacts, HealthFact } from '../lib/api'
+/**
+ * Record — the website's "Medical Records": serif title, mono section labels
+ * and white cards with a bold title, muted subtitle and a jade mono date.
+ * Tap a card to expand its values.
+ */
+import React, { useState } from 'react'
+import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native'
+import { C, F, T } from '../theme'
+import { Badge, Body, Button, Empty, ErrorBox, Loading, PageTitle, Slab, useFocusLoad } from '../components/ui'
+import { TabChrome } from '../components/Chrome'
+import { LineIcon } from '../components/icons'
+import * as api from '../lib/api'
 
-function groupFacts(facts: HealthFact[]) {
-  const groups: Record<string, HealthFact[]> = {}
-  for (const f of facts) {
-    const key = f.type || 'Other'
-    if (!groups[key]) groups[key] = []
-    groups[key].push(f)
-  }
-  return groups
+export function medName(m: api.MedicationItem): string {
+  return String(m.name ?? m.medicine_name ?? m.drug ?? (m as any).medication ?? 'Medicine')
+}
+export function medDetail(m: api.MedicationItem): string {
+  return [m.dosage ?? m.dose, m.frequency, m.duration, m.instructions].filter(Boolean).join(' · ')
 }
 
-const MOCK_FACTS: HealthFact[] = [
-  { id: '1', type: 'lipid', key: 'LDL', value: '142', unit: 'mg/dL', recorded_at: '2026-05-12', evidence_class: 'lab' },
-  { id: '2', type: 'lipid', key: 'HDL', value: '48', unit: 'mg/dL', recorded_at: '2026-05-12', evidence_class: 'lab' },
-  { id: '3', type: 'lipid', key: 'Triglycerides', value: '186', unit: 'mg/dL', recorded_at: '2026-05-12', evidence_class: 'lab' },
-  { id: '4', type: 'glucose', key: 'HbA1c', value: '5.9', unit: '%', recorded_at: '2026-05-12', evidence_class: 'lab' },
-  { id: '5', type: 'vitals', key: 'Blood pressure', value: '128/82', unit: 'mmHg', recorded_at: '2026-06-01', evidence_class: 'vitals' },
-  { id: '6', type: 'vitals', key: 'Weight', value: '74', unit: 'kg', recorded_at: '2026-06-01', evidence_class: 'vitals' },
-]
-
-function valueColor(key: string, value: string): string {
-  const v = parseFloat(value)
-  if (key === 'LDL' && v > 130) return PAL.rose
-  if (key === 'HbA1c' && v > 5.7) return PAL.rose
-  if (key === 'Triglycerides' && v > 150) return PAL.rose
-  return PAL.jade
+async function loadRecord() {
+  const [labs, rx, docs] = await Promise.all([
+    api.getLabTests(),
+    api.getPrescriptions().catch(() => [] as api.Prescription[]),
+    api.getRecordDocuments().catch(() => [] as api.RecordDocument[]),
+  ])
+  return { labs, rx, docs }
 }
 
-function formatDate(iso: string | null) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-}
-
-export default function RecordsScreen() {
-  const [facts, setFacts] = useState<HealthFact[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    getHealthFacts()
-      .then(f => setFacts(f.length ? f : MOCK_FACTS))
-      .catch(() => setFacts(MOCK_FACTS))
-      .finally(() => setLoading(false))
-  }, [])
-
-  const groups = groupFacts(facts)
+export default function RecordsScreen({ navigation }: any) {
+  const { data, error, loading, refreshing, reload } = useFocusLoad(loadRecord)
+  const empty = data && data.labs.length === 0 && data.rx.length === 0 && data.docs.length === 0
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        <Text style={styles.heading}>Your records</Text>
-        <Text style={styles.sub}>Clinician-verified · never altered by AI</Text>
+    <View style={{ flex: 1, backgroundColor: C.soft }}>
+      <TabChrome title="Your record" sub="health records" />
+      {loading ? (
+        <Loading label="loading records…" />
+      ) : (
+        <Body refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} colors={[C.jade]} />}>
+          <PageTitle title="Medical Records" lead="Complete medical history" />
+          {error ? <ErrorBox message={error} onRetry={reload} /> : null}
 
-        {loading && <ActivityIndicator color={PAL.jade} style={{ marginTop: 40 }} />}
+          {empty && (
+            <Empty
+              icon="file-text"
+              title="No records yet"
+              body="Upload a lab report or prescription — PAL reads the values and you check them before anything is saved."
+              action={<Button title="Upload a report" onPress={() => navigation.navigate('Upload')} style={{ alignSelf: 'stretch', marginTop: 6 }} />}
+            />
+          )}
 
-        {!loading && Object.entries(groups).map(([type, groupFacts]) => (
-          <View key={type} style={styles.section}>
-            <Text style={styles.sectionLabel}>{type.toUpperCase()}</Text>
-            {groupFacts.map((fact, i) => (
-              <View key={fact.id} style={[styles.factRow, i > 0 && styles.factBorder]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.factKey}>{fact.key}</Text>
-                  {fact.recorded_at && (
-                    <Text style={styles.factDate}>{formatDate(fact.recorded_at)}</Text>
-                  )}
-                </View>
-                <View style={styles.factRight}>
-                  <Text style={[styles.factValue, { color: valueColor(fact.key, fact.value) }]}>
-                    {fact.value}
+          {data && data.labs.length > 0 && (
+            <>
+              <Slab>Lab tests & results</Slab>
+              {data.labs.map(t => (
+                <LabCard key={t.id} t={t} />
+              ))}
+            </>
+          )}
+
+          {data && data.rx.length > 0 && (
+            <>
+              <Slab>Prescriptions</Slab>
+              {data.rx.map(p => (
+                <RxCard key={p.id} p={p} />
+              ))}
+            </>
+          )}
+
+          {data && data.docs.length > 0 && (
+            <>
+              <Slab>Documents</Slab>
+              {data.docs.map(d => (
+                <View key={d.id} style={s.card}>
+                  <View style={s.row}>
+                    <Text style={s.title} numberOfLines={2}>
+                      {d.title || d.file_name}
+                    </Text>
+                    {d.date ? <DateTag d={d.date} /> : null}
+                  </View>
+                  <Text style={s.sub}>
+                    {d.kind} • {d.file_name}
                   </Text>
-                  {fact.unit && <Text style={styles.factUnit}>{fact.unit}</Text>}
                 </View>
-              </View>
-            ))}
-          </View>
-        ))}
-
-        <View style={styles.evidenceNote}>
-          <View style={styles.evidenceBadge}>
-            <Text style={styles.evidenceBadgeText}>⛁ clinician-canonical</Text>
-          </View>
-          <Text style={styles.evidenceText}>
-            Plans are your team's own words — never altered by AI.
-          </Text>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+              ))}
+            </>
+          )}
+        </Body>
+      )}
+    </View>
   )
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: PAL.bg },
-  scroll: { flex: 1 },
-  content: { padding: SPACE.lg, paddingBottom: 100 },
-  heading: {
-    fontFamily: FONT.serif, fontSize: 26, fontWeight: '300',
-    color: PAL.textDark, marginBottom: 4,
-  },
-  sub: {
-    fontFamily: FONT.mono, fontSize: 10, color: PAL.textMuted,
-    marginBottom: SPACE.xl, textTransform: 'uppercase',
-  },
-  section: {
-    backgroundColor: PAL.surface, borderRadius: RADIUS.md, marginBottom: SPACE.md,
-    overflow: 'hidden', borderWidth: 1, borderColor: PAL.surfaceBorder,
-  },
-  sectionLabel: {
-    fontFamily: FONT.mono, fontSize: 9, color: PAL.jade,
-    textTransform: 'uppercase', paddingHorizontal: SPACE.md,
-    paddingTop: SPACE.md, paddingBottom: SPACE.sm,
-  },
-  factRow: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: SPACE.md, paddingVertical: 13,
-  },
-  factBorder: { borderTopWidth: 1, borderTopColor: PAL.surfaceBorder },
-  factKey: { fontSize: 14, fontWeight: '600', color: PAL.textDark },
-  factDate: { fontFamily: FONT.mono, fontSize: 10, color: PAL.textFaint, marginTop: 2 },
-  factRight: { alignItems: 'flex-end' },
-  factValue: { fontSize: 17, fontWeight: '700' },
-  factUnit: { fontFamily: FONT.mono, fontSize: 10, color: PAL.textMuted },
-  evidenceNote: {
-    flexDirection: 'row', gap: 11, backgroundColor: PAL.surface, borderRadius: RADIUS.md,
-    padding: SPACE.md, marginTop: SPACE.sm, alignItems: 'center',
-    borderWidth: 1, borderColor: PAL.surfaceBorder,
-  },
-  evidenceBadge: {
-    backgroundColor: 'rgba(90,143,168,.14)', borderRadius: 10,
-    paddingHorizontal: 8, paddingVertical: 3, flexShrink: 0,
-  },
-  evidenceBadgeText: { fontFamily: FONT.mono, fontSize: 9, color: '#33607a' },
-  evidenceText: { flex: 1, fontSize: 11, color: PAL.textMuted, lineHeight: 17 },
+function DateTag({ d }: { d: string }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+      <LineIcon name="calendar" size={15} color={C.jadeD} />
+      <Text style={s.date}>{d.slice(0, 10)}</Text>
+    </View>
+  )
+}
+
+function LabCard({ t }: { t: api.LabTest }) {
+  const [open, setOpen] = useState(false)
+  const rows: api.LabResultRow[] = Array.isArray(t.results) ? (t.results as api.LabResultRow[]) : []
+  return (
+    <Pressable onPress={() => setOpen(o => !o)} style={({ pressed }) => [s.card, pressed && { opacity: 0.9 }]} accessibilityHint="Show values">
+      <View style={s.row}>
+        <Text style={s.title} numberOfLines={2}>
+          {t.report_name}
+        </Text>
+        {t.result_date || t.ordered_date ? <DateTag d={(t.result_date || t.ordered_date)!} /> : null}
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+        <Text style={s.sub}>
+          Lab test • {t.status}
+          {t.lab_name ? ` • ${t.lab_name}` : ''}
+        </Text>
+        {t.has_abnormal_values ? <Badge text="check values" tone="rose" /> : null}
+      </View>
+      {open && (
+        <View style={{ marginTop: 12, gap: 6 }}>
+          {rows.length === 0 && !t.interpretation ? <Text style={s.sub}>No values recorded.</Text> : null}
+          {rows.map((r, i) => (
+            <View key={i} style={[s.vital, r.abnormal ? { backgroundColor: 'rgba(194,103,94,0.07)' } : null]}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: F.sansMedium, fontSize: 15, color: C.ink }}>{String(r.name ?? r.name_extracted ?? 'Value')}</Text>
+                {r.range ? <Text style={[T.meta, { marginTop: 2 }]}>range {String(r.range)}</Text> : null}
+              </View>
+              <Text style={{ fontFamily: F.serif, fontSize: 18, color: r.abnormal ? C.rose : C.ink }}>
+                {r.value ?? '—'}
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: C.muted }}> {r.unit ?? ''}</Text>
+              </Text>
+            </View>
+          ))}
+          {t.interpretation ? (
+            <Text style={{ fontFamily: F.serif, fontSize: 16, lineHeight: 24, color: C.ink, marginTop: 4 }}>{t.interpretation}</Text>
+          ) : null}
+        </View>
+      )}
+    </Pressable>
+  )
+}
+
+function RxCard({ p }: { p: api.Prescription }) {
+  return (
+    <View style={s.card}>
+      <View style={s.row}>
+        <Text style={s.title}>Prescription</Text>
+        {p.created_at ? <DateTag d={p.created_at} /> : null}
+      </View>
+      {(p.items ?? []).map((m, i) => (
+        <View key={i} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start', marginTop: 10 }}>
+          <View style={s.rxPic}>
+            <Text style={{ color: C.jadeD, fontSize: 15 }}>℞</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: F.sansSemi, fontSize: 15, color: C.ink }}>{medName(m)}</Text>
+            {medDetail(m) ? <Text style={[s.sub, { marginTop: 1 }]}>{medDetail(m)}</Text> : null}
+          </View>
+        </View>
+      ))}
+      {(!p.items || p.items.length === 0) && <Text style={[s.sub, { marginTop: 4 }]}>No items listed.</Text>}
+      {p.refillable ? <Badge text={`${p.refills_remaining} refills left`} /> : null}
+    </View>
+  )
+}
+
+const s = StyleSheet.create({
+  card: { backgroundColor: '#fff', borderWidth: 1, borderColor: C.line, borderRadius: 14, padding: 15, marginBottom: 10 },
+  row: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+  title: { flex: 1, fontFamily: F.sansBold, fontSize: 17, color: C.ink },
+  sub: { fontFamily: F.sans, fontSize: 15, color: C.muted },
+  date: { fontFamily: F.mono, fontSize: 12.5, color: C.jadeD },
+  vital: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10, backgroundColor: 'rgba(13,31,36,0.03)' },
+  rxPic: { width: 26, height: 26, borderRadius: 8, backgroundColor: C.jadeTint, alignItems: 'center', justifyContent: 'center' },
 })

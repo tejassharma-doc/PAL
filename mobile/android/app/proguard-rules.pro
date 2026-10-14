@@ -33,3 +33,7 @@
 -keepattributes Signature
 -keepattributes *Annotation*
 -keepattributes EnclosingMethod
+
+# Navigation / safe-area native views (belt-and-braces; libraries also ship consumer rules)
+-keep class com.swmansion.rnscreens.** { *; }
+-keep class com.th3rdwave.safeareacontext.** { *; }

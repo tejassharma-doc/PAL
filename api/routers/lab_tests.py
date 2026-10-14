@@ -126,7 +126,7 @@ async def get_lab_test_details(
     """Get detailed results for a specific lab test - SECURITY: Only returns if user owns it"""
 
     # SECURITY FIX: Get authenticated user's patient record
-    patient = await _get_user_patient(user, db)
+    patient = await _get_user_patient(current_user, db)
 
     # Get the lab test
     test_result = await db.execute(
@@ -187,7 +187,7 @@ async def create_lab_test(
     """Create a new lab test for a patient - SECURITY: Only allows creating for own patient"""
 
     # SECURITY FIX: Get authenticated user's patient record
-    patient = await _get_user_patient(user, db)
+    patient = await _get_user_patient(current_user, db)
 
     # SECURITY FIX: Verify the requested patient_id matches the authenticated user
     if str(patient.id) != patient_id:

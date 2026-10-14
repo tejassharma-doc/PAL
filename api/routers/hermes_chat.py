@@ -298,6 +298,10 @@ PATIENT DATA TOOLS (Local):
 DOCTOR & APPOINTMENT TOOLS (MCP-DocEHR):
 - Tools for checking doctor availability and booking appointments
 - Use these when user asks about doctors, appointments, or availability
+- Pass the hospital or clinic the user names as clinic_name, and the doctor as doctor_name
+- If a tool reports the clinic or doctor was NOT found, do NOT invent or retry a made-up
+  name. The error lists the available clinics/doctors — read those options back to the
+  user, ask which one they mean, then retry with that EXACT name.
 - ALWAYS confirm booking details with user before making a reservation
 {literature_tools_section}
 
@@ -357,13 +361,24 @@ Patient ID for this conversation: {request.patient_id}
                 # Execute every tool call and append each result
                 for tool_call in message.tool_calls:
                     tool_name = tool_call.function.name
-                    tool_args = json.loads(tool_call.function.arguments)
+                    try:
+                        tool_args = json.loads(tool_call.function.arguments or "{}")
+                    except json.JSONDecodeError:
+                        tool_args = {}
                     logger.info(f"Calling tool: {tool_name} args={tool_args}")
-                    tool_result = await fastmcp_client.call_tool(tool_name, tool_args, db, mcp_token=mcp_token)
+                    try:
+                        tool_result = await fastmcp_client.call_tool(tool_name, tool_args, db, mcp_token=mcp_token)
+                    except Exception as tool_err:
+                        # A single tool failure (e.g. an unmatched clinic/doctor name)
+                        # must NEVER abort the whole chat with a 500. Hand the error
+                        # back to the model so it can recover — typically by asking
+                        # the user to choose from the valid names the error lists.
+                        logger.error(f"Tool {tool_name} failed: {tool_err}")
+                        tool_result = {"error": str(tool_err)}
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
-                        "content": json.dumps(tool_result),
+                        "content": json.dumps(tool_result, default=str),
                     })
 
             if answer is None:

@@ -11,6 +11,8 @@ import type { ConversationSummary, MedicalDocVerifyResult } from '@/lib/api';
 import { VerificationCard } from '@/components/search/VerificationCard';
 import type { MLClassificationResult } from '@/lib/multilingualClassifierTypes';
 import FamilyHubButton from '@/components/family/FamilyHubButton';
+import Markdown, { CopyAnswerButton } from '@/components/Markdown';
+import { Bell, Plus, Search, Settings } from 'lucide-react';
 
 /* ─── Voice capability ────────────────────────────────────────────── */
 // Languages with Kokoro TTS voice packs — "Tap to speak" (voice conversation)
@@ -181,7 +183,7 @@ const MOCK_ANSWER: AnswerData = {
 const PCHIP: Record<string, { dot: string; color: string; border: string; label: string }> = {
   records:     { dot: 'var(--jade)',  color: 'var(--jade-deep)',  border: 'rgba(31,125,107,.4)',  label: 'from your record' },
   evidence:    { dot: 'var(--amber)', color: 'var(--amber-deep)', border: 'rgba(216,162,74,.5)',  label: 'studies cited' },
-  medication:  { dot: 'var(--ink)',   color: 'rgba(13,31,36,.6)', border: 'rgba(13,31,36,.2)',    label: 'estimate' },
+  medication:  { dot: 'var(--ink)',   color: '#4a5a5f', border: 'rgba(13,31,36,.2)',    label: 'estimate' },
   diet:        { dot: 'var(--jade)',  color: 'var(--jade-deep)',  border: 'rgba(31,125,107,.4)',  label: 'nutrition plan' },
   appointment: { dot: 'var(--amber)', color: 'var(--amber-deep)', border: 'rgba(216,162,74,.5)', label: 'booking' },
 };
@@ -191,7 +193,7 @@ function PChip({ agentKey }: { agentKey: string }) {
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 4,
-      fontFamily: 'var(--mono)', fontSize: '0.6rem', borderRadius: 18,
+      fontFamily: 'var(--mono)', fontSize: 12, borderRadius: 18,
       border: `1px solid ${c.border}`, color: c.color,
       padding: '2px 8px', whiteSpace: 'nowrap',
     }}>
@@ -209,7 +211,7 @@ function ThinkingView({ query, agents }: { query: string; agents: AgentState[] }
       <div style={{
         background: 'var(--deep)', color: 'var(--paper)',
         borderRadius: '14px 14px 14px 4px', padding: '12px 15px',
-        fontFamily: 'var(--serif)', fontSize: 14, lineHeight: 1.5,
+        fontFamily: 'var(--serif)', fontSize: 16, lineHeight: 1.5,
         maxWidth: '88%',
       }}>
         {query}
@@ -219,7 +221,7 @@ function ThinkingView({ query, agents }: { query: string; agents: AgentState[] }
       <div style={{ border: '1px solid var(--line)', borderRadius: 14, background: '#fff', padding: 14 }}>
         {/* Header (.th) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: '0.6rem', color: 'var(--jade-deep)' }}>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--jade-deep)' }}>
             working · {agents.length} specialists
           </span>
           <span style={{
@@ -243,7 +245,7 @@ function ThinkingView({ query, agents }: { query: string; agents: AgentState[] }
                 <div style={{
                   width: 22, height: 22, borderRadius: 6, flexShrink: 0,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontFamily: 'var(--mono)', fontSize: '0.7rem', fontWeight: 700,
+                  fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700,
                   background: isDone
                     ? 'rgba(55,181,155,.16)'
                     : isLive ? 'var(--jade)' : 'var(--mist)',
@@ -253,17 +255,17 @@ function ThinkingView({ query, agents }: { query: string; agents: AgentState[] }
                 </div>
 
                 {/* Label — description */}
-                <div style={{ flex: 1, minWidth: 0, fontSize: '0.8rem', lineHeight: 1.3 }}>
+                <div style={{ flex: 1, minWidth: 0, fontSize: 14, lineHeight: 1.3 }}>
                   <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{a.label}</span>
-                  <span style={{ color: 'rgba(13,31,36,0.45)' }}>
+                  <span style={{ color: '#4a5a5f' }}>
                     {' — '}{isDone ? a.doneDesc : a.desc}
                   </span>
                 </div>
 
                 {/* Source */}
                 <span style={{
-                  fontFamily: 'var(--mono)', fontSize: '0.58rem',
-                  color: 'rgba(13,31,36,0.4)', whiteSpace: 'nowrap', flexShrink: 0,
+                  fontFamily: 'var(--mono)', fontSize: 12,
+                  color: '#4a5a5f', whiteSpace: 'nowrap', flexShrink: 0,
                 }}>
                   {a.src}
                 </span>
@@ -284,12 +286,12 @@ function OnDeviceView({ query, response, onBack }: { query: string; response: st
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
           <path d="M11 4l-5 5 5 5" stroke="var(--ink)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.5"/>
         </svg>
-        <span style={{ fontSize: 12, color: 'rgba(13,31,36,0.5)', fontWeight: 500 }}>New search</span>
+        <span style={{ fontSize: 14, color: '#4a5a5f', fontWeight: 500 }}>New search</span>
       </button>
       <div style={{
         background: 'var(--deep)', color: 'var(--paper)',
         borderRadius: '14px 14px 14px 4px', padding: '12px 15px',
-        fontFamily: 'var(--serif)', fontSize: 14, lineHeight: 1.5, maxWidth: '88%',
+        fontFamily: 'var(--serif)', fontSize: 16, lineHeight: 1.5, maxWidth: '88%',
       }}>
         {query}
       </div>
@@ -311,20 +313,20 @@ function SafetyView({ query, kind, onBack }: { query: string; kind: 'emergency' 
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
           <path d="M11 4l-5 5 5 5" stroke="var(--ink)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.5"/>
         </svg>
-        <span style={{ fontSize: 12, color: 'rgba(13,31,36,0.5)', fontWeight: 500 }}>New search</span>
+        <span style={{ fontSize: 14, color: '#4a5a5f', fontWeight: 500 }}>New search</span>
       </button>
       <div style={{
         background: 'var(--deep)', color: 'var(--paper)',
         borderRadius: '14px 14px 14px 4px', padding: '12px 15px',
-        fontFamily: 'var(--serif)', fontSize: 14, lineHeight: 1.5, maxWidth: '88%',
+        fontFamily: 'var(--serif)', fontSize: 16, lineHeight: 1.5, maxWidth: '88%',
       }}>
         {query}
       </div>
       <div style={{ border: `1px solid ${accent}`, borderRadius: 13, padding: '16px', background: bg }}>
-        <p style={{ fontFamily: 'var(--mono)', fontSize: '0.68rem', fontWeight: 700, color: accent, marginBottom: 10, letterSpacing: '0.04em' }}>
+        <p style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: accent, marginBottom: 10, letterSpacing: '0.04em' }}>
           {isEmergency ? '— Emergency' : '— You\'re not alone'}
         </p>
-        <p style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)', lineHeight: 1.7, marginBottom: 14 }}>
+        <p style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)', lineHeight: 1.7, marginBottom: 14 }}>
           {isEmergency
             ? 'Please call emergency services immediately. PAL cannot assist with emergencies — please seek help right away.'
             : 'If you\'re having thoughts of hurting yourself, please reach out to a counsellor. You deserve support.'}
@@ -333,7 +335,7 @@ function SafetyView({ query, kind, onBack }: { query: string; kind: 'emergency' 
           <a href={isEmergency ? 'tel:112' : 'tel:+919152987821'} style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             background: accent, borderRadius: 10, padding: '11px',
-            color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none',
+            color: '#fff', fontSize: 15, fontWeight: 700, textDecoration: 'none',
           }}>
             {isEmergency ? 'Call 112 — Emergency' : 'iCall — 9152987821'}
           </a>
@@ -341,7 +343,7 @@ function SafetyView({ query, kind, onBack }: { query: string; kind: 'emergency' 
             <a href="tel:18602662345" style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               borderRadius: 10, padding: '10px', border: `1px solid ${accent}`,
-              color: accent, fontSize: 13, fontWeight: 600, textDecoration: 'none',
+              color: accent, fontSize: 15, fontWeight: 600, textDecoration: 'none',
             }}>
               Vandrevala Foundation — 1860 266 2345
             </a>
@@ -361,7 +363,6 @@ function AnswerView({
   const [dismissedAction, setDismissedAction] = useState(false);
 
   const pendingAction = data.pendingActions?.[0];
-  const paragraphs = data.text.split('\n\n');
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 144px', animation: 'fadeIn 0.2s ease' }}>
@@ -370,14 +371,14 @@ function AnswerView({
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
           <path d="M11 4l-5 5 5 5" stroke="var(--ink)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.5"/>
         </svg>
-        <span style={{ fontSize: 12, color: 'rgba(13,31,36,0.5)', fontWeight: 500 }}>New search</span>
+        <span style={{ fontSize: 14, color: '#4a5a5f', fontWeight: 500 }}>New search</span>
       </button>
 
       {/* Query recall bubble (.qrecall) */}
       <div style={{
         background: 'var(--deep)', color: 'var(--paper)',
         borderRadius: '14px 14px 14px 4px', padding: '12px 15px',
-        fontFamily: 'var(--serif)', fontSize: 14, lineHeight: 1.5,
+        fontFamily: 'var(--serif)', fontSize: 16, lineHeight: 1.5,
         maxWidth: '88%', marginBottom: 12,
       }}>
         {query}
@@ -389,29 +390,29 @@ function AnswerView({
           border: '1px solid rgba(194,103,94,.4)', borderRadius: 13, padding: '14px',
           marginBottom: 12, background: 'rgba(194,103,94,.06)', animation: 'fadeIn 0.3s ease',
         }}>
-          <p style={{ fontFamily: 'var(--mono)', fontSize: '0.68rem', fontWeight: 700, color: 'var(--rose)', marginBottom: 6, letterSpacing: '0.04em' }}>
+          <p style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: 'var(--rose)', marginBottom: 6, letterSpacing: '0.04em' }}>
             Use your health record?
           </p>
-          <p style={{ fontFamily: 'var(--serif)', fontSize: 13, color: 'rgba(13,31,36,0.6)', lineHeight: 1.55, marginBottom: 12 }}>
+          <p style={{ fontFamily: 'var(--serif)', fontSize: 15, color: '#4a5a5f', lineHeight: 1.55, marginBottom: 12 }}>
             PAL can personalise this answer using your vitals and labs — for this session only.
           </p>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => setShowConsent(false)} style={{
               flex: 1, padding: '9px 0', borderRadius: 10,
               background: 'var(--jade)', border: 'none', cursor: 'pointer',
-              color: 'var(--deep-2)', fontSize: 12, fontWeight: 700,
+              color: 'var(--deep-2)', fontSize: 14, fontWeight: 700,
             }}>
               Use my record
             </button>
             <button onClick={() => setShowConsent(false)} style={{
               flex: 1, padding: '9px 0', borderRadius: 10,
               background: 'transparent', border: '1px solid var(--line-2)', cursor: 'pointer',
-              color: 'rgba(13,31,36,0.6)', fontSize: 12, fontWeight: 600,
+              color: '#4a5a5f', fontSize: 14, fontWeight: 600,
             }}>
               Keep it general
             </button>
           </div>
-          <p style={{ fontFamily: 'var(--mono)', fontSize: '0.58rem', color: 'rgba(13,31,36,0.35)', marginTop: 10, textAlign: 'center' }}>
+          <p style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f', marginTop: 10, textAlign: 'center' }}>
             PAL never books or messages without this step.
           </p>
         </div>
@@ -425,10 +426,9 @@ function AnswerView({
         </div>
 
         {/* Answer text */}
-        <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)', lineHeight: 1.7 }}>
-          {paragraphs.map((para, i) => (
-            <p key={i} style={i < paragraphs.length - 1 ? { marginBottom: 12 } : undefined}>{para}</p>
-          ))}
+        <Markdown text={data.text} />
+        <div style={{ marginTop: 8 }}>
+          <CopyAnswerButton text={data.text} />
         </div>
 
         {/* Provenance toggle (.followups dashed top) */}
@@ -437,7 +437,7 @@ function AnswerView({
             background: 'none', border: 'none', cursor: 'pointer', padding: 0,
             display: 'flex', alignItems: 'center', gap: 4, width: '100%',
           }}>
-            <span style={{ fontFamily: 'var(--mono)', fontSize: '0.66rem', color: 'var(--jade-deep)', fontWeight: 700, flex: 1, textAlign: 'left' }}>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--jade-deep)', fontWeight: 700, flex: 1, textAlign: 'left' }}>
               Why do you think that?
             </span>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ transform: showProvenance ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }}>
@@ -445,7 +445,7 @@ function AnswerView({
             </svg>
           </button>
           {showProvenance && (
-            <p style={{ fontFamily: 'var(--mono)', fontSize: '0.64rem', color: 'rgba(13,31,36,0.55)', lineHeight: 1.6, whiteSpace: 'pre-line', marginTop: 10, animation: 'fadeIn 0.2s ease' }}>
+            <p style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f', lineHeight: 1.6, whiteSpace: 'pre-line', marginTop: 10, animation: 'fadeIn 0.2s ease' }}>
               {data.provenanceSummary}
             </p>
           )}
@@ -455,11 +455,11 @@ function AnswerView({
       {/* Citations */}
       {data.citations.length > 0 && (
         <div style={{ marginBottom: 10 }}>
-          <p style={{ fontFamily: 'var(--mono)', fontSize: '0.58rem', color: 'rgba(13,31,36,0.4)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
+          <p style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
             Sources
           </p>
           {data.citations.map((c, i) => (
-            <p key={i} style={{ fontFamily: 'var(--mono)', fontSize: '0.64rem', color: 'rgba(13,31,36,0.55)', lineHeight: 1.5, marginBottom: 4 }}>
+            <p key={i} style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f', lineHeight: 1.5, marginBottom: 4 }}>
               [{i + 1}] {c.title}
             </p>
           ))}
@@ -470,7 +470,7 @@ function AnswerView({
       <button onClick={onSecondOpinion} style={{
         width: '100%', padding: '10px', borderRadius: 12,
         border: '1px solid var(--line-2)', background: 'transparent',
-        cursor: 'pointer', fontSize: 12, color: 'rgba(13,31,36,0.5)',
+        cursor: 'pointer', fontSize: 12, color: '#4a5a5f',
         fontFamily: 'var(--mono)', fontWeight: 400, marginBottom: 8,
       }}>
         This doesn&apos;t seem right — get a second opinion
@@ -483,22 +483,22 @@ function AnswerView({
           borderRadius: 14, padding: '16px', marginBottom: 8,
         }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
-            <p style={{ fontFamily: 'var(--mono)', fontSize: '0.58rem', fontWeight: 700, color: 'rgba(255,255,255,0.45)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+            <p style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.45)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
               Suggested action
             </p>
             <button onClick={() => setDismissedAction(true)} style={{
               background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-              fontFamily: 'var(--mono)', fontSize: '0.58rem', color: 'rgba(255,255,255,0.35)',
+              fontFamily: 'var(--mono)', fontSize: 12, color: 'rgba(255,255,255,0.35)',
               lineHeight: 1,
             }}>
               ✕
             </button>
           </div>
-          <p style={{ fontFamily: 'var(--serif)', fontSize: 14, color: '#fff', marginBottom: 4, lineHeight: 1.4 }}>
+          <p style={{ fontFamily: 'var(--serif)', fontSize: 16, color: '#fff', marginBottom: 4, lineHeight: 1.4 }}>
             {pendingAction.description}
           </p>
           {pendingAction.action_payload && (
-            <p style={{ fontFamily: 'var(--mono)', fontSize: '0.64rem', color: 'rgba(255,255,255,0.45)', marginBottom: 14 }}>
+            <p style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 14 }}>
               {[
                 pendingAction.action_payload.clinic,
                 pendingAction.action_payload.department,
@@ -509,13 +509,13 @@ function AnswerView({
           <button style={{
             width: '100%', padding: '10px', borderRadius: 10,
             background: 'var(--jade)', border: 'none', cursor: 'pointer',
-            color: 'var(--deep-2)', fontSize: 13, fontWeight: 700,
+            color: 'var(--deep-2)', fontSize: 15, fontWeight: 700,
           }}>
             Review &amp; confirm booking
           </button>
           <button onClick={() => setDismissedAction(true)} style={{
             width: '100%', marginTop: 10, background: 'none', border: 'none', cursor: 'pointer',
-            fontFamily: 'var(--mono)', fontSize: '0.6rem', color: 'rgba(255,255,255,0.3)',
+            fontFamily: 'var(--mono)', fontSize: 12, color: 'rgba(255,255,255,0.3)',
             padding: '4px 0',
           }}>
             Not now
@@ -545,7 +545,7 @@ function UploadingView() {
         <p style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)', fontWeight: 500, marginBottom: 4 }}>
           Extracting health data
         </p>
-        <p style={{ fontFamily: 'var(--mono)', fontSize: '0.68rem', color: 'rgba(13,31,36,0.5)', lineHeight: 1.5 }}>
+        <p style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f', lineHeight: 1.5 }}>
           Medical Data Toolkit is reading your document…
         </p>
       </div>
@@ -911,10 +911,10 @@ function SearchContent() {
                   {userName ? userName[0].toUpperCase() : 'A'}
                 </div>
                 <div style={{ textAlign: 'left' }}>
-                  <div style={{ fontWeight: 700, fontSize: '0.92rem', color: 'var(--ink)', lineHeight: 1.2 }}>
+                  <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--ink)', lineHeight: 1.2 }}>
                     {userName || 'Anil'}
                   </div>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: '0.6rem', color: 'var(--ink)', opacity: 0.5 }}>
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f' }}>
                     your record · active
                   </div>
                 </div>
@@ -922,46 +922,46 @@ function SearchContent() {
               {/* + Add family member shortcut */}
               <button
                 onClick={() => router.push('/family')}
+                aria-label="Add family member"
+                title="Add family member"
                 style={{
                   background: 'none', border: 'none', cursor: 'pointer',
-                  padding: '2px 3px', lineHeight: 1, color: 'var(--jade-deep)',
-                  opacity: 0.6, fontSize: '1.15rem', fontWeight: 300, marginLeft: 2,
+                  padding: 0, width: 32, height: 40, display: 'grid', placeItems: 'center',
+                  color: 'var(--jade-deep)', flexShrink: 0,
                 }}
               >
-                +
+                <Plus size={20} strokeWidth={2} />
               </button>
             </div>
 
-            {/* Right: family hub + settings gear + bell */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <FamilyHubButton />
+            {/* Right: family group chat + settings + bell */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <FamilyHubButton size={40} />
               <button
                 onClick={() => router.push('/history/settings')}
+                aria-label="Settings"
+                title="Settings"
                 style={{
-                  width: 32, height: 32, borderRadius: 10,
-                  border: '1px solid rgba(13,31,36,.10)', background: '#fff',
-                  cursor: 'pointer', display: 'grid', placeItems: 'center',
-                  fontSize: '0.85rem', color: 'rgba(13,31,36,0.45)',
+                  width: 40, height: 40, borderRadius: 12,
+                  border: '1px solid rgba(13,31,36,.14)', background: '#fff',
+                  cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 0,
                 }}
               >
-                ⚙
+                <Settings size={20} strokeWidth={2} color="#2f3b40" />
               </button>
-              <button style={{
-                width: 34, height: 34, borderRadius: 11,
-                border: '1px solid rgba(13,31,36,.10)', background: '#fff',
+              <button aria-label="Notifications" title="Notifications" style={{
+                width: 40, height: 40, borderRadius: 12,
+                border: '1px solid rgba(13,31,36,.14)', background: '#fff',
                 cursor: 'pointer', display: 'grid', placeItems: 'center',
-                position: 'relative', flexShrink: 0,
+                position: 'relative', flexShrink: 0, padding: 0,
               }}>
-                <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-                  <path d="M8.5 17.5h3M10 3C7 3 4.5 5.5 4.5 8.5V13l-1.5 2.5h14L15.5 13V8.5C15.5 5.5 13 3 10 3z"
-                    stroke="#0d1f24" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+                <Bell size={20} strokeWidth={2} color="#2f3b40" />
                 <span style={{
-                  position: 'absolute', top: -4, right: -4,
-                  width: 16, height: 16, borderRadius: '50%',
+                  position: 'absolute', top: -5, right: -5,
+                  width: 18, height: 18, borderRadius: '50%',
                   background: '#c2675e', color: '#fff',
-                  fontFamily: "'Space Mono', monospace",
-                  fontSize: '0.54rem', fontWeight: 700,
+                  fontFamily: "'Space Grotesk', ui-sans-serif, sans-serif",
+                  fontSize: 12, fontWeight: 700, lineHeight: 1,
                   display: 'grid', placeItems: 'center',
                 }}>
                   3
@@ -981,7 +981,7 @@ function SearchContent() {
               <em style={{ fontStyle: 'italic', color: 'var(--jade-deep)' }}>mind?</em>
             </p>
             {/* .hello-sub */}
-            <p style={{ fontSize: '0.86rem', opacity: 0.6, marginTop: -6 }}>
+            <p style={{ fontSize: 15, color: '#4a5a5f', marginTop: -6 }}>
               Ask anything — general, or about you.
             </p>
 
@@ -991,7 +991,7 @@ function SearchContent() {
               padding: '15px 16px', display: 'flex', alignItems: 'center', gap: 10,
               boxShadow: '0 1px 4px rgba(13,31,36,.06)',
             }}>
-              <span style={{ color: 'rgba(13,31,36,0.3)', fontSize: 17, lineHeight: 1 }}>⌕</span>
+              <span style={{ color: '#2f3b40', display: 'grid', placeItems: 'center', flexShrink: 0 }} aria-hidden="true"><Search size={20} strokeWidth={2} /></span>
               <input
                 value={query}
                 onChange={e => setQuery(e.target.value)}
@@ -999,7 +999,7 @@ function SearchContent() {
                 placeholder="Ask about your health…"
                 style={{
                   flex: 1, background: 'none', border: 'none', outline: 'none',
-                  fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)',
+                  fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)',
                 }}
               />
               {/* Paperclip — MDT document upload */}
@@ -1045,7 +1045,7 @@ function SearchContent() {
             {/* Interim STT transcript */}
             {sttInterim && (
               <p style={{
-                fontFamily: 'var(--mono)', fontSize: '0.68rem', color: 'var(--jade-deep)',
+                fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--jade-deep)',
                 marginTop: -8, paddingLeft: 2, animation: 'fadeIn 0.15s ease',
               }}>
                 {sttInterim}…
@@ -1053,7 +1053,7 @@ function SearchContent() {
             )}
 
             {/* .hint — dynamic based on lang TTS + recording state */}
-            <p style={{ fontFamily: 'var(--mono)', fontSize: '0.6rem', opacity: 0.45, textAlign: 'center', marginTop: -6 }}>
+            <p style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f', textAlign: 'center', marginTop: -6 }}>
               {isRecording
                 ? '● listening…'
                 : langHasTTS
@@ -1064,7 +1064,7 @@ function SearchContent() {
             {/* Continue section (.lbl + .sugg) */}
             {recentConvs.length > 0 && (
               <>
-                <p style={{ fontFamily: 'var(--mono)', fontSize: '0.62rem', letterSpacing: '0.14em', textTransform: 'uppercase', opacity: 0.5, marginBottom: -5 }}>
+                <p style={{ fontFamily: 'var(--mono)', fontSize: 12, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: -5 }}>
                   Continue
                 </p>
                 {recentConvs.map(conv => (
@@ -1081,15 +1081,15 @@ function SearchContent() {
                       width: 22, height: 22, borderRadius: 7, flexShrink: 0,
                       background: conv.scope_tag === 'personal' ? 'rgba(55,181,155,.14)' : 'rgba(13,31,36,.07)',
                       color: conv.scope_tag === 'personal' ? 'var(--jade-deep)' : 'rgba(13,31,36,0.4)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14,
                     }}>
                       {conv.scope_tag === 'personal' ? '☘' : '⌕'}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <p style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {conv.title || 'Untitled conversation'}
                       </p>
-                      <p style={{ fontFamily: 'var(--mono)', fontSize: '0.6rem', color: 'rgba(13,31,36,0.4)', marginTop: 2 }}>
+                      <p style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f', marginTop: 2 }}>
                         {conv.scope_tag === 'personal' ? 'uses your record' : 'general'} · {formatRelTime(conv.updated_at)}
                       </p>
                     </div>
@@ -1102,7 +1102,7 @@ function SearchContent() {
             )}
 
             {/* Try asking (.lbl + .quick) */}
-            <p style={{ fontFamily: 'var(--mono)', fontSize: '0.62rem', letterSpacing: '0.14em', textTransform: 'uppercase', opacity: 0.5, marginBottom: -5 }}>
+            <p style={{ fontFamily: 'var(--mono)', fontSize: 12, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: -5 }}>
               Try asking
             </p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}>
@@ -1113,10 +1113,10 @@ function SearchContent() {
                   cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 4,
                 }}>
                   <span style={{ fontSize: 15, lineHeight: 1 }}>{item.icon}</span>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 500, color: 'var(--ink)', lineHeight: 1.3 }}>
+                  <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)', lineHeight: 1.3 }}>
                     {item.text}
                   </span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: '0.58rem', color: 'rgba(13,31,36,0.4)' }}>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f' }}>
                     {item.sub}
                   </span>
                 </button>
@@ -1157,7 +1157,7 @@ function SearchContent() {
               width: 8, height: 8, borderRadius: '50%', background: '#fff',
               display: 'inline-block', animation: 'pulse-dot 1s infinite',
             }} />
-            <span style={{ fontFamily: 'var(--mono)', fontSize: '0.62rem', color: '#fff', fontWeight: 700 }}>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#fff', fontWeight: 700 }}>
               PAL is speaking
             </span>
           </div>
@@ -1166,7 +1166,7 @@ function SearchContent() {
             style={{
               background: 'rgba(255,255,255,.22)', border: 'none', borderRadius: 7,
               padding: '4px 9px', cursor: 'pointer',
-              fontFamily: 'var(--mono)', fontSize: '0.6rem', color: '#fff', fontWeight: 700,
+              fontFamily: 'var(--mono)', fontSize: 12, color: '#fff', fontWeight: 700,
             }}
           >
             stop
@@ -1232,7 +1232,7 @@ function SearchContent() {
               placeholder="Ask a follow-up…"
               style={{
                 flex: 1, background: 'none', border: 'none', outline: 'none',
-                fontFamily: 'var(--serif)', fontSize: 13, color: 'var(--ink)',
+                fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)',
                 fontStyle: isRecording ? 'italic' : 'normal',
               }}
             />

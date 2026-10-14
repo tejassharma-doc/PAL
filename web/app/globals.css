@@ -17,8 +17,10 @@
   --rose: #c2675e;
   --blue: #5a8fa8;
   --blue-deep: #33607a;
-  --line: rgba(13,31,36,.10);
-  --line-2: rgba(13,31,36,.16);
+  --line: rgba(13,31,36,.14);
+  --line-2: rgba(13,31,36,.20);
+  --muted: #4a5a5f;   /* secondary text — use instead of faded opacity */
+  --icon: #2f3b40;    /* default icon colour */
   --shadow-sm: 0 1px 2px rgba(13,31,36,.05), 0 6px 18px -10px rgba(13,31,36,.16);
   --shadow: 0 1px 2px rgba(13,31,36,.06), 0 18px 50px -18px rgba(13,31,36,.28);
   --serif: 'Newsreader', Georgia, serif;
@@ -31,7 +33,8 @@
 body {
   font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
   background: var(--deep-2);
-  color: var(--ink);
+  color: #0d1f24;
+  font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }

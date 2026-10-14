@@ -1,305 +1,176 @@
-import React, { useState, useEffect, useRef } from 'react'
-import {
-  View, Text, ScrollView, Pressable, StyleSheet, Animated,
-} from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import AsyncStorage from '@react-native-async-storage/async-storage'
-import { PAL, FONT, RADIUS, SPACE } from '../theme'
-import { initiateCall } from '../lib/api'
-import HermesIncomingModal from '../components/HermesIncomingModal'
-import HermesChatScreen from '../components/HermesChatScreen'
+/**
+ * Visits — the website's "Your visits": dark gradient UPCOMING card with
+ * "Prepare with PAL", past visits as white cards, and the
+ * "clinician-canonical" note.
+ */
+import React, { useState } from 'react'
+import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native'
+import { C, DEEP_GRAD, F, T } from '../theme'
+import { Badge, Body, Empty, ErrorBox, Loading, PageTitle, Slab, useFocusLoad } from '../components/ui'
+import { Gradient } from '../components/icons'
+import { TabChrome } from '../components/Chrome'
+import { medDetail, medName } from './RecordsScreen'
+import * as api from '../lib/api'
 
-const VOICE_LANGS = new Set(['en', 'hi', 'pa', 'bn'])
+export default function VisitsScreen({ navigation }: any) {
+  const { data, error, loading, refreshing, reload } = useFocusLoad(api.getVisits)
+  const next = data?.upcoming[data.upcoming.length - 1] // list is newest-first; the soonest is last
+  const laterUpcoming = data?.upcoming.filter(v => v !== next) ?? []
 
-type CallPhase = 'idle' | 'incoming' | 'connecting' | 'active'
-
-export default function VisitsScreen() {
-  const [callPhase, setCallPhase] = useState<CallPhase>('idle')
-  const [sessionId, setSessionId] = useState<string | null>(null)
-  const [greeting, setGreeting] = useState('')
-  const [callError, setCallError] = useState<string | null>(null)
-  const [lang, setLang] = useState('en')
-  const dot1 = useRef(new Animated.Value(0)).current
-  const dot2 = useRef(new Animated.Value(0)).current
-  const dot3 = useRef(new Animated.Value(0)).current
-
-  useEffect(() => {
-    AsyncStorage.getItem('pal_lang').then(l => { if (l) setLang(l) })
-  }, [])
-
-  const hasVoice = VOICE_LANGS.has(lang)
-
-  useEffect(() => {
-    if (callPhase !== 'idle') { dot1.setValue(0); dot2.setValue(0); dot3.setValue(0); return }
-    function bouncer(val: Animated.Value, delay: number) {
-      return Animated.loop(
-        Animated.sequence([
-          Animated.delay(delay),
-          Animated.timing(val, { toValue: 1, duration: 180, useNativeDriver: true }),
-          Animated.timing(val, { toValue: 0, duration: 180, useNativeDriver: true }),
-          Animated.delay(840),
-        ]),
-      )
-    }
-    const a1 = bouncer(dot1, 0)
-    const a2 = bouncer(dot2, 220)
-    const a3 = bouncer(dot3, 440)
-    a1.start(); a2.start(); a3.start()
-    return () => { a1.stop(); a2.stop(); a3.stop() }
-  }, [callPhase])
-
-  async function startSession() {
-    setCallPhase('connecting')
-    setCallError(null)
-    try {
-      const session = await initiateCall({
-        doctorId: 'rao-001',
-        doctorName: 'Dr. Rao',
-        patientName: 'Anil',
-        appointmentReason: 'Lipid review',
-      })
-      setSessionId(session.session_id)
-      setGreeting(
-        session.hermes_response ??
-        (hasVoice
-          ? 'Hello Anil, this is Hermes calling about your upcoming appointment with Dr. Rao.'
-          : "Hi Anil! I'm Hermes. I'm reaching out about your lipid review with Dr. Rao on 26 Jun at 11:30. Any questions, or would you like to reschedule?"),
-      )
-      setCallPhase('active')
-    } catch {
-      if (__DEV__) {
-        setSessionId('dev-mock-session')
-        setGreeting(
-          "Hi Anil! I'm Hermes. I'm reaching out about your lipid review with Dr. Rao on 26 Jun at 11:30 AM. Any questions, or would you like to reschedule?",
-        )
-        setCallPhase('active')
-      } else {
-        setCallError('Could not connect — is the backend running?')
-        setCallPhase('idle')
-      }
-    }
-  }
-
-  const handleAccept = () => startSession()
-  const handleDecline = () => { setCallPhase('idle'); setCallError(null) }
-  const handleEndCall = () => {
-    setCallPhase('idle'); setSessionId(null); setGreeting(''); setCallError(null)
-  }
-
-  const dotStyle = (val: Animated.Value): object => ({
-    transform: [{ translateY: val.interpolate({ inputRange: [0, 1], outputRange: [0, -3] }) }],
-    opacity: val.interpolate({ inputRange: [0, 1], outputRange: [0.25, 1] }),
-  })
-
-  // Full-screen chat when active
-  if (callPhase === 'active' && sessionId) {
-    return (
-      <HermesChatScreen
-        sessionId={sessionId}
-        greeting={greeting}
-        doctorName="Dr. Rao"
-        lang={lang}
-        textOnly={!hasVoice}
-        onEnd={handleEndCall}
-      />
-    )
-  }
+  const prepare = (v?: api.Visit) =>
+    navigation.navigate('Ask', {
+      prefill: v ? `Help me prepare for my visit${v.doctor_name ? ` with Dr ${v.doctor_name}` : ''} about ${v.reason}` : undefined,
+    })
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        <Text style={styles.heading}>Your visits</Text>
-        <Text style={styles.sub}>Every plan here comes from your care team.</Text>
+    <View style={{ flex: 1, backgroundColor: C.soft }}>
+      <TabChrome title="Visits" sub="appointments" />
+      {loading ? (
+        <Loading />
+      ) : (
+        <Body refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} colors={[C.jade]} />}>
+          <PageTitle title="Your visits" lead="Every plan here comes from your care team." />
+          {error ? <ErrorBox message={error} onRetry={reload} /> : null}
 
-        {/* Appointment card */}
-        <View style={styles.apptCard}>
-          <Text style={styles.upcoming}>◷ upcoming</Text>
-          <Text style={styles.apptTitle}>Lipid review · Dr. Rao</Text>
-          <Text style={styles.apptTime}>Thu 26 Jun, 11:30 · City Clinic OPD</Text>
-
-          {/* Hermes indicator */}
-          {callPhase === 'idle' && (
-            <View style={styles.hermRow}>
-              <View style={styles.hermBadge}>
-                <Text style={styles.hermBadgeText}>H</Text>
-              </View>
-              <View style={styles.hermLabelWrap}>
-                {hasVoice ? (
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Text style={styles.hermText}>Hermes is calling</Text>
-                    {[dot1, dot2, dot3].map((d, i) => (
-                      <Animated.Text key={i} style={[styles.hermDot, dotStyle(d)]}>.</Animated.Text>
-                    ))}
-                  </View>
-                ) : (
-                  <Text style={styles.hermText}>Hermes wants to chat</Text>
-                )}
-              </View>
-              <View style={[
-                styles.hermPulse,
-                { backgroundColor: hasVoice ? PAL.jade : '#5a8fa8' },
-              ]} />
+          {/* Upcoming hero */}
+          <View style={s.hero}>
+            <Gradient colors={DEEP_GRAD} angle={160} radius={16} />
+            <Text style={s.heroSlab}>UPCOMING</Text>
+            {next ? (
+              <>
+                <Text style={s.heroTitle}>{next.reason}</Text>
+                <Text style={s.heroMeta}>
+                  {[next.date, next.time].filter(Boolean).join(' · ')}
+                  {next.doctor_name ? `  ·  Dr ${next.doctor_name.replace(/^dr\.?\s*/i, '')}` : ''}
+                  {next.clinic_name ? `  ·  ${next.clinic_name}` : ''}
+                </Text>
+              </>
+            ) : (
+              <Text style={s.heroTitle}>No upcoming visits</Text>
+            )}
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+              <Pressable style={[s.heroBtn, { backgroundColor: C.jade }]} onPress={() => prepare(next)}>
+                <Text style={[s.heroBtnText, { color: C.deep2 }]}>Prepare with PAL</Text>
+              </Pressable>
+              {next?.previsit_status ? (
+                <View style={[s.heroBtn, { backgroundColor: 'rgba(55,181,155,0.15)' }]}>
+                  <Text style={[s.heroBtnText, { color: C.jade }]}>Pre-visit · {next.previsit_status}</Text>
+                </View>
+              ) : null}
             </View>
+          </View>
+
+          {laterUpcoming.length > 0 && (
+            <>
+              <Slab>Also coming up</Slab>
+              {laterUpcoming.map(v => (
+                <VisitCard key={v.id} v={v} />
+              ))}
+            </>
           )}
 
-          {callError && <Text style={styles.errorText}>{callError}</Text>}
+          {data && data.past.length > 0 ? (
+            <>
+              <Slab>Past visits</Slab>
+              {data.past.map(v => (
+                <VisitCard key={v.id} v={v} />
+              ))}
+            </>
+          ) : data && data.upcoming.length === 0 ? (
+            <Empty icon="calendar-days" title="No visits yet" body="Your booked appointments will appear here." />
+          ) : null}
 
-          <View style={styles.btnRow}>
-            <Pressable
-              style={[styles.prepBtn, callPhase === 'connecting' && styles.prepDisabled]}
-              onPress={hasVoice ? () => setCallPhase('incoming') : startSession}
-              disabled={callPhase === 'connecting'}
-            >
-              <Text style={styles.prepText}>
-                {callPhase === 'connecting' ? 'Connecting…' : 'Prepare with PAL'}
-              </Text>
-            </Pressable>
-            <Pressable style={styles.reschedBtn} onPress={startSession}>
-              <Text style={styles.reschedText}>Reschedule</Text>
-            </Pressable>
+          <View style={s.canon}>
+            <Badge text="⛁ clinician-canonical" tone="blue" />
+            <Text style={[T.lead, { flex: 1, fontSize: 15 }]}>Plans are your team's own words — never altered by AI.</Text>
           </View>
-        </View>
-
-        {/* Care plans */}
-        <Text style={styles.sectionLabel}>Care plans</Text>
-
-        <View style={styles.careCard}>
-          <View style={styles.careRow}>
-            <View style={[styles.careAvatar, { backgroundColor: '#33607a' }]}>
-              <Text style={styles.careAvatarText}>R</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.careName}>Dr. Rao</Text>
-              <Text style={styles.careRole}>Physician · OPD</Text>
-            </View>
-            <Text style={styles.careDate}>12 May 2026</Text>
-          </View>
-          <View style={styles.carePlanRow}>
-            <Text style={styles.carePlanText}>⛁ Cardiometabolic care plan</Text>
-            <Text style={styles.carePlanArrow}>open →</Text>
-          </View>
-        </View>
-
-        <View style={styles.careCard}>
-          <View style={styles.careRow}>
-            <View style={[styles.careAvatar, { backgroundColor: PAL.jadeDeep }]}>
-              <Text style={styles.careAvatarText}>S</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.careName}>Sneha</Text>
-              <Text style={styles.careRole}>Nutritionist · iNutriMon</Text>
-            </View>
-            <Text style={styles.careDate}>8 May 2026</Text>
-          </View>
-          <View style={styles.carePlanRow}>
-            <Text style={styles.carePlanText}>☘ Cholesterol nutrition plan</Text>
-            <Text style={styles.carePlanArrow}>open →</Text>
-          </View>
-        </View>
-
-        <View style={styles.evidenceRow}>
-          <View style={styles.evidenceBadge}>
-            <Text style={styles.evidenceBadgeText}>⛁ clinician-canonical</Text>
-          </View>
-          <Text style={styles.evidenceText}>
-            Plans are your team's own words — never altered by AI.
-          </Text>
-        </View>
-      </ScrollView>
-
-      <HermesIncomingModal
-        visible={callPhase === 'incoming' || callPhase === 'connecting'}
-        doctorName="Dr. Rao"
-        appointmentLabel="Lipid review · 26 Jun"
-        isConnecting={callPhase === 'connecting'}
-        onAccept={handleAccept}
-        onDecline={handleDecline}
-      />
-    </SafeAreaView>
+        </Body>
+      )}
+    </View>
   )
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: PAL.bg },
-  scroll: { flex: 1 },
-  content: { padding: SPACE.lg, paddingBottom: 100 },
-  heading: {
-    fontFamily: FONT.serif, fontSize: 26, fontWeight: '300',
-    color: PAL.textDark, marginBottom: 4,
+function VisitCard({ v }: { v: api.Visit }) {
+  const [open, setOpen] = useState(false)
+  const notes = !!(v.patient_summary || v.management_plan)
+  return (
+    <Pressable onPress={() => setOpen(o => !o)} style={({ pressed }) => [s.card, pressed && { opacity: 0.9 }]}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
+        <Text style={s.title} numberOfLines={2}>
+          {v.reason}
+        </Text>
+        <Badge text={v.status} tone={v.status === 'cancelled' ? 'grey' : 'jade'} />
+      </View>
+      <Text style={[s.date, { marginTop: 4 }]}>
+        {[v.date, v.time].filter(Boolean).join(' · ')}
+        {v.doctor_name ? `  ·  Dr ${v.doctor_name.replace(/^dr\.?\s*/i, '')}` : ''}
+      </Text>
+      {v.clinic_name ? <Text style={[s.sub, { marginTop: 2 }]}>{v.clinic_name}</Text> : null}
+
+      {open && (
+        <View style={{ marginTop: 12, gap: 12 }}>
+          {v.patient_summary ? <Note label="Summary for you" body={v.patient_summary} /> : null}
+          {v.management_plan ? <Note label="Care plan" body={v.management_plan} /> : null}
+          {v.medications?.length ? (
+            <View>
+              <Text style={[T.slab, { fontSize: 12, marginBottom: 6 }]}>Medicines</Text>
+              {v.medications.map((m, i) => (
+                <Text key={i} style={[s.sub, { opacity: 0.85, marginBottom: 3 }]}>
+                  ℞ {medName(m)}
+                  {medDetail(m) ? ` — ${medDetail(m)}` : ''}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+          {v.lab_tests?.length ? (
+            <View>
+              <Text style={[T.slab, { fontSize: 12, marginBottom: 6 }]}>Tests</Text>
+              {v.lab_tests.map(t => (
+                <Text key={t.id} style={[s.sub, { opacity: 0.85, marginBottom: 3 }]}>
+                  ◎ {t.test_name}
+                  {t.abnormal_flag ? ' · outside range' : ''}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+          {!notes && !v.medications?.length && !v.lab_tests?.length ? <Text style={s.sub}>No notes from this visit yet.</Text> : null}
+        </View>
+      )}
+    </Pressable>
+  )
+}
+
+function Note({ label, body }: { label: string; body: string }) {
+  return (
+    <View>
+      <Text style={[T.slab, { fontSize: 12, marginBottom: 6 }]}>{label}</Text>
+      <Text selectable style={{ fontFamily: F.serif, fontSize: 16.5, lineHeight: 25, color: C.ink }}>
+        {body}
+      </Text>
+    </View>
+  )
+}
+
+const s = StyleSheet.create({
+  hero: { borderRadius: 16, overflow: 'hidden', padding: 16, marginBottom: 8 },
+  heroSlab: { fontFamily: F.mono, fontSize: 12, letterSpacing: 1.4, color: C.jade, marginBottom: 10 },
+  heroTitle: { fontFamily: F.serif, fontSize: 18, color: C.paper, lineHeight: 24 },
+  heroMeta: { fontFamily: F.mono, fontSize: 12, color: C.mist, opacity: 0.7, marginTop: 6 },
+  heroBtn: { flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  heroBtnText: { fontFamily: F.sansBold, fontSize: 15 },
+  card: { backgroundColor: '#fff', borderWidth: 1, borderColor: C.line, borderRadius: 14, padding: 15, marginBottom: 10 },
+  title: { flex: 1, fontFamily: F.sansBold, fontSize: 16.5, color: C.ink },
+  sub: { fontFamily: F.sans, fontSize: 15, color: C.muted, lineHeight: 21 },
+  date: { fontFamily: F.mono, fontSize: 12.5, color: C.jadeD },
+  canon: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: C.line,
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 14,
   },
-  sub: { fontSize: 12, color: PAL.textMuted, marginBottom: SPACE.xl },
-  apptCard: {
-    backgroundColor: PAL.navyMid, borderRadius: RADIUS.md,
-    padding: 15, marginBottom: SPACE.md,
-  },
-  upcoming: {
-    fontFamily: FONT.mono, fontSize: 9, textTransform: 'uppercase',
-    color: PAL.jade, marginBottom: 9,
-  },
-  apptTitle: { fontFamily: FONT.serif, fontSize: 18, color: PAL.cream, marginBottom: 3 },
-  apptTime: { fontSize: 12, color: PAL.creamMuted, marginBottom: SPACE.md },
-  hermRow: {
-    flexDirection: 'row', alignItems: 'center', gap: SPACE.sm,
-    borderTopWidth: 1, borderTopColor: PAL.navyBorder,
-    paddingTop: 10, marginBottom: 10,
-  },
-  hermBadge: {
-    width: 22, height: 22, borderRadius: 6, backgroundColor: PAL.jadeFaint,
-    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-  },
-  hermBadgeText: { fontFamily: FONT.serif, fontSize: 11, color: PAL.jade, fontWeight: '700' },
-  hermLabelWrap: { flex: 1 },
-  hermText: { fontFamily: FONT.mono, fontSize: 14, color: PAL.cream, fontWeight: '700' },
-  hermDot: { fontFamily: FONT.mono, fontSize: 20, color: PAL.jade, lineHeight: 20 },
-  hermPulse: { width: 6, height: 6, borderRadius: 3, flexShrink: 0 },
-  errorText: {
-    fontFamily: FONT.mono, fontSize: 10, color: PAL.rose,
-    textAlign: 'center', marginBottom: 8,
-  },
-  btnRow: { flexDirection: 'row', gap: 8 },
-  prepBtn: {
-    flex: 1, backgroundColor: PAL.jade,
-    borderRadius: RADIUS.sm, padding: 11, alignItems: 'center',
-  },
-  prepDisabled: { opacity: 0.6 },
-  prepText: { color: PAL.navyDeep, fontWeight: '700', fontSize: 12 },
-  reschedBtn: {
-    flex: 1, backgroundColor: PAL.creamFaint,
-    borderRadius: RADIUS.sm, padding: 11, alignItems: 'center',
-  },
-  reschedText: { color: PAL.cream, fontWeight: '600', fontSize: 12 },
-  sectionLabel: {
-    fontFamily: FONT.mono, fontSize: 9, textTransform: 'uppercase',
-    color: PAL.textMuted, marginBottom: SPACE.md, marginLeft: 2,
-  },
-  careCard: {
-    backgroundColor: PAL.surface, borderRadius: RADIUS.md, padding: SPACE.md,
-    marginBottom: 10, borderWidth: 1, borderColor: PAL.surfaceBorder,
-  },
-  careRow: { flexDirection: 'row', gap: 11, marginBottom: 10, alignItems: 'center' },
-  careAvatar: {
-    width: 38, height: 38, borderRadius: 11,
-    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-  },
-  careAvatarText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  careName: { fontWeight: '600', fontSize: 14, color: PAL.textDark },
-  careRole: { fontFamily: FONT.mono, fontSize: 10, color: PAL.textMuted, marginTop: 1 },
-  careDate: { fontFamily: FONT.mono, fontSize: 11, color: PAL.textMuted },
-  carePlanRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    borderTopWidth: 1, borderTopColor: PAL.surfaceBorder, paddingTop: 10,
-  },
-  carePlanText: { fontSize: 12, color: PAL.jadeDeep },
-  carePlanArrow: { fontFamily: FONT.mono, fontSize: 11, color: PAL.jade },
-  evidenceRow: {
-    flexDirection: 'row', gap: 11, backgroundColor: PAL.surface, borderRadius: RADIUS.md,
-    padding: SPACE.md, marginTop: 4, alignItems: 'center',
-    borderWidth: 1, borderColor: PAL.surfaceBorder,
-  },
-  evidenceBadge: {
-    backgroundColor: 'rgba(90,143,168,.14)', borderRadius: 10,
-    paddingHorizontal: 8, paddingVertical: 3, flexShrink: 0,
-  },
-  evidenceBadgeText: { fontFamily: FONT.mono, fontSize: 9, color: '#33607a' },
-  evidenceText: { flex: 1, fontSize: 11, color: PAL.textMuted, lineHeight: 16 },
 })

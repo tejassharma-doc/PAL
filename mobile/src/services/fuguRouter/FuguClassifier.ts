@@ -17,7 +17,17 @@
  *   The rest of this class (centroids, cosine similarity, score reading) stays unchanged.
  */
 
-import {InferenceSession, Tensor} from 'onnxruntime-react-native'
+// onnxruntime-react-native is loaded lazily and only when a model is bundled.
+// Its native JSI helper does not support React Native's New Architecture
+// (bridgeless) and crashed the release app at launch, so it is not autolinked
+// on Android (see react-native.config.js) and must never be required eagerly.
+type InferenceSession = any
+const ONNX_MODEL_BUNDLED = false // flip to true only after bundling the model AND re-enabling native linking
+function ort(): {InferenceSession: any; Tensor: any} {
+  if (!ONNX_MODEL_BUNDLED) throw new Error('ONNX model not bundled')
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  return require('onnxruntime-react-native')
+}
 import {AGENT_PHRASES, COMPLEXITY_PHRASES, detectScope} from './classPrototypes'
 import {classifyKeyword} from './KeywordClassifier'
 import type {AgentName, Complexity, Intent, ClassificationOutput, ScopeCategory} from './types'
@@ -64,7 +74,7 @@ function truncateToTokens(text: string, maxTokens: number): string {
 
 async function ensureSession(): Promise<InferenceSession> {
   if (session) return session
-  session = await InferenceSession.create(MODEL_ASSET)
+  session = await ort().InferenceSession.create(MODEL_ASSET)
   return session
 }
 
@@ -80,7 +90,7 @@ async function embed(texts: string[]): Promise<Float32Array[]> {
   const results: Float32Array[] = []
   for (const text of texts) {
     const prefixed = `query: ${text}`
-    const inputTensor = new Tensor('string', [prefixed], [1, 1])
+    const inputTensor = new (ort().Tensor)('string', [prefixed], [1, 1])
     const feeds = {input: inputTensor}
     const output = await sess.run(feeds)
     // e5-small output key is 'sentence_embedding' or 'last_hidden_state' depending on export
@@ -103,6 +113,10 @@ function buildCentroid(vecs: Float32Array[]): Float32Array {
 
 export async function initClassifier(): Promise<void> {
   if (centroids) return  // already initialised
+  if (!ONNX_MODEL_BUNDLED) {
+    onnxAvailable = false // keyword classifier is used
+    return
+  }
 
   try {
     const agentCentroids = {} as Record<AgentName, Float32Array>

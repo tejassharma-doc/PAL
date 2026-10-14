@@ -3,11 +3,26 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@services/*": ["src/services/*"],
-      "@screens/*": ["src/screens/*"],
-      "@components/*": ["src/components/*"],
-      "@navigation/*": ["src/navigation/*"]
+      "@services/*": [
+        "src/services/*"
+      ],
+      "@screens/*": [
+        "src/screens/*"
+      ],
+      "@components/*": [
+        "src/components/*"
+      ],
+      "@navigation/*": [
+        "src/navigation/*"
+      ]
     },
     "strict": true
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "src/screens/legacy/**",
+    "android",
+    "ios",
+    "__tests__/integration/**"
+  ]
 }

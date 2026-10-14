@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PhoneShell from '@/components/layout/PhoneShell';
+import { ChevronLeft } from 'lucide-react';
 import {
   acceptInvite,
   approveAccess,
@@ -49,7 +50,7 @@ function GroupAvatar({ name, isAdmin }: { name: string; isAdmin: boolean }) {
           width: 14, height: 14, borderRadius: 7,
           background: '#37b59b', border: '2px solid #fff',
           display: 'grid', placeItems: 'center',
-          fontSize: 7, color: '#fff', fontWeight: 800,
+          fontSize: 12.5, color: '#fff', fontWeight: 800,
         }}>
           A
         </span>
@@ -61,7 +62,7 @@ function GroupAvatar({ name, isAdmin }: { name: string; isAdmin: boolean }) {
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <p style={{
-      fontFamily: 'var(--mono)', fontSize: '0.55rem', letterSpacing: '0.12em',
+      fontFamily: 'var(--mono)', fontSize: 12, letterSpacing: '0.12em',
       textTransform: 'uppercase', color: 'var(--jade-deep)', opacity: 0.8,
       margin: '16px 2px 7px',
     }}>
@@ -114,7 +115,7 @@ function CreateGroupModal({
           onChange={e => setName(e.target.value)}
           style={{
             width: '100%', padding: '12px 14px', borderRadius: 12,
-            border: '1px solid var(--line-2)', fontSize: 14,
+            border: '1px solid var(--line-2)', fontSize: 16,
             fontFamily: 'inherit', marginBottom: 10, boxSizing: 'border-box',
           }}
         />
@@ -124,11 +125,11 @@ function CreateGroupModal({
           onChange={e => setDisplayName(e.target.value)}
           style={{
             width: '100%', padding: '12px 14px', borderRadius: 12,
-            border: '1px solid var(--line-2)', fontSize: 14,
+            border: '1px solid var(--line-2)', fontSize: 16,
             fontFamily: 'inherit', marginBottom: 16, boxSizing: 'border-box',
           }}
         />
-        {err && <p style={{ color: '#c2675e', fontSize: 12.5, marginBottom: 10 }}>{err}</p>}
+        {err && <p style={{ color: '#c2675e', fontSize: 14, marginBottom: 10 }}>{err}</p>}
         <button
           onClick={submit}
           disabled={busy || !name.trim() || !displayName.trim()}
@@ -144,7 +145,7 @@ function CreateGroupModal({
           onClick={onClose}
           style={{
             width: '100%', background: 'none', border: 'none',
-            color: 'rgba(13,31,36,.45)', fontSize: 13, marginTop: 10, cursor: 'pointer',
+            color: '#4a5a5f', fontSize: 15, marginTop: 10, cursor: 'pointer',
           }}
         >
           Cancel
@@ -201,7 +202,7 @@ function JoinGroupModal({
         <p style={{ fontFamily: 'var(--serif)', fontSize: '1.3rem', fontWeight: 300, marginBottom: 6 }}>
           Join a group
         </p>
-        <p style={{ fontFamily: 'var(--mono)', fontSize: '0.6rem', color: 'rgba(13,31,36,.45)', lineHeight: 1.6, marginBottom: 18 }}>
+        <p style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f', lineHeight: 1.6, marginBottom: 18 }}>
           Ask the group admin for an invite code, then enter it below.
         </p>
         <input
@@ -212,11 +213,11 @@ function JoinGroupModal({
           inputMode="tel"
           style={{
             width: '100%', padding: '12px 14px', borderRadius: 12,
-            border: '1px solid var(--line-2)', fontSize: 14,
+            border: '1px solid var(--line-2)', fontSize: 16,
             fontFamily: 'inherit', marginBottom: 4, boxSizing: 'border-box',
           }}
         />
-        <p style={{ fontFamily: 'var(--mono)', fontSize: '0.55rem', color: 'rgba(13,31,36,.35)', marginBottom: 10, lineHeight: 1.5 }}>
+        <p style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f', marginBottom: 10, lineHeight: 1.5 }}>
           Use the phone number the admin sent the code to.
         </p>
         <input
@@ -232,7 +233,7 @@ function JoinGroupModal({
             marginBottom: 16, boxSizing: 'border-box', textAlign: 'center',
           }}
         />
-        {err && <p style={{ color: '#c2675e', fontSize: 12.5, marginBottom: 10 }}>{err}</p>}
+        {err && <p style={{ color: '#c2675e', fontSize: 14, marginBottom: 10 }}>{err}</p>}
         <button
           onClick={submit}
           disabled={busy || !phone.trim() || code.length < 6}
@@ -248,7 +249,7 @@ function JoinGroupModal({
           onClick={onClose}
           style={{
             width: '100%', background: 'none', border: 'none',
-            color: 'rgba(13,31,36,.45)', fontSize: 13, marginTop: 10, cursor: 'pointer',
+            color: '#4a5a5f', fontSize: 15, marginTop: 10, cursor: 'pointer',
           }}
         >
           Cancel
@@ -359,13 +360,13 @@ export default function FamilyPage() {
       <div style={{ padding: '12px 18px 8px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12 }}>
         <button
           onClick={() => router.push('/')}
-          style={{ border: 'none', background: 'none', fontSize: '1.5rem', color: 'var(--ink)', cursor: 'pointer', padding: 0, lineHeight: 1 }}
+          style={{ border: 'none', background: 'none', color: '#2f3b40', cursor: 'pointer', padding: 0, width: 32, height: 40, display: 'grid', placeItems: 'center', flexShrink: 0 }}
           aria-label="Back"
         >
-          ‹
+          <ChevronLeft size={24} strokeWidth={2} />
         </button>
         <div style={{ flex: 1 }}>
-          <p style={{ fontFamily: 'var(--mono)', fontSize: '0.6rem', letterSpacing: '0.12em', textTransform: 'uppercase', opacity: 0.45, marginBottom: 2 }}>
+          <p style={{ fontFamily: 'var(--mono)', fontSize: 12, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 2 }}>
             Family
           </p>
           <h2 style={{ fontFamily: 'var(--serif)', fontWeight: 300, fontSize: '1.5rem', color: 'var(--ink)', lineHeight: 1.2 }}>
@@ -431,7 +432,7 @@ export default function FamilyPage() {
             <p style={{ fontFamily: 'var(--serif)', fontSize: '1.1rem', fontWeight: 300, color: 'var(--ink)', marginBottom: 8 }}>
               No groups yet
             </p>
-            <p style={{ fontFamily: 'var(--mono)', fontSize: '0.62rem', color: 'rgba(13,31,36,.4)', lineHeight: 1.7 }}>
+            <p style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f', lineHeight: 1.7 }}>
               Create a group to coordinate care<br />with your family.
             </p>
           </div>
@@ -458,10 +459,10 @@ export default function FamilyPage() {
                   >
                     <GroupAvatar name={p.name} isAdmin={p.is_admin} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--ink)', marginBottom: 3 }}>
+                      <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink)', marginBottom: 3 }}>
                         {p.name}
                       </p>
-                      <p style={{ fontFamily: 'var(--mono)', fontSize: '0.6rem', color: 'rgba(13,31,36,.45)' }}>
+                      <p style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f' }}>
                         {p.member_count} member{p.member_count !== 1 ? 's' : ''}
                         {p.is_admin ? ' · admin' : ''}
                       </p>
@@ -470,13 +471,13 @@ export default function FamilyPage() {
                       <span style={{
                         minWidth: 20, height: 20, borderRadius: 10,
                         background: '#c2675e', color: '#fff',
-                        fontFamily: 'var(--mono)', fontSize: '0.55rem', fontWeight: 700,
+                        fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700,
                         display: 'grid', placeItems: 'center', padding: '0 5px', flexShrink: 0,
                       }}>
                         {unread}
                       </span>
                     )}
-                    <svg width="7" height="12" viewBox="0 0 7 12" fill="none" style={{ flexShrink: 0, opacity: 0.3 }}>
+                    <svg width="7" height="12" viewBox="0 0 7 12" fill="none" style={{ flexShrink: 0, color: '#4a5a5f' }}>
                       <path d="M1 1l5 5-5 5" stroke="var(--ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                   </div>
@@ -496,7 +497,7 @@ export default function FamilyPage() {
                       }}
                     >
                       {deletingId === p.plan_id ? (
-                        <span style={{ fontSize: 11 }}>…</span>
+                        <span style={{ fontSize: 13 }}>…</span>
                       ) : (
                         <svg width="13" height="14" viewBox="0 0 13 14" fill="none">
                           <path d="M1 3.5h11M4.5 3.5V2.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1M10.5 3.5l-.5 8a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1l-.5-8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
@@ -533,8 +534,8 @@ export default function FamilyPage() {
                     <path d="M8 3v10M3 8h10" stroke="#37b59b" strokeWidth="1.8" strokeLinecap="round"/>
                   </svg>
                 </div>
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--jade-deep)' }}>Create group</span>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: '0.55rem', color: 'rgba(13,31,36,.38)', lineHeight: 1.5, textAlign: 'center' }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--jade-deep)' }}>Create group</span>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f', lineHeight: 1.5, textAlign: 'center' }}>
                   Start a new family group
                 </span>
               </button>
@@ -560,8 +561,8 @@ export default function FamilyPage() {
                   <path d="M11.8 11.2l1-1" stroke="#5a8fa8" strokeWidth="1.4" strokeLinecap="round"/>
                 </svg>
               </div>
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: '#33607a' }}>Join with code</span>
-              <span style={{ fontFamily: 'var(--mono)', fontSize: '0.55rem', color: 'rgba(13,31,36,.38)', lineHeight: 1.5, textAlign: 'center' }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: '#33607a' }}>Join with code</span>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f', lineHeight: 1.5, textAlign: 'center' }}>
                 Use an invite code
               </span>
             </button>
@@ -578,12 +579,12 @@ export default function FamilyPage() {
                   background: '#fff', borderRadius: 14,
                   border: '1px solid rgba(216,162,74,.45)', padding: 13,
                 }}>
-                  <p style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5, marginBottom: 3 }}>
+                  <p style={{ fontSize: 15, color: 'var(--ink)', lineHeight: 1.5, marginBottom: 3 }}>
                     <strong>{r.grantee_name}</strong> would like to see{' '}
                     {r.subject_name}&apos;s <strong>{r.scope}</strong>.
                   </p>
                   {r.message && (
-                    <p style={{ fontFamily: 'var(--mono)', fontSize: '0.58rem', color: 'rgba(13,31,36,0.45)', lineHeight: 1.6, marginBottom: 9 }}>
+                    <p style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f', lineHeight: 1.6, marginBottom: 9 }}>
                       &ldquo;{r.message}&rdquo;
                     </p>
                   )}
@@ -593,7 +594,7 @@ export default function FamilyPage() {
                       disabled={busyId === r.id}
                       style={{
                         flex: 1, background: '#37b59b', color: '#0c2429', border: 'none',
-                        borderRadius: 11, padding: '9px 0', fontSize: 13, fontWeight: 600,
+                        borderRadius: 11, padding: '9px 0', fontSize: 15, fontWeight: 600,
                         cursor: 'pointer', opacity: busyId === r.id ? 0.6 : 1,
                       }}
                     >Allow</button>
@@ -601,9 +602,9 @@ export default function FamilyPage() {
                       onClick={() => decide(r.id, false)}
                       disabled={busyId === r.id}
                       style={{
-                        flex: 1, background: 'transparent', color: 'rgba(13,31,36,.6)',
+                        flex: 1, background: 'transparent', color: '#4a5a5f',
                         border: '1px solid var(--line-2)', borderRadius: 11,
-                        padding: '9px 0', fontSize: 13, cursor: 'pointer',
+                        padding: '9px 0', fontSize: 15, cursor: 'pointer',
                       }}
                     >Not now</button>
                   </div>
@@ -624,7 +625,7 @@ export default function FamilyPage() {
                   padding: 13, display: 'flex', alignItems: 'center', gap: 11,
                 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 13, color: 'var(--ink)', marginBottom: 2 }}>{p.description}</p>
+                    <p style={{ fontSize: 15, color: 'var(--ink)', marginBottom: 2 }}>{p.description}</p>
                     <p style={{ fontFamily: 'var(--serif)', fontSize: '1.1rem', fontWeight: 300, color: 'var(--ink)' }}>
                       {p.amount_display}
                     </p>
@@ -635,7 +636,7 @@ export default function FamilyPage() {
                       disabled={busyId === p.id}
                       style={{
                         background: '#37b59b', color: '#0c2429', border: 'none',
-                        borderRadius: 11, padding: '8px 15px', fontSize: 13,
+                        borderRadius: 11, padding: '8px 15px', fontSize: 15,
                         fontWeight: 600, cursor: 'pointer', flexShrink: 0,
                         opacity: busyId === p.id ? 0.6 : 1,
                       }}
@@ -643,7 +644,7 @@ export default function FamilyPage() {
                       {busyId === p.id ? '…' : 'Pay'}
                     </button>
                   ) : (
-                    <span style={{ fontFamily: 'var(--mono)', fontSize: '0.55rem', color: 'rgba(13,31,36,0.35)', flexShrink: 0, maxWidth: 90, textAlign: 'right', lineHeight: 1.5 }}>
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f', flexShrink: 0, maxWidth: 90, textAlign: 'right', lineHeight: 1.5 }}>
                       awaiting billing member
                     </span>
                   )}
@@ -659,7 +660,7 @@ export default function FamilyPage() {
         <div style={{
           position: 'absolute', bottom: 78, left: 16, right: 16,
           background: 'linear-gradient(160deg,#13343b,#0c2429)', color: '#f6f3ec',
-          borderRadius: 12, padding: '10px 13px', fontSize: 12.5, zIndex: 40,
+          borderRadius: 12, padding: '10px 13px', fontSize: 14, zIndex: 40,
           boxShadow: '0 12px 30px -14px rgba(0,0,0,.7)',
         }}>
           {toast}

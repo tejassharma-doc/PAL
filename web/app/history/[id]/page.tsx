@@ -5,6 +5,7 @@ import { useState } from 'react';
 import PhoneShell from '@/components/layout/PhoneShell';
 import AppBar from '@/components/layout/AppBar';
 import TabBar from '@/components/layout/TabBar';
+import { Mic } from 'lucide-react';
 
 const ANIL = {
   initial: 'A',
@@ -28,7 +29,7 @@ export default function ThreadPage() {
       <div className="scr" style={{ flex: 1, overflowY: 'auto', padding: '6px 18px 92px' }}>
         <span style={{
           fontFamily: "'Space Mono', monospace",
-          fontSize: '0.55rem',
+          fontSize: 12,
           padding: '4px 9px',
           borderRadius: 9,
           display: 'inline-flex',
@@ -44,11 +45,10 @@ export default function ThreadPage() {
 
         <div style={{
           fontFamily: "'Space Mono', monospace",
-          fontSize: '0.52rem',
-          opacity: .38,
+          fontSize: 12,
           textAlign: 'center',
           margin: '8px 0 10px',
-          color: '#0d1f24',
+          color: '#4a5a5f',
         }}>
           — today —
         </div>
@@ -60,7 +60,7 @@ export default function ThreadPage() {
             borderRadius: '14px 14px 4px 14px',
             padding: '10px 13px',
             fontFamily: "'Newsreader', serif",
-            fontSize: '0.88rem',
+            fontSize: 16,
             maxWidth: '80%',
           }}>
             My LDL was 162 — how worried should I be?
@@ -69,10 +69,10 @@ export default function ThreadPage() {
 
         <div style={{
           background: '#fff',
-          border: '1px solid rgba(13,31,36,.10)',
+          border: '1px solid rgba(13,31,36,.14)',
           borderRadius: '14px 14px 14px 4px',
           padding: '11px 13px',
-          fontSize: '0.86rem',
+          fontSize: 15,
           lineHeight: 1.55,
           maxWidth: '88%',
           marginBottom: 9,
@@ -89,7 +89,7 @@ export default function ThreadPage() {
             borderRadius: '14px 14px 4px 14px',
             padding: '10px 13px',
             fontFamily: "'Newsreader', serif",
-            fontSize: '0.88rem',
+            fontSize: 16,
             maxWidth: '80%',
           }}>
             What diet changes would help most?
@@ -98,10 +98,10 @@ export default function ThreadPage() {
 
         <div style={{
           background: '#fff',
-          border: '1px solid rgba(13,31,36,.10)',
+          border: '1px solid rgba(13,31,36,.14)',
           borderRadius: '14px 14px 14px 4px',
           padding: '11px 13px',
-          fontSize: '0.86rem',
+          fontSize: 15,
           lineHeight: 1.55,
           maxWidth: '88%',
           marginBottom: 9,
@@ -127,7 +127,7 @@ export default function ThreadPage() {
             placeholder="Continue this conversation…"
             style={{
               fontFamily: "'Newsreader', serif",
-              fontSize: '0.86rem',
+              fontSize: 15,
               border: 'none',
               outline: 'none',
               background: 'none',
@@ -136,28 +136,26 @@ export default function ThreadPage() {
             }}
           />
           <span style={{
-            width: 26,
-            height: 26,
-            borderRadius: 8,
-            background: '#37b59b',
+            width: 32,
+            height: 32,
+            borderRadius: 9,
+            background: '#1f7d6b',
             color: '#fff',
             display: 'grid',
             placeItems: 'center',
-            fontSize: '0.78rem',
             flexShrink: 0,
             cursor: 'pointer',
-          }}>
-            🎙
+          }} aria-hidden="true">
+            <Mic size={16} strokeWidth={2} />
           </span>
         </div>
 
         <div style={{
           fontFamily: "'Space Mono', monospace",
-          fontSize: '0.54rem',
-          opacity: .38,
+          fontSize: 12,
           textAlign: 'center',
           marginTop: 9,
-          color: '#0d1f24',
+          color: '#4a5a5f',
           lineHeight: 1.5,
         }}>
           PAL remembers this thread&apos;s context — no need to re-explain.

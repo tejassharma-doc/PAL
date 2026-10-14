@@ -101,7 +101,7 @@ export default function SignupPage() {
       <div
         style={{
           fontFamily: mono,
-          fontSize: '.62rem',
+          fontSize: '0.8rem',
           letterSpacing: '.2em',
           textTransform: 'uppercase',
           color: c.jade,
@@ -136,8 +136,8 @@ export default function SignupPage() {
         <p
           style={{
             fontFamily: mono,
-            fontSize: '.6rem',
-            opacity: 0.5,
+            fontSize: '0.8rem',
+            opacity: .85,
             marginBottom: 28,
             letterSpacing: '.04em',
           }}
@@ -150,11 +150,11 @@ export default function SignupPage() {
             <label
               style={{
                 fontFamily: mono,
-                fontSize: '.57rem',
+                fontSize: '0.8rem',
                 letterSpacing: '.1em',
                 textTransform: 'uppercase',
                 color: c.ink,
-                opacity: 0.5,
+                opacity: .85,
                 marginBottom: 6,
                 display: 'block',
               }}
@@ -172,7 +172,7 @@ export default function SignupPage() {
                 width: '100%',
                 padding: '12px 14px',
                 fontFamily: sans,
-                fontSize: '.9rem',
+                fontSize: '1rem',
                 color: c.ink,
                 background: '#fff',
                 border: `1px solid ${error ? c.rose : 'rgba(13,31,36,.16)'}`,
@@ -186,11 +186,11 @@ export default function SignupPage() {
             <label
               style={{
                 fontFamily: mono,
-                fontSize: '.57rem',
+                fontSize: '0.8rem',
                 letterSpacing: '.1em',
                 textTransform: 'uppercase',
                 color: c.ink,
-                opacity: 0.5,
+                opacity: .85,
                 marginBottom: 6,
                 display: 'block',
               }}
@@ -208,7 +208,7 @@ export default function SignupPage() {
                 width: '100%',
                 padding: '12px 14px',
                 fontFamily: sans,
-                fontSize: '.9rem',
+                fontSize: '1rem',
                 color: c.ink,
                 background: '#fff',
                 border: `1px solid ${error ? c.rose : 'rgba(13,31,36,.16)'}`,
@@ -222,11 +222,11 @@ export default function SignupPage() {
             <label
               style={{
                 fontFamily: mono,
-                fontSize: '.57rem',
+                fontSize: '0.8rem',
                 letterSpacing: '.1em',
                 textTransform: 'uppercase',
                 color: c.ink,
-                opacity: 0.5,
+                opacity: .85,
                 marginBottom: 6,
                 display: 'block',
               }}
@@ -246,7 +246,7 @@ export default function SignupPage() {
                   padding: '12px 14px',
                   paddingRight: '45px',
                   fontFamily: sans,
-                  fontSize: '.9rem',
+                  fontSize: '1rem',
                   color: c.ink,
                   background: '#fff',
                   border: `1px solid ${error ? c.rose : 'rgba(13,31,36,.16)'}`,
@@ -266,9 +266,9 @@ export default function SignupPage() {
                   border: 'none',
                   cursor: 'pointer',
                   fontFamily: mono,
-                  fontSize: '.65rem',
+                  fontSize: '0.8rem',
                   color: c.ink,
-                  opacity: 0.4,
+                  opacity: .85,
                 }}
               >
                 {showPassword ? 'hide' : 'show'}
@@ -280,11 +280,11 @@ export default function SignupPage() {
             <label
               style={{
                 fontFamily: mono,
-                fontSize: '.57rem',
+                fontSize: '0.8rem',
                 letterSpacing: '.1em',
                 textTransform: 'uppercase',
                 color: c.ink,
-                opacity: 0.5,
+                opacity: .85,
                 marginBottom: 6,
                 display: 'block',
               }}
@@ -302,7 +302,7 @@ export default function SignupPage() {
                 width: '100%',
                 padding: '12px 14px',
                 fontFamily: sans,
-                fontSize: '.9rem',
+                fontSize: '1rem',
                 color: c.ink,
                 background: '#fff',
                 border: `1px solid ${error ? c.rose : 'rgba(13,31,36,.16)'}`,
@@ -316,7 +316,7 @@ export default function SignupPage() {
             <div
               style={{
                 fontFamily: mono,
-                fontSize: '.6rem',
+                fontSize: '0.8rem',
                 color: c.rose,
                 marginBottom: 12,
                 textAlign: 'center',
@@ -336,7 +336,7 @@ export default function SignupPage() {
               border: 'none',
               fontFamily: sans,
               fontWeight: 600,
-              fontSize: '.9rem',
+              fontSize: '1rem',
               padding: 14,
               borderRadius: 13,
               cursor: loading ? 'default' : 'pointer',
@@ -349,7 +349,7 @@ export default function SignupPage() {
 
         {/* Sign In Link */}
         <div style={{ textAlign: 'center', marginTop: 24 }}>
-          <p style={{ fontFamily: sans, fontSize: '.82rem', color: c.ink, opacity: 0.6 }}>
+          <p style={{ fontFamily: sans, fontSize: '0.95rem', color: c.ink, opacity: .85 }}>
             Already have an account?{' '}
             <Link
               href="/login"
@@ -368,7 +368,7 @@ export default function SignupPage() {
       <p
         style={{
           fontFamily: mono,
-          fontSize: '.55rem',
+          fontSize: '0.8rem',
           color: 'rgba(255,255,255,.3)',
           marginTop: 24,
           textAlign: 'center',

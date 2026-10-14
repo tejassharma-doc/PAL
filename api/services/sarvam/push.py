@@ -61,6 +61,78 @@ async def ring_device(
     return False
 
 
+# ── Generic alert push (medication reminders, etc.) ─────────────────────────────
+# Distinct from ring_device above (VoIP-only). This sends an ordinary user-visible
+# notification: an APNs `alert` on the normal topic, or an FCM `notification`+`data`
+# high-priority message. Best-effort: returns False instead of raising when a
+# credential is missing or the provider rejects the token.
+
+async def send_push_notification(
+    *,
+    platform: str,
+    device_token: str,
+    title: str,
+    body: str,
+    data: dict[str, Any] | None = None,
+) -> bool:
+    data = data or {}
+    try:
+        if platform == "ios":
+            return await _apns_alert(device_token, title, body, data)
+        if platform in ("android", "web"):
+            return await _fcm_notification(device_token, title, body, data)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("push: send_push_notification(%s) failed: %s", platform, exc)
+    return False
+
+
+async def _apns_alert(token: str, title: str, body: str, data: dict[str, Any]) -> bool:
+    bundle = os.environ["APNS_BUNDLE_ID"]
+    host = APNS_HOSTS.get(os.getenv("APNS_ENV", "sandbox"), APNS_HOSTS["sandbox"])
+    payload = {
+        "aps": {"alert": {"title": title, "body": body}, "sound": "default"},
+        **{k: str(v) for k, v in data.items()},
+    }
+    async with httpx.AsyncClient(http2=True, timeout=10.0) as http:
+        r = await http.post(
+            f"{host}/3/device/{token}",
+            json=payload,
+            headers={
+                "authorization": f"bearer {_apns_jwt()}",
+                "apns-topic": bundle,
+                "apns-push-type": "alert",
+                "apns-priority": "10",
+            },
+        )
+    if r.status_code != 200:
+        log.warning("APNs alert rejected: %s %s", r.status_code, r.text[:200])
+        return False
+    return True
+
+
+async def _fcm_notification(token: str, title: str, body: str, data: dict[str, Any]) -> bool:
+    project = os.environ["FCM_PROJECT_ID"]
+    access = await _fcm_access_token()
+    body_msg = {
+        "message": {
+            "token": token,
+            "notification": {"title": title, "body": body},
+            "data": {k: str(v) for k, v in data.items()},
+            "android": {"priority": "HIGH"},
+        }
+    }
+    async with httpx.AsyncClient(timeout=10.0) as http:
+        r = await http.post(
+            f"https://fcm.googleapis.com/v1/projects/{project}/messages:send",
+            json=body_msg,
+            headers={"Authorization": f"Bearer {access}"},
+        )
+    if r.status_code >= 300:
+        log.warning("FCM notification rejected: %s %s", r.status_code, r.text[:200])
+        return False
+    return True
+
+
 # ── iOS / PushKit ─────────────────────────────────────────────────────────────
 
 def _apns_jwt() -> str:

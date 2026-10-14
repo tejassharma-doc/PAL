@@ -328,8 +328,21 @@ class FastMCPClient:
                 translated["doctorId"] = doctor.external_id
                 logger.info(f"MCP-DocEHR: doctor_name '{doctor_name}' → doctorId: {doctor.external_id}")
             else:
-                logger.error(f"MCP-DocEHR: Doctor not found with name: {doctor_name}")
-                raise Exception(f"Doctor not found with name: {doctor_name}")
+                # Don't hard-fail on a near-miss name. Return the real doctor names
+                # so the model can ask the user to pick an exact one and retry,
+                # instead of surfacing a raw error.
+                names_result = await db.execute(
+                    select(Doctor.full_name).where(Doctor.external_id.isnot(None))
+                )
+                available = [n for (n,) in names_result.all() if n][:30]
+                logger.error(
+                    f"MCP-DocEHR: Doctor not found with name: {doctor_name}. Available: {available}"
+                )
+                raise Exception(
+                    f"No doctor matched '{doctor_name}'. "
+                    f"Available doctors: {', '.join(available) if available else 'none configured'}. "
+                    f"Ask the user which of these they mean, then retry with that exact name."
+                )
 
         # Translate clinic_name to external_id
         if "clinic_name" in arguments:
@@ -346,8 +359,21 @@ class FastMCPClient:
                 translated["clinicId"] = clinic.external_id
                 logger.info(f"MCP-DocEHR: clinic_name '{clinic_name}' → clinicId: {clinic.external_id}")
             else:
-                logger.error(f"MCP-DocEHR: Clinic not found with name: {clinic_name}")
-                raise Exception(f"Clinic not found with name: {clinic_name}")
+                # A spoken hospital/clinic name rarely matches the stored name
+                # exactly. Return the real clinic names so the model can ask the
+                # user to choose one instead of failing the whole booking.
+                names_result = await db.execute(
+                    select(Clinic.name).where(Clinic.external_id.isnot(None))
+                )
+                available = [n for (n,) in names_result.all() if n][:30]
+                logger.error(
+                    f"MCP-DocEHR: Clinic not found with name: {clinic_name}. Available: {available}"
+                )
+                raise Exception(
+                    f"No clinic matched '{clinic_name}'. "
+                    f"Available clinics: {', '.join(available) if available else 'none configured'}. "
+                    f"Ask the user which of these they mean, then retry with that exact name."
+                )
 
         # Pass through all other arguments as-is
         for key, value in arguments.items():
@@ -374,8 +400,18 @@ class FastMCPClient:
             logger.info(f"MCP-DocEHR: Original arguments: {arguments}")
             logger.info(f"MCP-DocEHR: Translated arguments: {translated_args}")
 
+            from services.docehr.mcp_auth import get_docehr_mcp_token
+            token = await get_docehr_mcp_token()
+            headers = {"Authorization": f"Bearer {token}"} if token else None
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(url, json=payload)
+                response = await client.post(url, json=payload, headers=headers)
+
+                # Bearer may have expired/rotated — refresh once and retry.
+                if response.status_code == 401 and token:
+                    logger.info("MCP-DocEHR: 401 — refreshing token and retrying")
+                    token = await get_docehr_mcp_token(force=True)
+                    headers = {"Authorization": f"Bearer {token}"} if token else None
+                    response = await client.post(url, json=payload, headers=headers)
 
                 # Log response details
                 logger.info(f"MCP-DocEHR: Response status: {response.status_code}")
@@ -468,8 +504,17 @@ class FastMCPClient:
         try:
             logger.info(f"MCP-DocEHR: Fetching tools from {url}")
 
+            from services.docehr.mcp_auth import get_docehr_mcp_token
+            token = await get_docehr_mcp_token()
+            headers = {"Authorization": f"Bearer {token}"} if token else None
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(url)
+                response = await client.get(url, headers=headers)
+
+                if response.status_code == 401 and token:
+                    logger.info("MCP-DocEHR: 401 on tools/list — refreshing token and retrying")
+                    token = await get_docehr_mcp_token(force=True)
+                    headers = {"Authorization": f"Bearer {token}"} if token else None
+                    response = await client.get(url, headers=headers)
 
                 logger.info(f"MCP-DocEHR: Tools list response status: {response.status_code}")
 

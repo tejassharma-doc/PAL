@@ -9,6 +9,12 @@ export default function UploadPage() {
   const [phase, setPhase] = useState<'idle' | 'uploading' | 'verifying' | 'success' | 'error'>('idle');
   const [error, setError] = useState('');
   const [verifyData, setVerifyData] = useState<any>(null);
+  // Editable copy of the extracted rows — the user can correct each medicine name.
+  const [obsEdits, setObsEdits] = useState<any[]>([]);
+
+  function updateObsName(i: number, value: string) {
+    setObsEdits(prev => prev.map((o, idx) => (idx === i ? { ...o, display: value } : o)));
+  }
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -89,6 +95,12 @@ export default function UploadPage() {
       if (result.type === 'pending_verification') {
         console.log('Success: pending verification');
         setVerifyData(result);
+        setObsEdits(
+          (result.observations || []).map((o: any) => ({
+            ...o,
+            original_display: o.original_display ?? o.display,
+          }))
+        );
         setPhase('verifying');
       } else if (result.type === 'document_accepted') {
         console.log('Success: document accepted (MDT disabled)');
@@ -126,10 +138,20 @@ export default function UploadPage() {
         body: JSON.stringify({
           raw_source_id: verifyData.raw_source_id,
           patient_id: patientId, // Backend uses current_user.id
-          observations: verifyData.observations || [],
+          observations: obsEdits.map(o => ({
+            ...o,
+            edited: o.display !== (o.original_display ?? o.display),
+          })),
           report_date: verifyData.report_date,
           report_title: verifyData.report_title,
           fhir_bundle: null,
+          // Provenance threaded back from /upload
+          extraction_id: verifyData.extraction_id,
+          source_modality: verifyData.source_modality,
+          extraction_method: verifyData.extraction_method,
+          transcription_text: verifyData.transcription_text,
+          transcription_model: verifyData.transcription_model,
+          needs_review: verifyData.needs_review,
         }),
       });
 
@@ -160,8 +182,10 @@ export default function UploadPage() {
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      justifyContent: 'center',
+      // Center short phases; let the long verify list scroll from the top.
+      justifyContent: phase === 'verifying' ? 'flex-start' : 'center',
       padding: 24,
+      overflowY: 'auto',
     }}>
       <input
         ref={fileInputRef}
@@ -257,7 +281,7 @@ export default function UploadPage() {
 
       {/* VERIFYING STATE */}
       {phase === 'verifying' && verifyData && (
-        <div style={{ textAlign: 'center', maxWidth: 500, width: '100%' }}>
+        <div style={{ textAlign: 'center', maxWidth: 500, width: '100%', flexShrink: 0, margin: '8px 0 32px' }}>
           <h2 style={{
             fontFamily: 'Georgia, serif',
             fontSize: '1.5rem',
@@ -285,29 +309,134 @@ export default function UploadPage() {
             <p style={{ fontFamily: 'Georgia, serif', marginBottom: 8 }}>
               <strong>Patient:</strong> {verifyData.patient_name_on_doc || 'Not extracted'}
             </p>
-            {verifyData.observations && verifyData.observations.length > 0 && (
-              <div style={{ marginTop: 16 }}>
-                <strong style={{ fontFamily: 'Georgia, serif' }}>Lab Values:</strong>
-                <div style={{ marginTop: 8 }}>
-                  {verifyData.observations.slice(0, 5).map((obs: any, i: number) => (
-                    <div key={i} style={{
-                      padding: '8px 12px',
-                      background: '#fbf9f4',
-                      borderRadius: 8,
-                      marginBottom: 8,
-                      fontSize: '0.9rem',
-                      fontFamily: 'monospace',
-                    }}>
-                      {obs.display}: {obs.value} {obs.unit}
+            {/* Prescriptions are editable; lab reports are read-only (direct save). */}
+            {verifyData.doc_kind === 'prescription' ? (
+              <>
+                {/* Prescription: editable medicine names */}
+                {verifyData.source_modality === 'handwritten' && (
+                  <div style={{
+                    marginTop: 12, padding: '10px 12px', background: '#FFF7E6',
+                    border: '1px solid #F0C36D', borderRadius: 8, fontSize: '0.85rem',
+                    color: '#7a5b00', fontFamily: 'Georgia, serif',
+                  }}>
+                    ✍️ Transcribed from handwriting — please check each medicine name and dose carefully before saving.
+                  </div>
+                )}
+
+                {Array.isArray(verifyData.warnings) && verifyData.warnings.length > 0 && (
+                  <ul style={{ marginTop: 10, paddingLeft: 18, fontSize: '0.82rem', color: '#9a4a2f' }}>
+                    {verifyData.warnings.map((w: string, i: number) => (
+                      <li key={i} style={{ marginBottom: 4 }}>{w}</li>
+                    ))}
+                  </ul>
+                )}
+
+                {obsEdits.length > 0 ? (
+                  <div style={{ marginTop: 16 }}>
+                    <strong style={{ fontFamily: 'Georgia, serif' }}>Medicines (editable)</strong>
+                    <div style={{ marginTop: 8 }}>
+                      {obsEdits.map((obs: any, i: number) => {
+                        const edited = obs.display !== (obs.original_display ?? obs.display);
+                        const detail = [obs.value, obs.unit, obs.dosage, obs.frequency, obs.duration]
+                          .filter(Boolean).join(' · ');
+                        const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                        const timesStr = Array.isArray(obs.times) && obs.times.length ? obs.times.join(', ') : '';
+                        const dows = Array.isArray(obs.days_of_week) && obs.days_of_week.length
+                          ? obs.days_of_week
+                          : (Array.isArray(obs.days_of_week) ? [0, 1, 2, 3, 4, 5, 6] : []);
+                        const daysStr = dows.map((d: number) => DOW[d] ?? d).join(', ');
+                        const schedule = (timesStr || obs.duration_days)
+                          ? [timesStr && `⏰ ${timesStr}`, daysStr, obs.duration_days && `${obs.duration_days} days`]
+                              .filter(Boolean).join(' · ')
+                          : '';
+                        return (
+                          <div key={i} style={{
+                            padding: '10px 12px', background: '#fbf9f4', borderRadius: 8, marginBottom: 8,
+                            border: obs.legible === false ? '1px solid #F0C36D' : '1px solid rgba(13,31,36,0.08)',
+                          }}>
+                            <input
+                              value={obs.display}
+                              onChange={e => updateObsName(i, e.target.value)}
+                              placeholder="Medicine name"
+                              style={{
+                                width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: 6,
+                                border: '1px solid rgba(13,31,36,0.2)', fontSize: '0.92rem',
+                                fontFamily: 'Georgia, serif', background: '#fff', color: '#0d1f24',
+                              }}
+                            />
+                            {detail && (
+                              <div style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: 5, fontFamily: 'monospace' }}>
+                                {detail}
+                              </div>
+                            )}
+                            {schedule && (
+                              <div style={{ fontSize: '0.74rem', color: '#2a9d85', marginTop: 4, fontFamily: 'monospace' }}>
+                                {schedule} · reminder
+                              </div>
+                            )}
+                            {edited && (
+                              <div style={{ fontSize: '0.72rem', color: '#2a9d85', marginTop: 4 }}>
+                                edited · was “{obs.original_display}”
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))}
-                  {verifyData.observations.length > 5 && (
-                    <p style={{ fontSize: '0.85rem', opacity: 0.6, marginTop: 8 }}>
-                      + {verifyData.observations.length - 5} more values
-                    </p>
-                  )}
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 16, fontSize: '0.88rem', color: '#9a4a2f', fontFamily: 'Georgia, serif' }}>
+                    We couldn’t read this prescription automatically. The original is saved — you can add medicines in your records.
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {/* Lab report: read-only extracted values, direct save */}
+                <div style={{
+                  marginTop: 12, padding: '10px 12px', background: 'rgba(55,181,155,.1)',
+                  border: '1px solid rgba(55,181,155,.3)', borderRadius: 8, fontSize: '0.85rem',
+                  color: '#1f7d6b', fontFamily: 'Georgia, serif',
+                }}>
+                  ✓ Extracted from your lab report. Review the values below and save to your records.
                 </div>
-              </div>
+
+                {obsEdits.length > 0 ? (
+                  <div style={{ marginTop: 16 }}>
+                    <strong style={{ fontFamily: 'Georgia, serif' }}>Lab values</strong>
+                    <div style={{ marginTop: 8 }}>
+                      {obsEdits.map((obs: any, i: number) => {
+                        const amount = [obs.value, obs.unit].filter(Boolean).join(' ');
+                        return (
+                          <div key={i} style={{
+                            padding: '9px 12px', background: '#fbf9f4', borderRadius: 8, marginBottom: 8,
+                            display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline',
+                          }}>
+                            <span style={{ fontSize: '0.88rem', color: '#0d1f24', fontFamily: 'Georgia, serif' }}>
+                              {obs.display}
+                            </span>
+                            <span style={{
+                              fontSize: '0.86rem', fontWeight: 600, whiteSpace: 'nowrap',
+                              color: obs.abnormal ? '#b4433a' : '#0d1f24', fontFamily: 'monospace',
+                            }}>
+                              {amount}
+                              {obs.reference_range && (
+                                <span style={{ fontSize: '0.72rem', opacity: 0.5, marginLeft: 6 }}>
+                                  ({obs.reference_range})
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 16, fontSize: '0.88rem', color: '#9a4a2f', fontFamily: 'Georgia, serif' }}>
+                    We couldn’t read this report automatically. The original is saved to your records.
+                  </div>
+                )}
+              </>
             )}
           </div>
 
