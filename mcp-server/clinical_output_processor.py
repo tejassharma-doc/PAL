@@ -241,7 +241,7 @@ async def upsert_clinic(clinic_data: Dict[str, Any], db: AsyncSession) -> uuid.U
     row = result.fetchone()
 
     if row:
-        return uuid.UUID(row[0])
+        return uuid.UUID(str(row[0]))
 
     # Create new clinic
     clinic_id = uuid.uuid4()
@@ -277,7 +277,7 @@ async def upsert_doctor(doctor_data: Dict[str, Any], db: AsyncSession) -> uuid.U
 
     if row:
         # Update existing
-        doctor_id = uuid.UUID(row[0])
+        doctor_id = uuid.UUID(str(row[0]))
         await db.execute(
             text("""
                 UPDATE doctors
@@ -338,7 +338,7 @@ async def upsert_patient(
 
     if row:
         # Update existing
-        patient_id = uuid.UUID(row[0])
+        patient_id = uuid.UUID(str(row[0]))
 
         # Parse DOB
         dob = None
@@ -483,7 +483,7 @@ async def upsert_appointment(
 
     if row:
         # Update existing
-        appointment_id = uuid.UUID(row[0])
+        appointment_id = uuid.UUID(str(row[0]))
         await db.execute(
             text("""
                 UPDATE appointments
@@ -590,7 +590,7 @@ async def upsert_consultation(
 
     if row:
         # Update existing
-        consultation_id = uuid.UUID(row[0])
+        consultation_id = uuid.UUID(str(row[0]))
         await db.execute(
             text("""
                 UPDATE consultations
@@ -672,7 +672,7 @@ async def upsert_prescription(
 
     if row:
         # Update existing
-        prescription_id = uuid.UUID(row[0])
+        prescription_id = uuid.UUID(str(row[0]))
         await db.execute(
             text("""
                 UPDATE prescriptions
@@ -773,7 +773,7 @@ async def upsert_lab_test_from_document(
 
     if row:
         # Update existing
-        lab_test_id = uuid.UUID(row[0])
+        lab_test_id = uuid.UUID(str(row[0]))
         await db.execute(
             text("""
                 UPDATE lab_tests
