@@ -51,6 +51,7 @@ async def process_clinical_output_webhook(
         clinical_output_data = payload.get("clinical_output", {})
         prescriptions_data = payload.get("prescriptions", [])
         documents_data = payload.get("documents", [])
+        structured_prescription = payload.get("structured_prescription", {}) or {}
 
         results = {
             "phone_user_id": None,
@@ -94,11 +95,14 @@ async def process_clinical_output_webhook(
                 results.get("patient_id"),
                 results.get("clinic_id"),
                 results.get("doctor_id"),
-                db
+                db,
+                doctor_name=doctor_data.get("fullName"),
+                clinic_name=clinic_data.get("name"),
             )
             results["appointment_id"] = str(appointment_id)
 
         # Step 5: Process consultation
+        consultation_id = None
         if consultation_data.get("id"):
             consultation_id = await upsert_consultation(
                 consultation_data,
@@ -109,14 +113,26 @@ async def process_clinical_output_webhook(
             )
             results["consultation_id"] = str(consultation_id)
 
-        # Step 6: Process prescriptions
+        # Step 5.5: Clinical output (summary / plan / SOAP) for the Visits screen
+        if clinical_output_data.get("id") or structured_prescription:
+            await upsert_clinical_output(
+                clinical_output_data,
+                structured_prescription,
+                consultation_id,
+                results.get("appointment_id"),
+                db,
+            )
+
+        # Step 6: Process prescriptions (fall back to structured medicines list)
+        fallback_meds = structured_prescription.get("medications") or []
         for prescription_data in prescriptions_data:
             prescription_id = await upsert_prescription(
                 prescription_data,
                 results.get("patient_id"),
                 results.get("doctor_id"),
                 consultation_id,
-                db
+                db,
+                fallback_medications=fallback_meds,
             )
             if prescription_id:
                 results["prescription_ids"].append(str(prescription_id))
@@ -461,7 +477,9 @@ async def upsert_appointment(
     patient_id: Optional[str],
     clinic_id: Optional[str],
     doctor_id: Optional[str],
-    db: AsyncSession
+    db: AsyncSession,
+    doctor_name: Optional[str] = None,
+    clinic_name: Optional[str] = None,
 ) -> uuid.UUID:
     """Upsert appointment with external_appointment_id"""
     external_id = appointment_data.get("id")
@@ -496,6 +514,8 @@ async def upsert_appointment(
                     status = :status,
                     reason_for_visit = :reason,
                     notes = :notes,
+                    doctor_name = :doctor_name,
+                    clinic_name = :clinic_name,
                     updated_at = NOW()
                 WHERE id = :id
             """),
@@ -509,7 +529,9 @@ async def upsert_appointment(
                 "type": appointment_data.get("type"),
                 "status": appointment_data.get("status", "SCHEDULED").lower(),
                 "reason": appointment_data.get("reasonForVisit"),
-                "notes": appointment_data.get("notes")
+                "notes": appointment_data.get("notes"),
+                "doctor_name": doctor_name,
+                "clinic_name": clinic_name
             }
         )
         await db.flush()
@@ -524,11 +546,13 @@ async def upsert_appointment(
         text("""
             INSERT INTO appointments (
                 id, external_appointment_id, patient_id, clinic_id, doctor_id,
-                slot_time, duration_minutes, type, status, reason_for_visit, notes
+                slot_time, duration_minutes, type, status, reason_for_visit, notes,
+                doctor_name, clinic_name
             )
             VALUES (
                 :id, :external_id, :patient_id, :clinic_id, :doctor_id,
-                :slot_time, :duration, :type, :status, :reason, :notes
+                :slot_time, :duration, :type, :status, :reason, :notes,
+                :doctor_name, :clinic_name
             )
         """),
         {
@@ -542,7 +566,9 @@ async def upsert_appointment(
             "type": appointment_data.get("type"),
             "status": appointment_data.get("status", "SCHEDULED").lower(),
             "reason": appointment_data.get("reasonForVisit"),
-            "notes": appointment_data.get("notes")
+            "notes": appointment_data.get("notes"),
+            "doctor_name": doctor_name,
+            "clinic_name": clinic_name
         }
     )
     await db.flush()
@@ -648,12 +674,84 @@ async def upsert_consultation(
     return consultation_id
 
 
+async def upsert_clinical_output(
+    clinical_output_data: Dict[str, Any],
+    structured_prescription: Dict[str, Any],
+    consultation_id: Optional[uuid.UUID],
+    appointment_id: Optional[str],
+    db: AsyncSession,
+) -> Optional[uuid.UUID]:
+    """Upsert the clinical_outputs row (summary / plan / SOAP) so the Visits screen
+    can show the care summary and plan. Deduped by appointment_id."""
+    if not appointment_id:
+        return None
+
+    soap = clinical_output_data.get("soapNote") or {}
+    # Prefer the patient-friendly structured summary/plan; fall back to SOAP.
+    patient_summary = structured_prescription.get("summary") or soap.get("subjective")
+    management_plan = structured_prescription.get("plan") or soap.get("plan")
+    soap_note_text = json.dumps(soap) if soap else None
+
+    result = await db.execute(
+        text("SELECT id FROM clinical_outputs WHERE appointment_id = :appt"),
+        {"appt": appointment_id},
+    )
+    row = result.fetchone()
+
+    params = {
+        "consultation_id": str(consultation_id) if consultation_id else None,
+        "soap_note": soap_note_text,
+        "management_plan": management_plan,
+        "patient_summary": patient_summary,
+    }
+
+    if row:
+        co_id = uuid.UUID(str(row[0]))
+        params["id"] = str(co_id)
+        await db.execute(
+            text("""
+                UPDATE clinical_outputs
+                SET consultation_id = :consultation_id,
+                    soap_note = :soap_note,
+                    management_plan = :management_plan,
+                    patient_summary = :patient_summary,
+                    processed_at = NOW()
+                WHERE id = :id
+            """),
+            params,
+        )
+        await db.flush()
+        print(f"[CLINICAL] Updated clinical_output: {co_id}")
+        return co_id
+
+    co_id = uuid.uuid4()
+    params["id"] = str(co_id)
+    params["appointment_id"] = appointment_id
+    await db.execute(
+        text("""
+            INSERT INTO clinical_outputs (
+                id, consultation_id, appointment_id, soap_note,
+                management_plan, patient_summary, processed_at
+            )
+            VALUES (
+                :id, :consultation_id, :appointment_id, :soap_note,
+                :management_plan, :patient_summary, NOW()
+            )
+        """),
+        params,
+    )
+    await db.flush()
+    print(f"[CLINICAL] Created clinical_output: {co_id}")
+    return co_id
+
+
 async def upsert_prescription(
     prescription_data: Dict[str, Any],
     patient_id: Optional[str],
     doctor_id: Optional[str],
     consultation_id: Optional[uuid.UUID],
-    db: AsyncSession
+    db: AsyncSession,
+    fallback_medications: Optional[list] = None,
 ) -> Optional[uuid.UUID]:
     """Upsert prescription with external_id"""
     external_id = prescription_data.get("id")
@@ -668,7 +766,13 @@ async def upsert_prescription(
     )
     row = result.fetchone()
 
-    items_json = json.dumps(prescription_data.get("items", []))
+    # DocEHR often sends prescriptions[].items empty while the real medicine list
+    # lives in structured_prescription.medications — fall back to that so the app
+    # can render the medicines.
+    items = prescription_data.get("items") or []
+    if not items and fallback_medications:
+        items = fallback_medications
+    items_json = json.dumps(items)
 
     if row:
         # Update existing
@@ -678,7 +782,7 @@ async def upsert_prescription(
                 UPDATE prescriptions
                 SET patient_id = :patient_id,
                     doctor_id = :doctor_id,
-                    items = :items,
+                    items = CAST(:items AS jsonb),
                     refillable = :refillable,
                     refills_remaining = :refills,
                     updated_at = NOW()
