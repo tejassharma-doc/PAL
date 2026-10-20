@@ -262,14 +262,97 @@ async def get_lab_results(patient_id: str, limit: int = 20) -> List[dict]:
     """
     db = await get_pool()
 
+    # Columns are report_name / has_abnormal_values (not test_name/abnormal_flag),
+    # and uploaded reports may be keyed by the patient's phone_user_id — match both.
     rows = await db.fetch("""
-        SELECT * FROM lab_tests
-        WHERE patient_id = $1
+        SELECT id, patient_id, report_name, test_category, ordered_date,
+               result_date, status, results, has_abnormal_values, interpretation
+        FROM lab_tests
+        WHERE patient_id = $1::uuid
+           OR patient_id IN (SELECT phone_user_id FROM patients WHERE id = $1::uuid)
+           OR patient_id IN (SELECT id FROM patients WHERE phone_user_id = $1::uuid)
         ORDER BY ordered_date DESC
         LIMIT $2
     """, patient_id, limit)
 
-    return [LabTest(**convert_row(r)).model_dump() for r in rows]
+    out = []
+    for r in rows:
+        results = r["results"]
+        if isinstance(results, str):
+            try:
+                results = json.loads(results)
+            except Exception:
+                results = None
+        out.append({
+            "id": str(r["id"]),
+            "patient_id": str(r["patient_id"]),
+            "test_name": r["report_name"],
+            "test_category": r["test_category"],
+            "ordered_date": r["ordered_date"].isoformat() if r["ordered_date"] else None,
+            "result_date": r["result_date"].isoformat() if r["result_date"] else None,
+            "status": r["status"],
+            "results": results,
+            "abnormal_flag": bool(r["has_abnormal_values"]),
+            "interpretation": r["interpretation"],
+        })
+    return out
+
+
+@mcp.tool()
+async def get_medication_schedule(patient_id: str) -> List[dict]:
+    """
+    Get the patient's active medication reminders: which medicines, the dosage,
+    the times of day to take them, and on which days. Use this to answer questions
+    like "when do I take my medication?" or "how should I take <medicine>?".
+
+    Args:
+        patient_id: UUID of the patient (patients.id or phone_user id)
+
+    Returns:
+        List of active medication schedules with medicine, dosage, times and days.
+    """
+    db = await get_pool()
+
+    rows = await db.fetch("""
+        SELECT medicine_name, dosage, times, days_of_week, start_date, end_date, notes
+        FROM medication_schedules
+        WHERE active = true AND (
+            patient_id = $1::uuid
+            OR phone_user_id = $1::uuid
+            OR patient_id IN (SELECT id FROM patients WHERE phone_user_id = $1::uuid)
+            OR phone_user_id IN (SELECT phone_user_id FROM patients WHERE id = $1::uuid)
+        )
+        ORDER BY medicine_name
+    """, patient_id)
+
+    DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    out = []
+    for r in rows:
+        times = r["times"]
+        if isinstance(times, str):
+            try:
+                times = json.loads(times)
+            except Exception:
+                times = []
+        dow = r["days_of_week"]
+        if isinstance(dow, str):
+            try:
+                dow = json.loads(dow)
+            except Exception:
+                dow = []
+        day_names = "Every day" if not dow else ", ".join(
+            DAYS[d] for d in dow if isinstance(d, int) and 0 <= d < 7
+        )
+        out.append({
+            "medicine_name": r["medicine_name"],
+            "dosage": r["dosage"],
+            "times": times or [],
+            "days": day_names,
+            "start_date": r["start_date"].isoformat() if r["start_date"] else None,
+            "end_date": r["end_date"].isoformat() if r["end_date"] else None,
+            "notes": r["notes"],
+        })
+    return out
 
 
 @mcp.tool()
@@ -336,6 +419,7 @@ custom_app = FastAPI()
 _PATIENT_ID_TOOLS = {
     "get_patient_info", "get_patient_records",
     "get_latest_prescription", "get_lab_results",
+    "get_medication_schedule",
 }
 
 
@@ -415,6 +499,7 @@ async def http_call_tool(
         "get_patient_records": get_patient_records,
         "get_latest_prescription": get_latest_prescription,
         "get_lab_results": get_lab_results,
+        "get_medication_schedule": get_medication_schedule,
         "search_patients": search_patients
     }
 
@@ -478,6 +563,15 @@ async def http_list_tools():
                         "patient_id": {"type": "string"},
                         "limit": {"type": "integer", "default": 20}
                     },
+                    "required": ["patient_id"]
+                }
+            },
+            {
+                "name": "get_medication_schedule",
+                "description": "Get the patient's active medication reminders: which medicines, dosage, the times of day, and which days to take them. Use for questions like 'when do I take my medication?' or 'how do I take <medicine>?'.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"patient_id": {"type": "string"}},
                     "required": ["patient_id"]
                 }
             },

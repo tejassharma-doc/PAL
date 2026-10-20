@@ -214,7 +214,7 @@ class FastMCPClient:
         """
         try:
             # Check if it's a local FastMCP tool (patient data)
-            if tool_name in ["get_patient_info", "get_patient_records", "get_latest_prescription", "get_lab_results", "search_patients"]:
+            if tool_name in ["get_patient_info", "get_patient_records", "get_latest_prescription", "get_lab_results", "get_medication_schedule", "search_patients"]:
                 logger.info(f"FastMCP: Calling {tool_name}")
                 result = await self._call_fastmcp_tool(tool_name, arguments, mcp_token)
                 logger.info(f"FastMCP: Got response from {tool_name}")

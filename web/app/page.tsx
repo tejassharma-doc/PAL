@@ -2114,7 +2114,7 @@ export default function PAL() {
                                       <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: '#4a5a5f', margin: '4px 2px 8px' }}>Prescription</div>
                                       {meds.map((m: any, i: number) => {
                                         const name = m.name || m.drug_name || m.medication || m.medicine_name || 'Medicine';
-                                        const info = [m.dosage, m.strength, m.frequency, m.duration, m.instructions].filter(Boolean).join(' · ');
+                                        const info = [m.strength, m.dose, m.dosage, m.form, m.frequency, m.timing, m.duration, m.instructions].filter(Boolean).join(' · ');
                                         return (
                                           <div key={i} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 11, padding: '10px 12px', marginBottom: 8, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                                             <span style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(55,181,155,.14)', color: c.jadeD, display: 'grid', placeItems: 'center', fontSize: 14, flexShrink: 0 }}>℞</span>
