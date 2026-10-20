@@ -782,6 +782,7 @@ async def upsert_prescription(
                 UPDATE prescriptions
                 SET patient_id = :patient_id,
                     doctor_id = :doctor_id,
+                    consultation_id = :consultation_id,
                     items = CAST(:items AS jsonb),
                     refillable = :refillable,
                     refills_remaining = :refills,
@@ -792,6 +793,7 @@ async def upsert_prescription(
                 "id": str(prescription_id),
                 "patient_id": patient_id,
                 "doctor_id": doctor_id,  # Already a UUID string from upsert_doctor
+                "consultation_id": str(consultation_id) if consultation_id else None,
                 "items": items_json,
                 "refillable": prescription_data.get("refillable", False),
                 "refills": prescription_data.get("refillsRemaining", 0)
@@ -807,11 +809,11 @@ async def upsert_prescription(
     await db.execute(
         text("""
             INSERT INTO prescriptions (
-                id, external_id, patient_id, doctor_id,
+                id, external_id, patient_id, doctor_id, consultation_id,
                 items, refillable, refills_remaining, interaction_acknowledged
             )
             VALUES (
-                :id, :external_id, :patient_id, :doctor_id,
+                :id, :external_id, :patient_id, :doctor_id, :consultation_id,
                 CAST(:items AS jsonb), :refillable, :refills, :interaction_ack
             )
         """),
@@ -820,6 +822,7 @@ async def upsert_prescription(
             "external_id": external_id,
             "patient_id": patient_id,
             "doctor_id": doctor_id,  # Already a UUID string from upsert_doctor
+            "consultation_id": str(consultation_id) if consultation_id else None,
             "items": items_json,
             "refillable": prescription_data.get("refillable", False),
             "refills": prescription_data.get("refillsRemaining", 0),

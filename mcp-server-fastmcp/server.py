@@ -212,14 +212,53 @@ async def get_patient_records(patient_id: str) -> dict:
         LIMIT 20
     """, patient_id)
 
-    records = PatientRecords(
-        patient=Patient(**convert_row(patient_row)),
-        appointments=[Appointment(**convert_row(r)) for r in appointments_rows],
-        prescriptions=[Prescription(**convert_row(r)) for r in prescriptions_rows],
-        labTests=[LabTest(**convert_row(r)) for r in lab_tests_rows]
-    )
+    def _pj(v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except Exception:
+                return None
+        return v
 
-    return records.model_dump()
+    return {
+        "patient": Patient(**convert_row(patient_row)).model_dump(),
+        "appointments": [
+            {
+                "id": str(r["id"]),
+                "slot_time": r["slot_time"].isoformat() if r["slot_time"] else None,
+                "reason_for_visit": r["reason_for_visit"],
+                "status": r["status"],
+                "doctor_name": r["doctor_name"],
+                "soap_note": r["soap_note"],
+                "management_plan": r["management_plan"],
+                "patient_summary": r["patient_summary"],
+            }
+            for r in appointments_rows
+        ],
+        "prescriptions": [
+            {
+                "id": str(r["id"]),
+                "patient_id": str(r["patient_id"]),
+                "items": _pj(r["items"]) or [],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            }
+            for r in prescriptions_rows
+        ],
+        "labTests": [
+            {
+                "id": str(r["id"]),
+                "test_name": r["report_name"],
+                "test_category": r["test_category"],
+                "ordered_date": r["ordered_date"].isoformat() if r["ordered_date"] else None,
+                "result_date": r["result_date"].isoformat() if r["result_date"] else None,
+                "status": r["status"],
+                "results": _pj(r["results"]),
+                "abnormal_flag": bool(r["has_abnormal_values"]),
+                "interpretation": r["interpretation"],
+            }
+            for r in lab_tests_rows
+        ],
+    }
 
 
 @mcp.tool()
@@ -236,8 +275,10 @@ async def get_latest_prescription(patient_id: str) -> Optional[dict]:
     db = await get_pool()
 
     row = await db.fetchrow("""
-        SELECT * FROM prescriptions
-        WHERE patient_id = $1
+        SELECT id, patient_id, items, created_at FROM prescriptions
+        WHERE patient_id = $1::uuid
+           OR patient_id IN (SELECT phone_user_id FROM patients WHERE id = $1::uuid)
+           OR patient_id IN (SELECT id FROM patients WHERE phone_user_id = $1::uuid)
         ORDER BY created_at DESC
         LIMIT 1
     """, patient_id)
@@ -245,7 +286,18 @@ async def get_latest_prescription(patient_id: str) -> Optional[dict]:
     if not row:
         return None
 
-    return Prescription(**convert_row(row)).model_dump()
+    items = row["items"]
+    if isinstance(items, str):
+        try:
+            items = json.loads(items)
+        except Exception:
+            items = []
+    return {
+        "id": str(row["id"]),
+        "patient_id": str(row["patient_id"]),
+        "items": items or [],
+        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+    }
 
 
 @mcp.tool()
