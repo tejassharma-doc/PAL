@@ -137,6 +137,16 @@ async def process_clinical_output_webhook(
             if prescription_id:
                 results["prescription_ids"].append(str(prescription_id))
 
+        # Step 6.5: Create medication reminders from the prescribed medicines so
+        # they appear in the Medications screen and drive notifications.
+        if fallback_meds:
+            await upsert_medication_schedules(
+                fallback_meds,
+                results.get("patient_id"),
+                results.get("phone_user_id"),
+                db,
+            )
+
         # Step 7: Process documents as lab tests
         for document_data in documents_data:
             lab_test_id = await upsert_lab_test_from_document(
@@ -833,6 +843,121 @@ async def upsert_prescription(
 
     print(f"[CLINICAL] Created prescription: {prescription_id}")
     return prescription_id
+
+
+def _freq_to_schedule(frequency: Optional[str], timing: Optional[str]):
+    """Map a free-text frequency/timing to concrete reminder times + days_of_week."""
+    f = (frequency or "").lower()
+    t = (timing or "").lower()
+    times = ["09:00"]
+    days = [0, 1, 2, 3, 4, 5, 6]
+    if any(k in f for k in ["four times", "qid", "every 6", "6 hourly"]):
+        times = ["08:00", "12:00", "16:00", "20:00"]
+    elif any(k in f for k in ["thrice", "three times", "tds", "tid", "8 hourly"]):
+        times = ["08:00", "14:00", "20:00"]
+    elif any(k in f for k in ["twice weekly", "twice a week"]):
+        times = ["09:00"]; days = [0, 3]
+    elif any(k in f for k in ["twice", "bd", "bid", "two times", "2 times", "12 hourly"]):
+        times = ["09:00", "21:00"]
+    elif any(k in f for k in ["weekly", "once a week"]):
+        times = ["09:00"]; days = [0]
+    # night-only dosing
+    if any(k in (f + " " + t) for k in ["night", "hs", "bedtime"]) and times == ["09:00"]:
+        times = ["21:00"]
+    return times, days
+
+
+def _duration_days(duration: Optional[str]) -> Optional[int]:
+    import re
+    if not duration:
+        return None
+    d = duration.lower()
+    m = re.search(r"(\d+)", d)
+    if not m:
+        return None
+    n = int(m.group(1))
+    if "week" in d:
+        return n * 7
+    if "month" in d:
+        return n * 30
+    return n  # days (default)
+
+
+async def upsert_medication_schedules(
+    medications: list,
+    patient_id: Optional[str],
+    phone_user_id: Optional[str],
+    db: AsyncSession,
+) -> int:
+    """Create/refresh medication_schedules from the prescribed medicines so they
+    show in the Medications screen and drive reminders. Deduped by (patient, name)."""
+    if not medications or not patient_id:
+        return 0
+
+    from datetime import date, timedelta
+    start = date.today()
+    count = 0
+
+    for m in medications:
+        if not isinstance(m, dict):
+            continue
+        name = (m.get("name") or m.get("drug") or "").strip()
+        if not name:
+            continue
+        times, days = _freq_to_schedule(m.get("frequency"), m.get("timing"))
+        dur = _duration_days(m.get("duration"))
+        end = (start + timedelta(days=dur)) if dur else None
+        dosage = m.get("dose") or m.get("strength")
+        notes = " · ".join([b for b in (m.get("frequency"), m.get("timing"), m.get("duration")) if b]) or None
+
+        existing = await db.execute(
+            text("SELECT id FROM medication_schedules WHERE patient_id = :pid AND medicine_name = :name LIMIT 1"),
+            {"pid": patient_id, "name": name},
+        )
+        row = existing.fetchone()
+        params = {
+            "pid": patient_id,
+            "puid": phone_user_id,
+            "name": name,
+            "dosage": dosage,
+            "times": json.dumps(times),
+            "days": json.dumps(days),
+            "start": start,
+            "end": end,
+            "notes": notes,
+        }
+        if row:
+            params["id"] = str(uuid.UUID(str(row[0])))
+            await db.execute(
+                text("""
+                    UPDATE medication_schedules
+                    SET dosage = :dosage, times = CAST(:times AS jsonb),
+                        days_of_week = CAST(:days AS jsonb), start_date = :start,
+                        end_date = :end, active = true, notes = :notes, updated_at = NOW()
+                    WHERE id = :id
+                """),
+                params,
+            )
+        else:
+            await db.execute(
+                text("""
+                    INSERT INTO medication_schedules (
+                        id, patient_id, phone_user_id, medicine_name, dosage,
+                        times, days_of_week, start_date, end_date, timezone, active, notes
+                    )
+                    VALUES (
+                        gen_random_uuid(), :pid, :puid, :name, :dosage,
+                        CAST(:times AS jsonb), CAST(:days AS jsonb), :start, :end,
+                        'Asia/Kolkata', true, :notes
+                    )
+                """),
+                params,
+            )
+        count += 1
+
+    await db.flush()
+    print(f"[CLINICAL] Upserted {count} medication_schedules")
+    return count
 
 
 async def upsert_lab_test_from_document(
