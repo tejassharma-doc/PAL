@@ -1642,12 +1642,12 @@ export default function PAL() {
                     </div>
                   )}
 
-                  {/* Lab Tests Section */}
-                  {records.lab_tests && records.lab_tests.length > 0 && (
+                  {/* Lab Tests Section — exclude prescription-type reports (shown under Prescriptions) */}
+                  {records.lab_tests && records.lab_tests.filter((t: any) => !String(t.test_name || '').toLowerCase().startsWith('prescription')).length > 0 && (
                     <div style={{ marginBottom: 24 }}>
                       <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 12 }}>Lab Tests & Results</div>
 
-                      {records.lab_tests.map((test: any) => (
+                      {records.lab_tests.filter((test: any) => !String(test.test_name || '').toLowerCase().startsWith('prescription')).map((test: any) => (
                         <div key={test.id} style={{ marginBottom: 10 }}>
                           <div
                             onClick={() => setExpandedRecordId(expandedRecordId === test.id ? null : test.id)}
@@ -1720,110 +1720,55 @@ export default function PAL() {
                     </div>
                   )}
 
-                  {/* Prescriptions Section */}
-                  {records.prescriptions && records.prescriptions.length > 0 && (
+                  {/* Prescriptions Section — prescription-type reports (moved out of Lab Tests) */}
+                  {records.lab_tests && records.lab_tests.filter((t: any) => String(t.test_name || '').toLowerCase().startsWith('prescription')).length > 0 && (
                     <div style={{ marginBottom: 24 }}>
                       <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 12 }}>Prescriptions</div>
 
-                      {records.prescriptions.map((rx: any) => (
-                        <div key={rx.id} style={{ marginBottom: 10 }}>
-                          <div
-                            onClick={() => setExpandedRecordId(expandedRecordId === rx.id ? null : rx.id)}
-                            style={{
-                              background: '#fff',
-                              border: '1px solid rgba(13,31,36,.14)',
-                              borderRadius: 13,
-                              padding: 14,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                              {/* LEFT: Medication Count */}
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 600, fontSize: 16, color: c.ink, marginBottom: 4 }}>
-                                  {rx.medications && rx.medications.length > 0
-                                    ? `${rx.medications.length} Medication${rx.medications.length > 1 ? 's' : ''}`
-                                    : 'Prescription'}
-                                </div>
-                                {rx.pdf_url && (
-                                  <div style={{ fontSize: 14, color: c.jadeD, cursor: 'pointer' }}>
-                                    📄 View PDF
+                      {records.lab_tests.filter((t: any) => String(t.test_name || '').toLowerCase().startsWith('prescription')).map((rx: any) => {
+                        const meds = Array.isArray(rx.results) ? rx.results : [];
+                        const open = expandedRecordId === rx.id;
+                        return (
+                          <div key={rx.id} style={{ marginBottom: 10 }}>
+                            <div
+                              onClick={() => setExpandedRecordId(open ? null : rx.id)}
+                              style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 13, padding: 14, cursor: 'pointer' }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontWeight: 600, fontSize: 16, color: c.ink, marginBottom: 4 }}>
+                                    {rx.test_name || 'Prescription'}
                                   </div>
-                                )}
+                                  <div style={{ fontSize: 13, color: '#4a5a5f' }}>
+                                    {meds.length > 0 ? `${meds.length} medicine${meds.length > 1 ? 's' : ''}` : 'Prescription'}
+                                  </div>
+                                </div>
+                                <div style={{ textAlign: 'right', marginLeft: 16 }}>
+                                  <div style={{ fontFamily: mono, fontSize: 12, color: c.jadeD, whiteSpace: 'nowrap' }}>
+                                    📅 {rx.result_date || rx.ordered_date}
+                                  </div>
+                                </div>
                               </div>
 
-                              {/* RIGHT: Date */}
-                              <div style={{ textAlign: 'right', marginLeft: 16 }}>
-                                <div style={{ fontFamily: mono, fontSize: 12, color: c.jadeD, whiteSpace: 'nowrap' }}>
-                                  📅 {rx.date}
+                              {open && meds.length > 0 && (
+                                <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(13,31,36,.14)' }}>
+                                  <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 8 }}>Medicines</div>
+                                  {meds.map((med: any, idx: number) => {
+                                    const mname = med.name || med.display || 'Medicine';
+                                    const detail = [med.value, med.unit, med.dosage, med.dose, med.strength, med.frequency, med.timing, med.duration, med.instructions].filter(Boolean).join(' · ');
+                                    return (
+                                      <div key={idx} style={{ marginBottom: 8, padding: 10, background: '#fbf9f4', borderRadius: 10 }}>
+                                        <div style={{ fontWeight: 600, fontSize: 15, color: c.ink }}>💊 {mname}</div>
+                                        {detail && <div style={{ fontSize: 13, color: '#4a5a5f', marginTop: 3 }}>{detail}</div>}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
-                              </div>
+                              )}
                             </div>
-
-                            {/* Expanded Details */}
-                            {expandedRecordId === rx.id && rx.medications && rx.medications.length > 0 && (
-                              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(13,31,36,.14)' }}>
-                                <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 8 }}>Medications</div>
-                                {rx.medications.map((med: any, idx: number) => (
-                                  <div key={idx} style={{ marginBottom: 12, padding: 12, background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 10 }}>
-                                    <div style={{ fontWeight: 600, fontSize: 16, color: c.ink, marginBottom: 6 }}>
-                                      💊 {med.name || med.medication || 'Medication'}
-                                    </div>
-                                    {med.generic_name && (
-                                      <div style={{ fontSize: 14, color: '#4a5a5f', marginBottom: 6 }}>
-                                        {med.generic_name}
-                                      </div>
-                                    )}
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 14, marginBottom: 8 }}>
-                                      {(med.dosage || med.dose) && (
-                                        <div>
-                                          <span style={{ color: '#4a5a5f' }}>Dosage:</span>{' '}
-                                          <span style={{ fontWeight: 600 }}>{med.dosage || med.dose}</span>
-                                        </div>
-                                      )}
-                                      {med.frequency && (
-                                        <div>
-                                          <span style={{ color: '#4a5a5f' }}>Frequency:</span>{' '}
-                                          <span style={{ fontWeight: 600 }}>{med.frequency || med.timing}</span>
-                                        </div>
-                                      )}
-                                      {med.duration && (
-                                        <div>
-                                          <span style={{ color: '#4a5a5f' }}>Duration:</span>{' '}
-                                          <span style={{ fontWeight: 600 }}>{med.duration}</span>
-                                        </div>
-                                      )}
-                                      {med.quantity && (
-                                        <div>
-                                          <span style={{ color: '#4a5a5f' }}>Quantity:</span>{' '}
-                                          <span style={{ fontWeight: 600 }}>{med.quantity}</span>
-                                        </div>
-                                      )}
-                                    </div>
-                                    {med.instructions && (
-                                      <div style={{ fontSize: 14, padding: 8, background: 'rgba(216,162,74,.08)', borderRadius: 8, marginBottom: 6 }}>
-                                        <span style={{ fontWeight: 600, color: c.amberD }}>📋 Instructions: </span>
-                                        {med.instructions}
-                                      </div>
-                                    )}
-                                    {med.reason && (
-                                      <div style={{ fontSize: 14, padding: 8, background: 'rgba(55,181,155,.08)', borderRadius: 8 }}>
-                                        <span style={{ fontWeight: 600, color: c.jadeD }}>ℹ️ Reason: </span>
-                                        {med.reason}
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
-                                {rx.refillable && (
-                                  <div style={{ fontSize: 14, padding: 8, background: 'rgba(90,143,168,.08)', borderRadius: 8, marginTop: 8 }}>
-                                    <span style={{ fontWeight: 600 }}>Refills remaining:</span> {rx.refills_remaining || 0}
-                                  </div>
-                                )}
-                              </div>
-                            )}
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 
