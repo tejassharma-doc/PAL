@@ -108,14 +108,20 @@ def _parse_medication(resource: dict) -> Optional[ExtractedObservation]:
 
 
 def _parse_observation(resource: dict) -> ExtractedObservation:
+    code_obj = resource.get("code", {})
+    # Prefer the document's own printed label (code.text). MDT's LOINC auto-coding
+    # sometimes maps several analytes to the wrong code (e.g. RBC/MCV/MCH all ->
+    # "Hemoglobin A1c"), so the name on the report is more trustworthy than the
+    # LOINC coding.display. Fall back to the LOINC display only if text is absent.
+    text_name = code_obj.get("text")
     loinc_code = None
-    display = resource.get("code", {}).get("text", "Unknown")
-
-    for coding in resource.get("code", {}).get("coding", []):
+    loinc_display = None
+    for coding in code_obj.get("coding", []):
         if coding.get("system") == "http://loinc.org":
             loinc_code = coding.get("code")
-            display = coding.get("display") or display
+            loinc_display = coding.get("display")
             break
+    display = text_name or loinc_display or "Unknown"
 
     value: Optional[str] = None
     unit: Optional[str] = None
