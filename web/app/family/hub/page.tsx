@@ -541,7 +541,7 @@ export default function FamilyHubPage() {
             {hub?.name ?? 'Family'}
           </h2>
         </div>
-        {hub?.is_admin && hub?.plan_id && (
+        {hub?.plan_id && (
           <button
             onClick={() => router.push(`/family/invite?planId=${hub.plan_id}`)}
             aria-label="Add member"
