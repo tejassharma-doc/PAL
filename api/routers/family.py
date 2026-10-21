@@ -52,6 +52,7 @@ from auth import get_current_user
 from config import get_settings
 from database import get_db
 from models import User
+from models.phone_user import PhoneUser
 from models.family import (
     AccessGrantStatus,
     AccessScope,
@@ -371,9 +372,15 @@ async def accept(
     """Claim a pre-created seat. This is the 'dependent routing' step: an adult
     downloads the app, authenticates with their tagged phone, and lands in the
     plan seeing ONLY their own profile."""
+    # Prefer the logged-in user's OWN phone — an invitee only needs the code, and
+    # can't mistype someone else's number (invites are tagged to the member's phone).
+    phone = (body.phone or "").strip()
+    if isinstance(user, PhoneUser) and getattr(user, "phone_number", None):
+        cc = (getattr(user, "country_code", None) or "91").lstrip("+")
+        phone = f"+{cc}{user.phone_number}"
     try:
         member = await service.accept_invite(
-            db, phone=body.phone.strip(), code=body.code.strip(), user_id=user.id
+            db, phone=phone, code=body.code.strip(), user_id=user.id
         )
     except service.PlanLimitReached as exc:
         # 409, not 400 — the code was fine, the user is simply at the cap.

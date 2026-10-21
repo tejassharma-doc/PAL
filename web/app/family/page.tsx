@@ -163,29 +163,23 @@ function JoinGroupModal({
   onClose: () => void;
   onJoined: () => void;
 }) {
-  const [phone, setPhone] = useState('+91');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   async function submit() {
-    // Normalize to E.164 — strip spaces and hyphens.
-    const ph = phone.trim().replace(/[\s-]/g, '');
     const cd = code.trim();
-    if (!ph || cd.length < 6) return;
-    // Front-end guard: must start with + and be all digits after.
-    if (!/^\+\d{6,}$/.test(ph)) {
-      setErr('Phone must be in international format, e.g. +919876543210');
-      return;
-    }
+    if (cd.length < 6) return;
     setBusy(true);
     setErr(null);
     try {
-      await acceptInvite(ph, cd);
+      // Phone is taken from your logged-in account on the server — you only
+      // need the invite code.
+      await acceptInvite('', cd);
       onJoined();
       onClose();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Invalid code or phone number');
+      setErr(e instanceof Error ? e.message : 'Invalid or expired code');
     }
     setBusy(false);
   }
@@ -206,21 +200,6 @@ function JoinGroupModal({
           Ask the group admin for an invite code, then enter it below.
         </p>
         <input
-          placeholder="+919876543210"
-          value={phone}
-          onChange={e => setPhone(e.target.value)}
-          type="tel"
-          inputMode="tel"
-          style={{
-            width: '100%', padding: '12px 14px', borderRadius: 12,
-            border: '1px solid var(--line-2)', fontSize: 16,
-            fontFamily: 'inherit', marginBottom: 4, boxSizing: 'border-box',
-          }}
-        />
-        <p style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#4a5a5f', marginBottom: 10, lineHeight: 1.5 }}>
-          Use the phone number the admin sent the code to.
-        </p>
-        <input
           placeholder="6-digit code"
           value={code}
           onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
@@ -236,11 +215,11 @@ function JoinGroupModal({
         {err && <p style={{ color: '#c2675e', fontSize: 14, marginBottom: 10 }}>{err}</p>}
         <button
           onClick={submit}
-          disabled={busy || !phone.trim() || code.length < 6}
+          disabled={busy || code.length < 6}
           style={{
             width: '100%', background: '#37b59b', color: '#0c2429', border: 'none',
             borderRadius: 13, padding: '13px 0', fontSize: 15, fontWeight: 600,
-            cursor: 'pointer', opacity: (busy || !phone.trim() || code.length < 6) ? 0.5 : 1,
+            cursor: 'pointer', opacity: (busy || code.length < 6) ? 0.5 : 1,
           }}
         >
           {busy ? 'Joining…' : 'Join group'}
