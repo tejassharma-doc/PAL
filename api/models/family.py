@@ -164,9 +164,10 @@ class FamilyPlan(Base, UUIDMixin, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
 
+    # The plan owner. Holds a phone_users.id (the app is phone-user based), so no
+    # FK to users.id — that constraint rejects phone-user owners.
     primary_user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"),
-        nullable=False, index=True,
+        UUID(as_uuid=True), nullable=False, index=True,
     )
 
     # The shared "Family Care Hub" chat room. Created lazily on first need by
@@ -216,9 +217,10 @@ class FamilyMember(Base, UUIDMixin, TimestampMixin):
         nullable=False, index=True,
     )
 
-    # NULL until the invitee authenticates and claims the seat.
+    # NULL until the invitee authenticates and claims the seat. Holds a
+    # phone_users.id when claimed, so no FK to users.id.
     user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), index=True
+        UUID(as_uuid=True), index=True
     )
     # The health record this seat refers to. Also nullable — a minor may have a
     # patient record with no user login at all.
