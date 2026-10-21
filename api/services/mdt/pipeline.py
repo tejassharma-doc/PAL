@@ -158,8 +158,35 @@ async def extract_document(content: bytes, mime: str, settings) -> ExtractionOut
             for e in (bundle.get("entry") or [])
         )
         kind = "prescription" if has_meds else "lab_report"
+        observations = _obs_from_parsed(parsed)
+
+        # MDT occasionally mislabels several analytes with the SAME name (e.g.
+        # RBC/MCV/MCH all coded as "Hemoglobin A1c"). Detect duplicate names and,
+        # if Gemini is available, re-read the real names/values from the image.
+        names = [str(o.get("display") or "").strip().lower() for o in observations]
+        has_dupes = len([n for n in names if n]) != len({n for n in names if n})
+        if (
+            has_dupes
+            and not has_meds
+            and settings.handwriting_transcription_enabled
+            and settings.gemini_api_key
+        ):
+            try:
+                tx = await transcribe_handwritten(
+                    content, mime,
+                    api_key=settings.gemini_api_key,
+                    model=settings.handwriting_transcription_model,
+                    api_base=settings.gemini_api_base,
+                )
+                tx_obs = _obs_from_transcription(tx)
+                if tx_obs:
+                    logger.info("[pipeline] MDT had duplicate names; using Gemini lab extraction")
+                    observations = tx_obs
+            except Exception as exc:
+                logger.warning("[pipeline] Gemini re-extraction failed, keeping MDT: %s", exc)
+
         return ExtractionOutcome(
-            observations=_obs_from_parsed(parsed),
+            observations=observations,
             patient_name=parsed.patient_name,
             report_title=parsed.report_title or ("Prescription" if has_meds else "Lab Report"),
             report_date=parsed.report_date.isoformat() if parsed.report_date else None,
