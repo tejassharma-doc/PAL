@@ -12,9 +12,11 @@ import { useState } from 'react';
 export default function PrevisitSlider({
   url,
   label = 'Slide to complete pre-visit',
+  onComplete,
 }: {
   url: string;
   label?: string;
+  onComplete?: () => void;
 }) {
   const [val, setVal] = useState(0);
   const [done, setDone] = useState(false);
@@ -25,6 +27,7 @@ export default function PrevisitSlider({
       setDone(true);
       setVal(100);
       window.open(url, '_blank', 'noopener,noreferrer');
+      onComplete?.();
     } else {
       setVal(0);
     }

@@ -153,3 +153,23 @@ async def get_patient_visits(
             past.append(visit)
 
     return {"upcoming": upcoming, "past": past}
+
+
+@router.post("/{appointment_id}/previsit-complete")
+async def mark_previsit_complete(
+    appointment_id: str,
+    current_user: Union[PhoneUser, User] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark the pre-visit interview as completed for an appointment."""
+    try:
+        appt = await db.get(Appointment, uuid.UUID(appointment_id))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid appointment id")
+    if not appt:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    # Ensure the caller owns this appointment's patient.
+    await verify_patient_ownership(str(appt.patient_id), current_user, db)
+    appt.previsit_status = "completed"
+    await db.commit()
+    return {"status": "completed"}

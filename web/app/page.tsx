@@ -296,6 +296,21 @@ export default function PAL() {
   const [visits, setVisits] = useState<{ upcoming: any[]; past: any[] } | null>(null);
   const [visitsLoading, setVisitsLoading] = useState(false);
   const [expandedVisitId, setExpandedVisitId] = useState<string | null>(null);
+  // Pre-visit interviews marked done this session (optimistic + persisted).
+  const [previsitDone, setPrevisitDone] = useState<Record<string, boolean>>({});
+
+  async function completePrevisit(appointmentId: string) {
+    setPrevisitDone(prev => ({ ...prev, [appointmentId]: true }));
+    try {
+      const token = localStorage.getItem('pal_token');
+      await fetch(`/api/visits/${appointmentId}/previsit-complete`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      // optimistic UI already updated; ignore network errors
+    }
+  }
 
   // Hermes A2A call overlay
   const [activeCallSession, setActiveCallSession] = useState<CallSessionType | null>(null);
@@ -2038,14 +2053,32 @@ export default function PAL() {
 
                           {open && (
                             <div style={{ borderTop: '1px solid rgba(13,31,36,.14)', padding: 14, background: 'rgba(13,31,36,.015)' }}>
-                              {/* Pre-visit interview — slide to open the public link */}
-                              {v.previsit_url && v.previsit_status !== 'completed' && (
-                                <div style={{ marginBottom: 14 }}>
-                                  <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: c.jadeD, marginBottom: 8 }}>Pre-visit interview</div>
-                                  <PrevisitSlider url={v.previsit_url} />
-                                  <div style={{ fontSize: 12.5, color: '#4a5a5f', marginTop: 6, textAlign: 'center' }}>Takes 3–5 minutes · helps the doctor prepare</div>
-                                </div>
-                              )}
+                              {/* Pre-visit interview */}
+                              {(() => {
+                                if (!v.previsit_url) return null;
+                                const isDone = v.previsit_status === 'completed' || previsitDone[v.id];
+                                if (isDone) {
+                                  return (
+                                    <div style={{ marginBottom: 14, background: 'rgba(55,181,155,.1)', border: '1px solid rgba(55,181,155,.35)', borderRadius: 11, padding: '11px 13px', color: c.jadeD, fontSize: 13, fontWeight: 600 }}>
+                                      ✓ Your pre-visit interview is done
+                                    </div>
+                                  );
+                                }
+                                // Window closes the day of the appointment — last day to submit is
+                                // the day before. Show only while the appointment is still in the future.
+                                const today = new Date(); today.setHours(0, 0, 0, 0);
+                                const appt = v.date ? new Date(v.date) : null;
+                                if (appt) appt.setHours(0, 0, 0, 0);
+                                const windowOpen = !!appt && !isNaN(appt.getTime()) && appt.getTime() > today.getTime();
+                                if (!windowOpen) return null;
+                                return (
+                                  <div style={{ marginBottom: 14 }}>
+                                    <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: c.jadeD, marginBottom: 8 }}>Pre-visit interview</div>
+                                    <PrevisitSlider url={v.previsit_url} onComplete={() => completePrevisit(v.id)} />
+                                    <div style={{ fontSize: 12.5, color: '#4a5a5f', marginTop: 6, textAlign: 'center' }}>Takes 3–5 minutes · helps the doctor prepare</div>
+                                  </div>
+                                );
+                              })()}
                               {v.has_prescription ? (
                                 <>
                                   {(v.patient_summary || v.management_plan) && (
