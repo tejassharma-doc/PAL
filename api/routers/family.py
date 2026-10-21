@@ -107,7 +107,9 @@ class InviteIn(BaseModel):
 
 
 class AcceptInviteIn(BaseModel):
-    phone: str = Field(min_length=6, max_length=30)
+    # Optional: the server uses the logged-in user's own phone. Kept for
+    # backward compatibility with older clients that still send it.
+    phone: Optional[str] = Field(default=None, max_length=30)
     code: str = Field(min_length=4, max_length=10)
 
 
