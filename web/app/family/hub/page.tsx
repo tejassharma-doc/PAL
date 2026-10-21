@@ -541,6 +541,32 @@ export default function FamilyHubPage() {
             {hub?.name ?? 'Family'}
           </h2>
         </div>
+        {hub?.is_admin && hub?.plan_id && (
+          <button
+            onClick={() => router.push(`/family/invite?planId=${hub.plan_id}`)}
+            aria-label="Add member"
+            title="Add member"
+            style={{
+              flexShrink: 0,
+              width: 32,
+              height: 32,
+              borderRadius: 9,
+              border: '1.5px solid var(--jade)',
+              background: 'rgba(55,181,155,.1)',
+              color: 'var(--jade-deep)',
+              display: 'grid',
+              placeItems: 'center',
+              cursor: 'pointer',
+              marginRight: 6,
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="6" cy="5" r="2.6" stroke="currentColor" strokeWidth="1.4" />
+              <path d="M1.5 13c0-2.6 2-4.2 4.5-4.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+              <path d="M12.5 5.5v4M14.5 7.5h-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
         <span
           title={connTitle}
           aria-live="polite"
