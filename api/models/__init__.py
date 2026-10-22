@@ -27,6 +27,7 @@ from .patient_document import PatientDocument
 from .prescription import Prescription
 from .lab_test import LabTest
 from .audit_log import AuditLog
+from .subscription import Subscription
 from .medication import MedicationSchedule, MedicationDoseEvent, DeviceToken
 from .document_extraction import DocumentExtraction
 
@@ -49,6 +50,7 @@ __all__ = [
     "Prescription",
     "LabTest",
     "AuditLog",
+    "Subscription",
     "MedicationSchedule", "MedicationDoseEvent", "DeviceToken",
     "DocumentExtraction",
     # Legacy stubs (tables deleted but enums/classes kept for compatibility)

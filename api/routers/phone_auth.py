@@ -221,6 +221,10 @@ async def verify_phone_otp(
     has_patient_profile = patient is not None
     requires_onboarding = not has_patient_profile
 
+    # Subscription gate: unsubscribed users are redirected to /pricing by the client.
+    from services.billing.subscription_service import user_has_active_subscription
+    has_subscription = await user_has_active_subscription(phone_user.id, db)
+
     # Audit logging (no PHI in console logs)
     settings = get_settings()
     if settings.environment == "development" and settings.debug:
@@ -239,7 +243,9 @@ async def verify_phone_otp(
         "session_id": str(phone_user.id),
         "patient_id": str(patient.id) if patient else None,
         "requires_onboarding": requires_onboarding,
-        "has_patient_profile": has_patient_profile
+        "has_patient_profile": has_patient_profile,
+        "has_subscription": has_subscription,
+        "pricing_url": get_settings().pricing_url,
     }
 
     # If patient exists, include basic patient info

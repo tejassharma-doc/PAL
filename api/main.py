@@ -75,6 +75,8 @@ app.include_router(auth.router)  # Legacy auth endpoints
 app.include_router(auth_v2.router, prefix="/v2")  # Auth with sessions (old signup removed)
 app.include_router(auth_new.router, prefix="/v3")  # New signup/login with users+patients
 app.include_router(phone_auth.router)  # Phone OTP login (/phone/auth/request, /phone/auth/verify)
+from routers import subscription as subscription_router
+app.include_router(subscription_router.router)  # /subscription/status, /create, /webhook
 app.include_router(user_profile.router)  # User profile and credits
 app.include_router(patients.router)  # Patient CRUD
 app.include_router(records.router)

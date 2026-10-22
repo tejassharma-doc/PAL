@@ -80,6 +80,18 @@ class Settings(BaseSettings):
     # Blank => derive "{scheme}://{host}/oauth/token" from docehr_mcp_url.
     docehr_mcp_token_url: str = ""
 
+    # ── Subscriptions (Razorpay recurring) ─────────────────────────────────────
+    # When subscription_enabled is false, login is NOT gated (has_subscription is
+    # reported true) so the app behaves as before — flip it on once Razorpay is set.
+    subscription_enabled: bool = False
+    razorpay_key_id: str = ""
+    razorpay_key_secret: str = ""
+    razorpay_plan_id: str = ""            # the Razorpay subscription plan id
+    razorpay_webhook_secret: str = ""
+    razorpay_api_base: str = "https://api.razorpay.com/v1"
+    # Where the app redirects an unsubscribed user after OTP.
+    pricing_url: str = "https://palcare.life/pricing"
+
     # Document upload
     upload_dir: str = "./uploads"
 

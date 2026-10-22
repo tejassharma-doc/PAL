@@ -91,6 +91,9 @@ export interface AuthResponse {
   user: User
   is_new_user: boolean
   requires_onboarding: boolean
+  patient_id?: string | null
+  has_subscription?: boolean
+  pricing_url?: string
 }
 
 export interface CheckUserResponse {

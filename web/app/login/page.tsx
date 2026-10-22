@@ -121,6 +121,14 @@ export default function LoginPage() {
     try {
       const response = await verifyLoginOTP(phone, code)
 
+      // Subscription gate: send unsubscribed users to pricing (token is already
+      // saved, so the pricing page can start checkout).
+      if (response.has_subscription === false) {
+        console.log('Phone login successful - no subscription, redirecting to pricing')
+        router.push('/pricing')
+        return
+      }
+
       // Check if user needs to complete patient profile
       if (response.requires_onboarding || !response.user.patient_id) {
         console.log('Phone login successful - redirecting to onboarding')
