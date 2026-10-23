@@ -59,14 +59,23 @@ async def subscription_status(
 
 @router.post("/create")
 async def create_subscription(
+    plan: str = "individual",
     user: Union[PhoneUser, User] = Depends(get_current_user_unified),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a Razorpay subscription for the logged-in user and return the
-    checkout parameters (subscription_id + key_id) for the frontend."""
+    """Create a Razorpay subscription for the logged-in user on the chosen tier
+    ('individual' or 'family') and return checkout params for the frontend."""
     settings = get_settings()
     if not razorpay_client.configured():
         raise HTTPException(status_code=503, detail="Payments are not configured")
+
+    tier = (plan or "individual").lower()
+    plan_id = {
+        "individual": settings.razorpay_plan_individual,
+        "family": settings.razorpay_plan_family,
+    }.get(tier) or settings.razorpay_plan_id
+    if not plan_id:
+        raise HTTPException(status_code=503, detail=f"No plan configured for '{tier}'")
 
     # Reuse an existing non-terminal subscription if the user already started one.
     existing = (await db.execute(
@@ -85,7 +94,8 @@ async def create_subscription(
     try:
         sub = await razorpay_client.create_subscription(
             customer_id=None,
-            notes={"phone_user_id": str(user.id), "contact": contact or ""},
+            plan_id=plan_id,
+            notes={"phone_user_id": str(user.id), "contact": contact or "", "tier": tier},
         )
     except Exception as exc:
         logger.error("Razorpay create_subscription failed: %s", exc)

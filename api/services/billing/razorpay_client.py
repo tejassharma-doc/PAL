@@ -27,7 +27,8 @@ def _auth() -> tuple[str, str]:
 
 def configured() -> bool:
     s = get_settings()
-    return bool(s.razorpay_key_id and s.razorpay_key_secret and s.razorpay_plan_id)
+    has_plan = bool(s.razorpay_plan_id or s.razorpay_plan_individual or s.razorpay_plan_family)
+    return bool(s.razorpay_key_id and s.razorpay_key_secret and has_plan)
 
 
 async def create_customer(name: Optional[str], contact: Optional[str], email: Optional[str]) -> Optional[str]:
@@ -47,14 +48,15 @@ async def create_customer(name: Optional[str], contact: Optional[str], email: Op
 
 async def create_subscription(
     customer_id: Optional[str],
+    plan_id: Optional[str] = None,
     total_count: int = 12,
     notes: Optional[dict] = None,
 ) -> dict:
-    """Create a recurring subscription on the configured plan. Returns the
-    Razorpay subscription object (id, short_url, status, ...)."""
+    """Create a recurring subscription on the given plan (falls back to the
+    default razorpay_plan_id). Returns the Razorpay subscription object."""
     s = get_settings()
     payload: dict[str, Any] = {
-        "plan_id": s.razorpay_plan_id,
+        "plan_id": plan_id or s.razorpay_plan_id,
         "total_count": total_count,   # number of billing cycles
         "customer_notify": 1,
         "notes": notes or {},

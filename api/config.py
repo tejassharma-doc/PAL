@@ -86,7 +86,9 @@ class Settings(BaseSettings):
     subscription_enabled: bool = False
     razorpay_key_id: str = ""
     razorpay_key_secret: str = ""
-    razorpay_plan_id: str = ""            # the Razorpay subscription plan id
+    razorpay_plan_id: str = ""            # default/fallback Razorpay plan id
+    razorpay_plan_individual: str = ""    # Individual tier plan id
+    razorpay_plan_family: str = ""        # Family tier plan id
     razorpay_webhook_secret: str = ""
     razorpay_api_base: str = "https://api.razorpay.com/v1"
     # Where the app redirects an unsubscribed user after OTP.
