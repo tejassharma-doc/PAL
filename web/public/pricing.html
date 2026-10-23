@@ -644,24 +644,19 @@ async function startCheckout(plan, btn){
   if(!token){ location.href = '/login'; return; }
   var original = btn ? btn.innerHTML : '';
   if(btn){ btn.style.pointerEvents='none'; btn.style.opacity='0.6'; btn.innerHTML='Opening payment…'; }
-  // Open the tab NOW, synchronously within the click, so popup blockers allow it.
-  // (window.open after an await loses the user-gesture context and gets blocked.)
-  var pay = window.open('', '_blank');
   try{
     var res = await fetch('/api/subscription/create?plan=' + plan, {
       method: 'POST', headers: { Authorization: 'Bearer ' + token }
     });
-    if(res.status === 401){ if(pay){ pay.close(); } location.href = '/login'; return; }
+    if(res.status === 401){ location.href = '/login'; return; }
     if(!res.ok){ var e = await res.json().catch(function(){return {};}); throw new Error(e.detail || 'Could not start subscription'); }
     var data = await res.json();
     if(!data.short_url){ throw new Error('No payment link was returned. Please try again.'); }
-    // Point the pre-opened tab at Razorpay's hosted authorization page (UPI QR /
-    // payment methods); if it was blocked, fall back to a full-page redirect.
-    if(pay){ pay.location.href = data.short_url; } else { location.href = data.short_url; return; }
-    if(btn){ btn.innerHTML='Waiting for payment…'; }
-    watchActivation(token, btn, original);
+    // Redirect this tab to the Razorpay-generated payment link (hosted page with
+    // the UPI QR / payment methods). After paying, returning to the app lands the
+    // user inside it via the on-load status check below.
+    location.href = data.short_url;
   }catch(err){
-    if(pay){ pay.close(); }
     alert((err && err.message) || 'Something went wrong. Please try again.');
     if(btn){ btn.style.pointerEvents=''; btn.style.opacity=''; btn.innerHTML=original; }
   }
