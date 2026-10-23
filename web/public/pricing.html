@@ -608,56 +608,70 @@ const nt = document.getElementById('navToggle'), nl = document.getElementById('n
 nt.addEventListener('click', ()=>nl.classList.toggle('open'));
 nl.addEventListener('click', e=>{ if(e.target.tagName==='A') nl.classList.remove('open'); });
 
-// ── Subscription checkout (Razorpay) ───────────────────────────────────────────
-function loadRzp(){
-  return new Promise(function(resolve, reject){
-    if(window.Razorpay) return resolve();
-    var s = document.createElement('script');
-    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
-    s.onload = resolve; s.onerror = function(){ reject(new Error('rzp')); };
-    document.body.appendChild(s);
-  });
+// ── Subscription checkout (Razorpay hosted authorization) ──────────────────────
+// We open Razorpay's hosted authorization page (short_url) instead of the inline
+// Checkout modal — the hosted page reliably shows the UPI QR / payment methods for
+// recurring subscriptions, while the inline modal can fail to render them.
+var _watching = false;
+async function checkActive(token){
+  try{
+    var r = await fetch('/api/subscription/status', { headers: { Authorization: 'Bearer ' + token } });
+    var d = await r.json();
+    if(d && d.active){ location.href = '/'; return true; }
+  }catch(e){}
+  return false;
 }
-async function pollActive(token){
-  for(var i=0;i<20;i++){
-    try{
-      var r = await fetch('/api/subscription/status', { headers: { Authorization: 'Bearer ' + token } });
-      var d = await r.json();
-      if(d.active){ location.href = '/'; return; }
-    }catch(e){}
-    await new Promise(function(res){ setTimeout(res, 2000); });
-  }
-  alert('Payment received — activation is taking a moment. Please reload shortly.');
+function watchActivation(token, btn, original){
+  if(_watching) return;
+  _watching = true;
+  var tries = 0;
+  var iv = setInterval(async function(){
+    tries++;
+    if(await checkActive(token)){ clearInterval(iv); return; }
+    if(tries > 120){   // ~6 min
+      clearInterval(iv); _watching = false;
+      if(btn){ btn.style.pointerEvents=''; btn.style.opacity=''; btn.innerHTML=original; }
+      alert('Payment not detected yet. If you have paid, reopen the app shortly — it will activate automatically.');
+    }
+  }, 3000);
+  // Re-check immediately whenever the user comes back to this tab (after paying).
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState === 'visible') checkActive(token);
+  });
 }
 async function startCheckout(plan, btn){
   var token = localStorage.getItem('pal_token');
   if(!token){ location.href = '/login'; return; }
   var original = btn ? btn.innerHTML : '';
   if(btn){ btn.style.pointerEvents='none'; btn.style.opacity='0.6'; btn.innerHTML='Opening payment…'; }
+  // Open the tab NOW, synchronously within the click, so popup blockers allow it.
+  // (window.open after an await loses the user-gesture context and gets blocked.)
+  var pay = window.open('', '_blank');
   try{
     var res = await fetch('/api/subscription/create?plan=' + plan, {
       method: 'POST', headers: { Authorization: 'Bearer ' + token }
     });
-    if(res.status === 401){ location.href = '/login'; return; }
+    if(res.status === 401){ if(pay){ pay.close(); } location.href = '/login'; return; }
     if(!res.ok){ var e = await res.json().catch(function(){return {};}); throw new Error(e.detail || 'Could not start subscription'); }
     var data = await res.json();
-    await loadRzp();
-    var rzp = new window.Razorpay({
-      key: data.razorpay_key_id,
-      subscription_id: data.subscription_id,
-      name: 'PAL',
-      description: 'PAL ' + plan + ' membership',
-      theme: { color: '#37b59b' },
-      handler: function(){ if(btn){ btn.innerHTML='Activating…'; } pollActive(token); },
-      modal: { ondismiss: function(){ if(btn){ btn.style.pointerEvents=''; btn.style.opacity=''; btn.innerHTML=original; } } }
-    });
-    rzp.on('payment.failed', function(){ alert('Payment failed. Please try again.'); if(btn){ btn.style.pointerEvents=''; btn.style.opacity=''; btn.innerHTML=original; } });
-    rzp.open();
+    if(!data.short_url){ throw new Error('No payment link was returned. Please try again.'); }
+    // Point the pre-opened tab at Razorpay's hosted authorization page (UPI QR /
+    // payment methods); if it was blocked, fall back to a full-page redirect.
+    if(pay){ pay.location.href = data.short_url; } else { location.href = data.short_url; return; }
+    if(btn){ btn.innerHTML='Waiting for payment…'; }
+    watchActivation(token, btn, original);
   }catch(err){
+    if(pay){ pay.close(); }
     alert((err && err.message) || 'Something went wrong. Please try again.');
     if(btn){ btn.style.pointerEvents=''; btn.style.opacity=''; btn.innerHTML=original; }
   }
 }
+// On load: if this number is already subscribed (e.g. returning after paying),
+// go straight into the app instead of showing the paywall again.
+(function(){
+  var token = localStorage.getItem('pal_token');
+  if(token){ checkActive(token); }
+})();
 ['choose-individual','choose-family'].forEach(function(id){
   var el = document.getElementById(id);
   if(el){ el.addEventListener('click', function(ev){ ev.preventDefault(); startCheckout(el.getAttribute('data-plan'), el); }); }

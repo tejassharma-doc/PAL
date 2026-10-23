@@ -48,6 +48,27 @@ async def subscription_status(
         .where(Subscription.phone_user_id == user.id)
         .order_by(Subscription.created_at.desc())
     )).scalars().first()
+
+    # Fallback: if the webhook hasn't arrived yet (or isn't configured), pull the
+    # live status from Razorpay so activation is detected after the user authorises
+    # on the hosted page. Keeps test-mode working without a webhook round-trip.
+    if not active and sub and sub.razorpay_subscription_id and razorpay_client.configured():
+        try:
+            live = await razorpay_client.fetch_subscription(sub.razorpay_subscription_id)
+            new_status = live.get("status")
+            if new_status and new_status != sub.status:
+                sub.status = new_status
+                cs = _ts(live.get("current_start"))
+                ce = _ts(live.get("current_end"))
+                if cs:
+                    sub.current_start = cs
+                if ce:
+                    sub.current_end = ce
+                await db.commit()
+                active = await user_has_active_subscription(user.id, db)
+        except Exception as exc:
+            logger.warning("Razorpay status fallback fetch failed: %s", exc)
+
     return {
         "active": active,
         "subscription_enabled": settings.subscription_enabled,
