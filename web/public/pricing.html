@@ -608,11 +608,10 @@ const nt = document.getElementById('navToggle'), nl = document.getElementById('n
 nt.addEventListener('click', ()=>nl.classList.toggle('open'));
 nl.addEventListener('click', e=>{ if(e.target.tagName==='A') nl.classList.remove('open'); });
 
-// ── Subscription checkout (Razorpay hosted authorization) ──────────────────────
-// We open Razorpay's hosted authorization page (short_url) instead of the inline
-// Checkout modal — the hosted page reliably shows the UPI QR / payment methods for
-// recurring subscriptions, while the inline modal can fail to render them.
-var _watching = false;
+// ── Subscription checkout (Razorpay) ───────────────────────────────────────────
+// Primary: Razorpay Checkout.js — on successful payment its handler fires in this
+// page, so we can send the user straight to the Ask home (/). Fallback: if the
+// script can't load, redirect to the hosted payment link (short_url).
 async function checkActive(token){
   try{
     var r = await fetch('/api/subscription/status', { headers: { Authorization: 'Bearer ' + token } });
@@ -621,23 +620,24 @@ async function checkActive(token){
   }catch(e){}
   return false;
 }
-function watchActivation(token, btn, original){
-  if(_watching) return;
-  _watching = true;
-  var tries = 0;
-  var iv = setInterval(async function(){
-    tries++;
-    if(await checkActive(token)){ clearInterval(iv); return; }
-    if(tries > 120){   // ~6 min
-      clearInterval(iv); _watching = false;
-      if(btn){ btn.style.pointerEvents=''; btn.style.opacity=''; btn.innerHTML=original; }
-      alert('Payment not detected yet. If you have paid, reopen the app shortly — it will activate automatically.');
-    }
-  }, 3000);
-  // Re-check immediately whenever the user comes back to this tab (after paying).
-  document.addEventListener('visibilitychange', function(){
-    if(document.visibilityState === 'visible') checkActive(token);
+function loadRzp(){
+  return new Promise(function(resolve, reject){
+    if(window.Razorpay) return resolve();
+    var s = document.createElement('script');
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    s.onload = resolve;
+    s.onerror = function(){ reject(new Error('rzp-load')); };
+    document.body.appendChild(s);
   });
+}
+// After payment: confirm activation, then land the user on the Ask home (/).
+async function finishAndGoHome(token, btn){
+  if(btn){ btn.innerHTML = 'Activating…'; }
+  for(var i=0;i<30;i++){               // ~60s, status syncs via webhook / live fetch
+    if(await checkActive(token)) return;  // checkActive redirects to / when active
+    await new Promise(function(res){ setTimeout(res, 2000); });
+  }
+  location.href = '/';                 // enter the app regardless; gating re-checks there
 }
 async function startCheckout(plan, btn){
   var token = localStorage.getItem('pal_token');
@@ -651,11 +651,24 @@ async function startCheckout(plan, btn){
     if(res.status === 401){ location.href = '/login'; return; }
     if(!res.ok){ var e = await res.json().catch(function(){return {};}); throw new Error(e.detail || 'Could not start subscription'); }
     var data = await res.json();
-    if(!data.short_url){ throw new Error('No payment link was returned. Please try again.'); }
-    // Redirect this tab to the Razorpay-generated payment link (hosted page with
-    // the UPI QR / payment methods). After paying, returning to the app lands the
-    // user inside it via the on-load status check below.
-    location.href = data.short_url;
+    try{
+      await loadRzp();                 // use Checkout.js so we can auto-return home
+    }catch(loadErr){
+      if(data.short_url){ location.href = data.short_url; return; }  // fallback: hosted page
+      throw new Error('Could not open the payment window. Please try again.');
+    }
+    var rzp = new window.Razorpay({
+      key: data.razorpay_key_id,
+      subscription_id: data.subscription_id,
+      name: 'PAL',
+      description: 'PAL ' + plan + ' membership',
+      theme: { color: '#37b59b' },
+      // On success: go to the Ask home (/) after confirming activation.
+      handler: function(){ finishAndGoHome(token, btn); },
+      modal: { ondismiss: function(){ if(btn){ btn.style.pointerEvents=''; btn.style.opacity=''; btn.innerHTML=original; } } }
+    });
+    rzp.on('payment.failed', function(){ alert('Payment failed. Please try again.'); if(btn){ btn.style.pointerEvents=''; btn.style.opacity=''; btn.innerHTML=original; } });
+    rzp.open();
   }catch(err){
     alert((err && err.message) || 'Something went wrong. Please try again.');
     if(btn){ btn.style.pointerEvents=''; btn.style.opacity=''; btn.innerHTML=original; }
