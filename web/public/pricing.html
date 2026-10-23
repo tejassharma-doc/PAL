@@ -570,7 +570,7 @@ footer{border-top:1px solid var(--line-dark);padding:32px 0;margin-top:44px;posi
         <span class="cur">₹</span><span class="amt">41</span><span class="per">/ month</span>
       </div>
       <div class="tax">Inclusive of all taxes</div>
-      <a class="btn btn-g" href="/signup">Choose Individual <span>→</span></a>
+      <a class="btn btn-g" href="#" id="choose-individual" data-plan="individual">Choose Individual <span>→</span></a>
       <div class="inc">What’s included</div>
       <ul class="feats"><li class="who"><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>For 1 person</b><span>Everything below for you</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>Ask PAL anything</b><span>Type or speak in your own Indian language — clear answers with references.</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>Your record, only with your consent</b><span>PAL reads your health record only after you allow it for that conversation.</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>All your medical records in one place</b><span>Lab tests, prescriptions, visit notes and documents, organised for you.</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>Upload lab reports</b><span>PAL reads the values; you check them before anything is saved.</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>Visits &amp; your doctor’s care plan</b><span>Upcoming appointments and the plan your doctor wrote — shown exactly as written.</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>Medicine reminders</b><span>On-time reminders you can mark as taken or snooze.</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>Conversation history</b><span>Revisit, continue or delete past conversations.</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>Safety first</b><span>Emergency words trigger an instant safety prompt with help numbers.</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>Private by design</b><span>Every record access is logged. Your data is never sold or used for ads.</span></div></li></ul>
     </section>
@@ -582,7 +582,7 @@ footer{border-top:1px solid var(--line-dark);padding:32px 0;margin-top:44px;posi
         <span class="cur">₹</span><span class="amt">99</span><span class="per">/ month</span>
       </div>
       <div class="tax">Inclusive of all taxes</div>
-      <a class="btn btn-p" href="/signup">Choose Family <span>→</span></a>
+      <a class="btn btn-p" href="#" id="choose-family" data-plan="family">Choose Family <span>→</span></a>
       <div class="inc">What’s included</div>
       <ul class="feats"><li class="who"><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>For up to 3 people</b><span>Everything below for each of up to 3 people in one family group</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>Ask PAL anything</b><span>Type or speak in your own Indian language — clear answers with references.</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>Your record, only with your consent</b><span>PAL reads your health record only after you allow it for that conversation.</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>All your medical records in one place</b><span>Lab tests, prescriptions, visit notes and documents, organised for you.</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>Upload lab reports</b><span>PAL reads the values; you check them before anything is saved.</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>Visits &amp; your doctor’s care plan</b><span>Upcoming appointments and the plan your doctor wrote — shown exactly as written.</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>Medicine reminders</b><span>On-time reminders you can mark as taken or snooze.</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>Conversation history</b><span>Revisit, continue or delete past conversations.</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>Safety first</b><span>Emergency words trigger an instant safety prompt with help numbers.</span></div></li><li><span class="ck"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg></span><div><b>Private by design</b><span>Every record access is logged. Your data is never sold or used for ads.</span></div></li></ul>
     </section>
@@ -607,6 +607,61 @@ footer{border-top:1px solid var(--line-dark);padding:32px 0;margin-top:44px;posi
 const nt = document.getElementById('navToggle'), nl = document.getElementById('navLinks');
 nt.addEventListener('click', ()=>nl.classList.toggle('open'));
 nl.addEventListener('click', e=>{ if(e.target.tagName==='A') nl.classList.remove('open'); });
+
+// ── Subscription checkout (Razorpay) ───────────────────────────────────────────
+function loadRzp(){
+  return new Promise(function(resolve, reject){
+    if(window.Razorpay) return resolve();
+    var s = document.createElement('script');
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    s.onload = resolve; s.onerror = function(){ reject(new Error('rzp')); };
+    document.body.appendChild(s);
+  });
+}
+async function pollActive(token){
+  for(var i=0;i<20;i++){
+    try{
+      var r = await fetch('/api/subscription/status', { headers: { Authorization: 'Bearer ' + token } });
+      var d = await r.json();
+      if(d.active){ location.href = '/'; return; }
+    }catch(e){}
+    await new Promise(function(res){ setTimeout(res, 2000); });
+  }
+  alert('Payment received — activation is taking a moment. Please reload shortly.');
+}
+async function startCheckout(plan, btn){
+  var token = localStorage.getItem('pal_token');
+  if(!token){ location.href = '/login'; return; }
+  var original = btn ? btn.innerHTML : '';
+  if(btn){ btn.style.pointerEvents='none'; btn.style.opacity='0.6'; btn.innerHTML='Opening payment…'; }
+  try{
+    var res = await fetch('/api/subscription/create?plan=' + plan, {
+      method: 'POST', headers: { Authorization: 'Bearer ' + token }
+    });
+    if(res.status === 401){ location.href = '/login'; return; }
+    if(!res.ok){ var e = await res.json().catch(function(){return {};}); throw new Error(e.detail || 'Could not start subscription'); }
+    var data = await res.json();
+    await loadRzp();
+    var rzp = new window.Razorpay({
+      key: data.razorpay_key_id,
+      subscription_id: data.subscription_id,
+      name: 'PAL',
+      description: 'PAL ' + plan + ' membership',
+      theme: { color: '#37b59b' },
+      handler: function(){ if(btn){ btn.innerHTML='Activating…'; } pollActive(token); },
+      modal: { ondismiss: function(){ if(btn){ btn.style.pointerEvents=''; btn.style.opacity=''; btn.innerHTML=original; } } }
+    });
+    rzp.on('payment.failed', function(){ alert('Payment failed. Please try again.'); if(btn){ btn.style.pointerEvents=''; btn.style.opacity=''; btn.innerHTML=original; } });
+    rzp.open();
+  }catch(err){
+    alert((err && err.message) || 'Something went wrong. Please try again.');
+    if(btn){ btn.style.pointerEvents=''; btn.style.opacity=''; btn.innerHTML=original; }
+  }
+}
+['choose-individual','choose-family'].forEach(function(id){
+  var el = document.getElementById(id);
+  if(el){ el.addEventListener('click', function(ev){ ev.preventDefault(); startCheckout(el.getAttribute('data-plan'), el); }); }
+});
 </script>
 </body>
 </html>
