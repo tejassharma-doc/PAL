@@ -214,6 +214,18 @@ const MEALS = [
   { mt:'Dinner', mc:'~430 kcal', mn:'Grilled fish, sautéed greens', why:[{b:'Why: '},{t:'omega-3s support heart health. '},{b:'Avoid grapefruit'},{t:' — clashes with your statin.'}] },
 ];
 
+// ─── Section ↔ URL mapping ──────────────────────────────────────────────────────
+// Each in-app section has its own browser URL (e.g. /ask, /records) so the address
+// bar reflects where you are, links are shareable, and reload lands on the same
+// section. The matching route files (app/ask/page.tsx, …) all render this component.
+type TabId = 'ask'|'history'|'record'|'visits'|'reminders'|'profile';
+const TAB_PATHS: Record<TabId, string> = {
+  ask: '/ask', history: '/history', record: '/records',
+  visits: '/visits', reminders: '/reminders', profile: '/profile',
+};
+const PATH_TABS: Record<string, TabId> = Object.entries(TAB_PATHS)
+  .reduce((acc, [id, path]) => { acc[path] = id as TabId; return acc; }, {} as Record<string, TabId>);
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function PAL() {
   const router = useRouter();
@@ -229,7 +241,15 @@ export default function PAL() {
     }
     return '';
   });  // Real user name from DB
-  const [tab, setTabRaw] = useState<'ask'|'history'|'record'|'visits'|'reminders'|'profile'>('ask');
+  const [tab, setTabRaw] = useState<TabId>(() => {
+    // Initialise from the URL so a direct load / reload of /records, /visits, … opens
+    // the right section without a flash of the Ask tab.
+    if (typeof window !== 'undefined') {
+      const m = PATH_TABS[window.location.pathname];
+      if (m) return m;
+    }
+    return 'ask';
+  });
   const [view, setView] = useState<string|null>(null);
   const [ask, setAsk] = useState<'idle'|'consent'|'thinking'|'answer'>('idle');
   const [curId, setCurId] = useState<string|null>(null);
@@ -385,6 +405,19 @@ export default function PAL() {
   }, []);
 
   useEffect(() => () => clearTimers(), []);
+
+  // Keep the section tab in sync with the browser URL (deep links, reload, back/forward).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!localStorage.getItem('pal_token')) return;  // auth effect handles the redirect
+    // Normalise the bare app root to /ask so the address bar always names the section.
+    if (window.location.pathname === '/') {
+      window.history.replaceState({ tab: 'ask' }, '', '/ask');
+    }
+    const onPop = () => setTabRaw(PATH_TABS[window.location.pathname] || 'ask');
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   // Load real conversations when History tab opens.
   useEffect(() => {
@@ -894,6 +927,11 @@ export default function PAL() {
     setView(null);
     setHistoryView(null);
     if (ask === 'thinking') setAsk('idle');
+    // Reflect the section in the browser URL (e.g. /ask, /records) without a reload.
+    const path = TAB_PATHS[t];
+    if (path && typeof window !== 'undefined' && window.location.pathname !== path) {
+      window.history.pushState({ tab: t }, '', path);
+    }
   }
 
   function startThinking() {

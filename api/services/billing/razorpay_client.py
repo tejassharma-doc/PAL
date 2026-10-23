@@ -49,11 +49,13 @@ async def create_customer(name: Optional[str], contact: Optional[str], email: Op
 async def create_subscription(
     customer_id: Optional[str],
     plan_id: Optional[str] = None,
-    total_count: int = 12,
+    total_count: int = 120,
     notes: Optional[dict] = None,
 ) -> dict:
     """Create a recurring subscription on the given plan (falls back to the
-    default razorpay_plan_id). Returns the Razorpay subscription object."""
+    default razorpay_plan_id). total_count is the number of billing cycles the
+    autopay mandate covers (120 = 10 years for a monthly plan). Returns the
+    Razorpay subscription object."""
     s = get_settings()
     payload: dict[str, Any] = {
         "plan_id": plan_id or s.razorpay_plan_id,
