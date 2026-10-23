@@ -63,7 +63,10 @@ const nextConfig = {
   async headers() {
     return [
       {
-        source: '/(.*)',
+        // Everything EXCEPT /pricing gets cross-origin isolation (needed for
+        // WebGPU SharedArrayBuffer). /pricing is excluded so Razorpay Checkout's
+        // cross-origin script + iframe can load (COEP require-corp would block them).
+        source: '/((?!pricing).*)',
         headers: [
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
           { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' },
