@@ -77,6 +77,43 @@ async def fetch_subscription(subscription_id: str) -> dict:
         return r.json()
 
 
+async def pause_subscription(subscription_id: str) -> dict:
+    """Pause a subscription immediately (reflects in the Razorpay dashboard)."""
+    s = get_settings()
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.post(
+            f"{s.razorpay_api_base}/subscriptions/{subscription_id}/pause",
+            json={"pause_at": "now"}, auth=_auth(),
+        )
+        r.raise_for_status()
+        return r.json()
+
+
+async def resume_subscription(subscription_id: str) -> dict:
+    """Resume a paused subscription immediately."""
+    s = get_settings()
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.post(
+            f"{s.razorpay_api_base}/subscriptions/{subscription_id}/resume",
+            json={"resume_at": "now"}, auth=_auth(),
+        )
+        r.raise_for_status()
+        return r.json()
+
+
+async def cancel_subscription(subscription_id: str, at_cycle_end: bool = False) -> dict:
+    """Cancel a subscription. at_cycle_end=False cancels immediately; True lets the
+    current paid cycle finish first. Reflects in the Razorpay dashboard."""
+    s = get_settings()
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.post(
+            f"{s.razorpay_api_base}/subscriptions/{subscription_id}/cancel",
+            json={"cancel_at_cycle_end": 1 if at_cycle_end else 0}, auth=_auth(),
+        )
+        r.raise_for_status()
+        return r.json()
+
+
 def verify_webhook_signature(raw_body: bytes, signature: str) -> bool:
     """Verify the X-Razorpay-Signature header against the webhook secret."""
     s = get_settings()

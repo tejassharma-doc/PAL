@@ -353,6 +353,10 @@ export default function PAL() {
   const [settingsAnalytics, setSettingsAnalytics]     = useState(false);
   const [settingsSaving, setSettingsSaving]           = useState(false);
   const [settingsSaved, setSettingsSaved]             = useState(false);
+  // Subscription (Razorpay) — shown in Settings when gating is enabled
+  type SubInfo = { active: boolean; subscription_enabled: boolean; status: string | null; plan: string | null; current_end: string | null; subscription_id: string | null; pricing_url?: string };
+  const [subInfo, setSubInfo]                         = useState<SubInfo | null>(null);
+  const [subBusy, setSubBusy]                         = useState(false);
   const [signOutConfirmOpen, setSignOutConfirmOpen]   = useState(false);
   const [signOutReason, setSignOutReason]             = useState('');
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
@@ -561,6 +565,36 @@ export default function PAL() {
     setSettingsSaving(false);
     setSettingsSaved(true);
     setTimeout(() => setSettingsSaved(false), 2000);
+  }
+
+  // Subscription — load current state when the settings sheet opens
+  const loadSubscription = useCallback(async () => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('pal_token') : null;
+    if (!token) return;
+    try {
+      const r = await fetch('/api/subscription/status', { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) setSubInfo(await r.json());
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    if (settingsOpen) loadSubscription();
+  }, [settingsOpen, loadSubscription]);
+
+  async function subAction(path: string, confirmMsg?: string) {
+    if (confirmMsg && !window.confirm(confirmMsg)) return;
+    const token = localStorage.getItem('pal_token');
+    if (!token) return;
+    setSubBusy(true);
+    try {
+      const r = await fetch(`/api/subscription/${path}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || 'Action failed'); }
+      await loadSubscription();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setSubBusy(false);
+    }
   }
 
   function handleSignOut() {
@@ -1194,17 +1228,21 @@ export default function PAL() {
 
                 {/* Language */}
                 <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.12em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 10 }}>{t('settings_language')}</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 16 }}>
-                  {SUPPORTED_LANGUAGES.map(lang => {
-                    const sel = settingsLang === lang.code;
-                    return (
-                      <button key={lang.code} onClick={() => setSettingsLang(lang.code)}
-                        style={{ padding: '7px 4px', borderRadius: 10, border: sel ? `1.5px solid ${c.jade}` : '1px solid rgba(13,31,36,.12)', background: sel ? 'rgba(55,181,155,.1)' : '#fff', cursor: 'pointer', textAlign: 'center' }}>
-                        <div style={{ fontFamily: sans, fontWeight: sel ? 700 : 400, fontSize: 13, color: sel ? c.jadeD : c.ink }}>{lang.native}</div>
-                        <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', marginTop: 1 }}>{lang.name}</div>
-                      </button>
-                    );
-                  })}
+                <div style={{ position: 'relative', marginBottom: 16 }}>
+                  <select
+                    value={settingsLang}
+                    onChange={e => setSettingsLang(e.target.value)}
+                    aria-label={t('settings_language')}
+                    style={{ width: '100%', appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none', border: '1px solid rgba(13,31,36,.16)', borderRadius: 10, padding: '11px 36px 11px 12px', fontFamily: sans, fontSize: 16, background: '#fff', color: c.ink, boxSizing: 'border-box', outline: 'none', cursor: 'pointer' }}
+                  >
+                    {SUPPORTED_LANGUAGES.map(lang => (
+                      <option key={lang.code} value={lang.code}>{lang.native} · {lang.name}</option>
+                    ))}
+                  </select>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c.ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                    style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', opacity: .6 }}>
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
                 </div>
 
                 {/* Privacy */}
@@ -1249,6 +1287,54 @@ export default function PAL() {
                   style={{ width: '100%', background: settingsSaved ? c.jadeD : c.jade, color: settingsSaved ? '#fff' : c.deep2, border: 'none', fontFamily: sans, fontWeight: 700, fontSize: 16, padding: 13, borderRadius: 12, cursor: settingsSaving ? 'wait' : 'pointer', marginTop: 4, marginBottom: 10, transition: 'background .2s' }}>
                   {settingsSaved ? t('settings_saved') : settingsSaving ? '…' : t('settings_save')}
                 </button>
+
+                {/* Subscription */}
+                {subInfo?.subscription_enabled && (
+                  <>
+                    <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.12em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 8 }}>Subscription</div>
+                    {subInfo.active || subInfo.status === 'paused' ? (
+                      <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 11, padding: '12px 13px', marginBottom: 14 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                          <span style={{ fontFamily: sans, fontWeight: 700, fontSize: 15, color: c.ink, textTransform: 'capitalize' }}>
+                            {subInfo.plan ? `${subInfo.plan} plan` : 'PAL membership'}
+                          </span>
+                          <span style={{ fontFamily: mono, fontSize: 11, padding: '2px 8px', borderRadius: 20, textTransform: 'capitalize',
+                            background: subInfo.status === 'paused' ? 'rgba(216,162,74,.15)' : 'rgba(55,181,155,.14)',
+                            color: subInfo.status === 'paused' ? c.amberD : c.jadeD }}>
+                            {subInfo.status === 'paused' ? 'Paused' : (subInfo.status || 'Active')}
+                          </span>
+                        </div>
+                        {subInfo.current_end && (
+                          <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', marginBottom: 11 }}>
+                            Renews {new Date(subInfo.current_end).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          {subInfo.status === 'paused' ? (
+                            <button onClick={() => subAction('resume')} disabled={subBusy}
+                              style={{ flex: 1, background: c.jade, color: c.deep2, border: 'none', fontFamily: sans, fontWeight: 600, fontSize: 14, padding: '10px 0', borderRadius: 10, cursor: subBusy ? 'wait' : 'pointer' }}>
+                              Resume
+                            </button>
+                          ) : (
+                            <button onClick={() => subAction('pause', 'Pause your subscription? Billing stops until you resume.')} disabled={subBusy}
+                              style={{ flex: 1, background: 'rgba(216,162,74,.08)', color: c.amberD, border: '1px solid rgba(216,162,74,.35)', fontFamily: sans, fontWeight: 600, fontSize: 14, padding: '10px 0', borderRadius: 10, cursor: subBusy ? 'wait' : 'pointer' }}>
+                              Pause
+                            </button>
+                          )}
+                          <button onClick={() => subAction('cancel', 'Cancel your subscription? This stops future billing and ends your membership.')} disabled={subBusy}
+                            style={{ flex: 1, background: 'rgba(194,103,94,.08)', color: '#a04a41', border: '1px solid rgba(194,103,94,.35)', fontFamily: sans, fontWeight: 600, fontSize: 14, padding: '10px 0', borderRadius: 10, cursor: subBusy ? 'wait' : 'pointer' }}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button onClick={() => { window.location.href = subInfo.pricing_url || '/pricing'; }}
+                        style={{ width: '100%', background: c.jade, color: c.deep2, border: 'none', fontFamily: sans, fontWeight: 700, fontSize: 15, padding: 12, borderRadius: 11, cursor: 'pointer', marginBottom: 14 }}>
+                        {subInfo.status === 'cancelled' ? 'Renew subscription' : 'Subscribe'}
+                      </button>
+                    )}
+                  </>
+                )}
 
                 {/* Account */}
                 <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.12em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 8 }}>{t('settings_account')}</div>

@@ -69,13 +69,94 @@ async def subscription_status(
         except Exception as exc:
             logger.warning("Razorpay status fallback fetch failed: %s", exc)
 
+    # Map the stored plan_id back to a human tier label for the UI.
+    tier = None
+    if sub and sub.plan_id:
+        if sub.plan_id == settings.razorpay_plan_individual:
+            tier = "individual"
+        elif sub.plan_id == settings.razorpay_plan_family:
+            tier = "family"
+
     return {
         "active": active,
         "subscription_enabled": settings.subscription_enabled,
         "status": sub.status if sub else None,
+        "plan": tier,
+        "plan_id": sub.plan_id if sub else None,
         "current_end": sub.current_end.isoformat() if sub and sub.current_end else None,
+        "subscription_id": sub.razorpay_subscription_id if sub else None,
         "pricing_url": settings.pricing_url,
     }
+
+
+async def _latest_subscription(user_id, db: AsyncSession) -> Subscription | None:
+    return (await db.execute(
+        select(Subscription)
+        .where(Subscription.phone_user_id == user_id)
+        .order_by(Subscription.created_at.desc())
+    )).scalars().first()
+
+
+@router.post("/pause")
+async def pause_subscription(
+    user: Union[PhoneUser, User] = Depends(get_current_user_unified),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pause the user's active subscription (immediately; visible in Razorpay)."""
+    sub = await _latest_subscription(user.id, db)
+    if not sub or not sub.razorpay_subscription_id:
+        raise HTTPException(status_code=404, detail="No subscription to pause")
+    try:
+        res = await razorpay_client.pause_subscription(sub.razorpay_subscription_id)
+    except Exception as exc:
+        logger.error("Razorpay pause failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Could not pause subscription")
+    sub.status = res.get("status") or "paused"
+    await db.commit()
+    return {"ok": True, "status": sub.status}
+
+
+@router.post("/resume")
+async def resume_subscription(
+    user: Union[PhoneUser, User] = Depends(get_current_user_unified),
+    db: AsyncSession = Depends(get_db),
+):
+    """Resume a paused subscription (immediately; visible in Razorpay)."""
+    sub = await _latest_subscription(user.id, db)
+    if not sub or not sub.razorpay_subscription_id:
+        raise HTTPException(status_code=404, detail="No subscription to resume")
+    try:
+        res = await razorpay_client.resume_subscription(sub.razorpay_subscription_id)
+    except Exception as exc:
+        logger.error("Razorpay resume failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Could not resume subscription")
+    sub.status = res.get("status") or "active"
+    await db.commit()
+    return {"ok": True, "status": sub.status}
+
+
+@router.post("/cancel")
+async def cancel_subscription(
+    at_cycle_end: bool = False,
+    user: Union[PhoneUser, User] = Depends(get_current_user_unified),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancel the user's subscription. Immediate by default; pass at_cycle_end=true
+    to keep access until the current paid cycle ends. Visible in Razorpay."""
+    sub = await _latest_subscription(user.id, db)
+    if not sub or not sub.razorpay_subscription_id:
+        raise HTTPException(status_code=404, detail="No subscription to cancel")
+    try:
+        res = await razorpay_client.cancel_subscription(sub.razorpay_subscription_id, at_cycle_end=at_cycle_end)
+    except Exception as exc:
+        logger.error("Razorpay cancel failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Could not cancel subscription")
+    sub.status = res.get("status") or "cancelled"
+    ce = _ts(res.get("current_end"))
+    if ce:
+        sub.current_end = ce
+    await db.commit()
+    return {"ok": True, "status": sub.status}
 
 
 @router.post("/create")
