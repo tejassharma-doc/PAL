@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 
 def generate_otp() -> str:
-    return f"000000"
+    return f"{secrets.randbelow(1_000_000):06d}"
 
 
 def hash_otp(code: str) -> str:

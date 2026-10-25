@@ -94,6 +94,18 @@ class Settings(BaseSettings):
     # Where the app redirects an unsubscribed user after OTP.
     pricing_url: str = "https://palcare.life/pricing"
 
+    # ── SMS OTP delivery (Exotel, DLT-registered) ──────────────────────────────
+    # When enabled and configured, login OTPs are sent over SMS via Exotel. In
+    # development+debug the OTP is still returned as dev_otp and SMS is skipped.
+    exotel_enabled: bool = True
+    exotel_sid: str = "docmode1"
+    exotel_api_key: str = "d416fb06aafb39b7308aeb72696c4c115ce466a3ba69ec4d"
+    exotel_api_token: str = "97dcb2e68beac8903f422de73a3df79151f453b7f209cc74"
+    exotel_api_base: str = "https://api.exotel.com"   # Singapore cluster
+    exotel_sms_sender: str = "LCMPRH"                  # DLT-approved header / sender id
+    exotel_dlt_entity_id: str = "1001537080827379238"
+    exotel_dlt_template_id: str = "1077157490022914480"
+
     # Document upload
     upload_dir: str = "./uploads"
 

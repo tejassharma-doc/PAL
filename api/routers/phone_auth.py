@@ -13,6 +13,7 @@ from models.phone_user import PhoneUser
 from models.user import OTPSession
 from models.patient import Patient
 from services.otp import generate_otp, hash_otp, verify_otp_hash, otp_expiry
+from services.sms import exotel
 from auth_unified import create_phone_token
 from pydantic import BaseModel
 from datetime import datetime, timedelta, timezone
@@ -134,10 +135,21 @@ async def request_phone_otp(
         "expires_in": int((expires_at - datetime.now(timezone.utc)).total_seconds())
     }
 
-    # Only include dev_otp in development environment (NEVER in production)
-    if settings.environment == "development" and settings.debug:
+    # Deliver the OTP over SMS via Exotel (DLT-approved template) whenever enabled
+    # and configured — independent of ENVIRONMENT so it works on any deployment.
+    sms_sent = False
+    if settings.exotel_enabled and exotel.configured():
+        try:
+            await exotel.send_otp_sms(phone, otp_code)
+            sms_sent = True
+        except Exception as exc:
+            logger.error("OTP SMS delivery failed: %s", exc)
+            raise HTTPException(status_code=502, detail="Could not send OTP. Please try again.")
+
+    # Only expose the code when no SMS went out (local/dev without Exotel). Never
+    # leak it once SMS delivery is active.
+    if not sms_sent and settings.environment == "development" and settings.debug:
         response["dev_otp"] = otp_code
-        # Redact PHI - show only last 4 digits
         redacted_phone = f"***{phone[-4:]}" if len(phone) >= 4 else "***"
         logger.debug(f"OTP requested for phone ending in {redacted_phone}")
 
