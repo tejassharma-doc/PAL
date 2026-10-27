@@ -16,9 +16,11 @@ COPY app.py .
 
 EXPOSE 8080
 
-# Allow up to 2 min for the model to load before marking healthy.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
-  CMD python -c "import urllib.request,sys; sys.exit(0 if b'\"ready\": true' in urllib.request.urlopen('http://localhost:8080/health').read() else 1)"
+# Allow up to 5 min for the first run (model download + load) before marking healthy.
+# Check for HTTP 200 (the app only serves once the model is loaded) rather than
+# matching JSON text, since Starlette emits compact JSON without spaces.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=5 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/health').status==200 else 1)"
 
 # IMPORTANT: one worker only — each worker loads its own ~3 GB model copy.
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
