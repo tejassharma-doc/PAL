@@ -49,14 +49,18 @@ class DocsIn(BaseModel):
     texts: List[str]
 
 
-def _encode(texts: List[str], prompt: str) -> List[List[float]]:
-    vecs = _state["model"].encode(
-        texts,
-        prompt_name=prompt,
-        normalize_embeddings=True,
-        batch_size=BATCH,
-        convert_to_numpy=True,
-    )
+def _encode(texts: List[str], kind: str) -> List[List[float]]:
+    """kind = 'query' or 'document'. Prefer the model's built-in query/document
+    prompts (EmbeddingGemma defines them); fall back to a configurable prompt_name."""
+    m = _state["model"]
+    if kind == "query" and hasattr(m, "encode_query"):
+        vecs = m.encode_query(texts, normalize_embeddings=True, batch_size=BATCH, convert_to_numpy=True)
+    elif kind == "document" and hasattr(m, "encode_document"):
+        vecs = m.encode_document(texts, normalize_embeddings=True, batch_size=BATCH, convert_to_numpy=True)
+    else:
+        prompt = QUERY_PROMPT if kind == "query" else DOC_PROMPT
+        vecs = m.encode(texts, prompt_name=prompt, normalize_embeddings=True,
+                        batch_size=BATCH, convert_to_numpy=True)
     return [v.tolist() for v in vecs]
 
 
@@ -72,9 +76,9 @@ def health():
 
 @app.post("/embed/query")
 def embed_query(body: QueryIn):
-    return {"embedding": _encode([body.text], QUERY_PROMPT)[0]}
+    return {"embedding": _encode([body.text], "query")[0]}
 
 
 @app.post("/embed/documents")
 def embed_documents(body: DocsIn):
-    return {"embeddings": _encode(body.texts, DOC_PROMPT)}
+    return {"embeddings": _encode(body.texts, "document")}

@@ -80,6 +80,13 @@ class Settings(BaseSettings):
     # Blank => derive "{scheme}://{host}/oauth/token" from docehr_mcp_url.
     docehr_mcp_token_url: str = ""
 
+    # ── Research-evidence tools (PubMed + bioRxiv) ─────────────────────────────
+    # Being replaced by the embedding-based retrieval pipeline. When False, the
+    # PubMed/bioRxiv tools are NOT offered to Gemma and the evidence agent is
+    # skipped — i.e. these MCPs are disconnected from Gemma. Set True
+    # (EVIDENCE_TOOLS_ENABLED=true) to restore the previous PubMed/bioRxiv flow.
+    evidence_tools_enabled: bool = False
+
     # ── Subscriptions (Razorpay recurring) ─────────────────────────────────────
     # When subscription_enabled is false, login is NOT gated (has_subscription is
     # reported true) so the app behaves as before — flip it on once Razorpay is set.

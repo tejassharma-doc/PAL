@@ -495,6 +495,12 @@ class HermesOrchestrator:
 
         tasks = {}
         for agent_name in plan.agents_to_invoke:
+            # Evidence (PubMed/bioRxiv) is being replaced by the embedding-based
+            # retrieval pipeline. Skip it entirely unless re-enabled via the flag,
+            # so these sources are disconnected from Gemma's answers.
+            if agent_name == AgentName.evidence and not self.settings.evidence_tools_enabled:
+                logger.info("[orchestrator] evidence agent disabled — skipping")
+                continue
             agent = agent_map[agent_name]
             kwargs: dict = {
                 "query": query,

@@ -946,8 +946,19 @@ class FastMCPClient:
         # Fetch tools from MCP servers (fresh each time, no caching)
         fastmcp_tools = await self._fetch_fastmcp_tools()
         external_tools = await self._fetch_external_tools()
-        biorxiv_tools = await self._fetch_biorxiv_tools()
-        pubmed_tools = self._fetch_pubmed_tools()
+
+        # PubMed/bioRxiv research tools are being replaced by the embedding-based
+        # retrieval pipeline. Only offer them to Gemma when evidence_tools_enabled
+        # is set — otherwise these MCPs are disconnected from Gemma. Reversible via
+        # the EVIDENCE_TOOLS_ENABLED flag (no code change needed to restore).
+        if get_settings().evidence_tools_enabled:
+            biorxiv_tools = await self._fetch_biorxiv_tools()
+            pubmed_tools = self._fetch_pubmed_tools()
+        else:
+            biorxiv_tools = []
+            pubmed_tools = []
+            logger.info("Evidence tools (PubMed/bioRxiv) disabled — not offered to Gemma")
+
         # Combine all tools
         all_tools = fastmcp_tools + external_tools + biorxiv_tools + pubmed_tools
         logger.info(f"Total tools available: {len(all_tools)} (FastMCP: {len(fastmcp_tools)}, DocEHR: {len(external_tools)}, bioRxiv: {len(biorxiv_tools)}, PubMed: {len(pubmed_tools)})")
