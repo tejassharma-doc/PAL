@@ -7,11 +7,10 @@ ENV PIP_NO_CACHE_DIR=1 \
     HF_HOME=/cache \
     PYTHONUNBUFFERED=1
 
-# CPU wheels of torch + torchvision first (torchvision + Pillow are required because
-# embeddinggemma-2 is a multimodal Gemma-4 model whose processor loads an image
-# processor even for text-only use), then the rest.
+# CPU wheel of torch (no CUDA). embeddinggemma-300m is text-only, so no
+# torchvision/Pillow image-processor deps are needed.
 COPY requirements.txt .
-RUN pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu \
+RUN pip install torch --index-url https://download.pytorch.org/whl/cpu \
  && pip install -r requirements.txt
 
 COPY app.py .

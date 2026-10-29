@@ -7,7 +7,7 @@ services:
     ports:
       - "127.0.0.1:8080:8080"        # localhost-only; reach it from other APP05 services
     environment:
-      - EMBED_MODEL_ID=google/embeddinggemma-2   # <-- set to the id from embed_log.txt
+      - EMBED_MODEL_ID=google/embeddinggemma-300m   # matches the corpus (embed_log.txt)
       - HF_TOKEN=${HF_TOKEN}          # gated model: needs an accepted-license token
       - OMP_NUM_THREADS=4
       - HF_HOME=/cache

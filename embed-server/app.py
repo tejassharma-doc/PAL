@@ -17,7 +17,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 
-MODEL_ID = os.getenv("EMBED_MODEL_ID", "google/embeddinggemma-2")
+MODEL_ID = os.getenv("EMBED_MODEL_ID", "google/embeddinggemma-300m")
 QUERY_PROMPT = os.getenv("EMBED_QUERY_PROMPT", "SearchQuery")
 DOC_PROMPT = os.getenv("EMBED_DOC_PROMPT", "SearchDocument")
 THREADS = int(os.getenv("OMP_NUM_THREADS", "4"))
