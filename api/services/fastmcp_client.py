@@ -220,6 +220,13 @@ class FastMCPClient:
                 logger.info(f"FastMCP: Got response from {tool_name}")
                 return result
 
+            # Knowledge retrieval (embedding RAG over the PubMed corpus)
+            elif tool_name == "search_medical_literature":
+                logger.info("Knowledge: Calling search_medical_literature")
+                result = await self._call_knowledge_search(arguments)
+                logger.info("Knowledge: Got response from search_medical_literature")
+                return result
+
             # Check if it's a bioRxiv research tool
             elif tool_name in BIORXIV_TOOLS:
                 logger.info(f"MCP-bioRxiv: Calling {tool_name}")
@@ -934,6 +941,102 @@ class FastMCPClient:
 
 
 
+    # ── Knowledge retrieval (embedding RAG over the PubMed corpus) ───────────────
+    def _knowledge_tool_schema(self) -> List[Dict[str, Any]]:
+        return [{
+            "type": "function",
+            "function": {
+                "name": "search_medical_literature",
+                "description": (
+                    "Search the curated PubMed medical-literature corpus for passages "
+                    "relevant to a medical/health question. Returns only passages that "
+                    "pass a relevance check. Call this BEFORE answering any medical, "
+                    "treatment, medication, symptom, diagnosis or clinical question, and "
+                    "answer ONLY from what it returns."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "The medical question or search phrase"},
+                        "k": {"type": "integer", "description": "Max passages to retrieve (default 8)"},
+                    },
+                    "required": ["query"],
+                },
+            },
+        }]
+
+    @staticmethod
+    def _passage_text(r: Dict[str, Any]) -> str:
+        for key in ("text", "abstract", "content", "body", "passage"):
+            v = r.get(key)
+            if isinstance(v, str) and v.strip():
+                return v
+        return " ".join(
+            str(v) for key, v in r.items() if key not in ("score", "pos") and isinstance(v, str)
+        )
+
+    async def _judge_relevance(self, query: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Ask Gemma which passages are actually relevant; drop the rest. Fails open
+        to the cosine-filtered list if the judge errors."""
+        try:
+            from services.llm_vertex import get_vertex_client
+            snippets = "\n".join(f"[{i}] {self._passage_text(r)[:800]}" for i, r in enumerate(results))
+            prompt = (
+                "You are a strict relevance judge. Given a user's medical question and "
+                "numbered literature snippets, return ONLY a JSON array of the indices "
+                "that are directly relevant to answering it. If none are relevant, return [].\n\n"
+                f"Question: {query}\n\nSnippets:\n{snippets}\n\nJSON array:"
+            )
+            out = await get_vertex_client().generate(
+                [{"role": "user", "content": prompt}], temperature=0.0, max_tokens=120
+            )
+            start, end = out.find("["), out.rfind("]") + 1
+            keep = set(json.loads(out[start:end])) if start >= 0 and end > start else set(range(len(results)))
+            return [results[i] for i in sorted(keep) if 0 <= i < len(results)]
+        except Exception as exc:
+            logger.warning("Knowledge: judge failed, using threshold results: %s", exc)
+            return results
+
+    async def _call_knowledge_search(self, arguments: Dict[str, Any]) -> Any:
+        """query -> embed (embed_url) -> FAISS /search (retrieval_url) -> judge -> context."""
+        s = get_settings()
+        query = (arguments.get("query") or "").strip()
+        if not query:
+            return {"relevant": False, "results": [], "note": "empty query"}
+        if not s.retrieval_url:
+            logger.error("Knowledge: retrieval_url not configured")
+            return {"relevant": False, "results": [], "note": "retrieval service not configured"}
+        k = int(arguments.get("k") or s.knowledge_top_k)
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                er = await client.post(f"{s.embed_url.rstrip('/')}/embed/query", json={"text": query})
+                er.raise_for_status()
+                vec = er.json().get("embedding")
+                if not vec:
+                    raise ValueError("embedder returned no vector")
+                sr = await client.post(f"{s.retrieval_url.rstrip('/')}/search", json={"embedding": vec, "k": k})
+                sr.raise_for_status()
+                results = sr.json().get("results", [])
+        except Exception as exc:
+            logger.error("Knowledge: retrieval failed: %s", exc)
+            return {
+                "relevant": False, "results": [], "retrieval_ok": False,
+                "note": "Could not reach the medical literature service; tell the user you were unable to check the literature (do NOT answer from memory).",
+            }
+
+        # Cosine floor, then LLM relevance judge.
+        results = [r for r in results if float(r.get("score", 0) or 0) >= s.knowledge_min_score]
+        if s.knowledge_judge_enabled and results:
+            results = await self._judge_relevance(query, results)
+
+        if not results:
+            return {
+                "relevant": False, "results": [],
+                "note": "No sufficiently relevant literature found. Tell the user you don't have reliable evidence on this rather than answering from memory.",
+            }
+        return {"relevant": True, "results": results}
+
     async def get_tool_definitions(self) -> List[Dict[str, Any]]:
         """
         Get OpenAI-compatible tool definitions for Gemma.
@@ -959,9 +1062,17 @@ class FastMCPClient:
             pubmed_tools = []
             logger.info("Evidence tools (PubMed/bioRxiv) disabled — not offered to Gemma")
 
+        # Knowledge retrieval tool (embedding RAG over the PubMed corpus) — replaces
+        # PubMed/bioRxiv. Offered only when enabled and the retrieval service is set.
+        knowledge_tools = (
+            self._knowledge_tool_schema()
+            if get_settings().knowledge_retrieval_enabled
+            else []
+        )
+
         # Combine all tools
-        all_tools = fastmcp_tools + external_tools + biorxiv_tools + pubmed_tools
-        logger.info(f"Total tools available: {len(all_tools)} (FastMCP: {len(fastmcp_tools)}, DocEHR: {len(external_tools)}, bioRxiv: {len(biorxiv_tools)}, PubMed: {len(pubmed_tools)})")
+        all_tools = fastmcp_tools + external_tools + biorxiv_tools + pubmed_tools + knowledge_tools
+        logger.info(f"Total tools available: {len(all_tools)} (FastMCP: {len(fastmcp_tools)}, DocEHR: {len(external_tools)}, bioRxiv: {len(biorxiv_tools)}, PubMed: {len(pubmed_tools)}, Knowledge: {len(knowledge_tools)})")
 
         return all_tools
 

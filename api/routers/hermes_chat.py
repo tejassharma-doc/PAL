@@ -266,23 +266,40 @@ Use this context to understand what the patient is referring to. If they say "th
 """
 
         # Detect which optional tool groups are available
-        has_biorxiv = any(
-            t.get("function", {}).get("name", "").startswith("biorxiv_")
-            for t in tools
-        )
+        tool_names = {t.get("function", {}).get("name", "") for t in tools}
+        has_biorxiv = any(n.startswith("biorxiv_") for n in tool_names)
+        has_knowledge = "search_medical_literature" in tool_names
 
-        literature_tools_section = """
+        if has_knowledge:
+            # New embedding-RAG path: a single curated-corpus tool with a built-in
+            # relevance judge replaces PubMed/bioRxiv.
+            literature_tools_section = """
+MEDICAL LITERATURE TOOL:
+- search_medical_literature: Search the curated PubMed corpus for passages relevant to a medical/health question. It returns only passages that pass a relevance check."""
+            retrieval_instructions = """CRITICAL — MEDICAL & HEALTH QUESTIONS REQUIRE LITERATURE RETRIEVAL:
+For ANY question about a medication, treatment, symptom, diagnosis, health condition, or clinical topic:
+  a. You MUST call search_medical_literature BEFORE composing your answer.
+  b. Answer ONLY from the passages it returns. Synthesise them into one clear, user-friendly answer.
+  c. If the result has "relevant": false or no results, tell the user you do not have reliable evidence on this — do NOT answer from memory.
+  d. Cite the sources you used (title / PMID where present).
+  e. Never invent facts, numbers, or citations that are not in the returned passages."""
+        else:
+            literature_tools_section = """
 MEDICAL LITERATURE TOOLS:
 - pubmed_search: Search PubMed for peer-reviewed human clinical studies. Use for any medical or health question.
 - pubmed_search_advanced: Search PubMed for high-evidence studies only (RCTs, meta-analyses, systematic reviews, practice guidelines). Use when the strongest evidence is needed or for a second opinion."""
-
-        if has_biorxiv:
-            literature_tools_section += """
+            if has_biorxiv:
+                literature_tools_section += """
 - biorxiv_search_preprints: Search bioRxiv/medRxiv for the latest medical preprints. Use alongside PubMed to surface cutting-edge research not yet in peer-reviewed journals."""
-
-        biorxiv_rule = (
-            "and biorxiv_search_preprints " if has_biorxiv else ""
-        )
+            biorxiv_rule = "and biorxiv_search_preprints " if has_biorxiv else ""
+            retrieval_instructions = f"""CRITICAL — MEDICAL & HEALTH QUESTIONS REQUIRE LITERATURE RETRIEVAL:
+For ANY question about a medication, treatment, symptom, diagnosis, health condition, or clinical topic:
+  a. You MUST call pubmed_search {biorxiv_rule}BEFORE composing your answer.
+  b. Call pubmed_search_advanced as well when the user asks for strong evidence, guidelines, or a second opinion.
+  c. Synthesise findings from ALL retrieved sources into a single, coherent answer.
+  d. Cite each article you used: title, journal (or "bioRxiv preprint"), year, and URL.
+  e. NEVER answer a medical question from your training knowledge alone — always retrieve first.
+  f. If retrieval returns no results, say so explicitly rather than answering from memory."""
 
         # Build system prompt
         system_prompt = f"""You are PAL Health Assistant, an AI medical assistant with access to patient data, appointment systems, and medical literature databases.{history_context}
@@ -312,14 +329,7 @@ IMPORTANT RULES:
 4. Use tool results to answer - never make up or guess information
 5. Be concise and helpful
 
-CRITICAL — MEDICAL & HEALTH QUESTIONS REQUIRE LITERATURE RETRIEVAL:
-For ANY question about a medication, treatment, symptom, diagnosis, health condition, or clinical topic:
-  a. You MUST call pubmed_search {biorxiv_rule}BEFORE composing your answer.
-  b. Call pubmed_search_advanced as well when the user asks for strong evidence, guidelines, or a second opinion.
-  c. Synthesise findings from ALL retrieved sources into a single, coherent answer.
-  d. Cite each article you used: title, journal (or "bioRxiv preprint"), year, and URL.
-  e. NEVER answer a medical question from your training knowledge alone — always retrieve first.
-  f. If retrieval returns no results, say so explicitly rather than answering from memory.
+{retrieval_instructions}
 
 Patient ID for this conversation: {request.patient_id}
 """

@@ -44,6 +44,7 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
+    image: pal-prod-api:latest          # built once; reused by celery/flower below
     container_name: pal-prod-api
     env_file: .env.production
     environment:
@@ -66,9 +67,7 @@ services:
 
   # Celery worker — runs medication reminder tasks
   celery-worker:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
+    image: pal-prod-api:latest          # reuse the api image (same code, different command)
     container_name: pal-prod-celery-worker
     env_file: .env.production
     environment:
@@ -87,9 +86,7 @@ services:
 
   # Celery beat — fires the 60s medication scan tick
   celery-beat:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
+    image: pal-prod-api:latest          # reuse the api image (same code, different command)
     container_name: pal-prod-celery-beat
     env_file: .env.production
     environment:
@@ -108,9 +105,7 @@ services:
 
   # Flower — Celery monitoring dashboard (served behind nginx at /flower)
   flower:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
+    image: pal-prod-api:latest          # reuse the api image (same code, different command)
     container_name: pal-prod-flower
     env_file: .env.production
     environment:

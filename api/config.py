@@ -87,6 +87,17 @@ class Settings(BaseSettings):
     # (EVIDENCE_TOOLS_ENABLED=true) to restore the previous PubMed/bioRxiv flow.
     evidence_tools_enabled: bool = False
 
+    # ── Knowledge retrieval (embedding RAG over the 8.6M PubMed corpus) ─────────
+    # Replaces PubMed/bioRxiv. When enabled, Gemma gets a `search_medical_literature`
+    # tool: query -> embed (embed_url) -> FAISS search (retrieval_url) -> relevance
+    # judge -> grounded context. Off by default until both services are reachable.
+    knowledge_retrieval_enabled: bool = False
+    embed_url: str = "http://pal-embed:8080"   # embeddinggemma-300m query embedder (APP07)
+    retrieval_url: str = ""                      # APP05 FAISS service, e.g. http://10.0.0.5:8090
+    knowledge_top_k: int = 8
+    knowledge_min_score: float = 0.35            # cosine floor before the judge
+    knowledge_judge_enabled: bool = True         # LLM relevance judge on the hits
+
     # ── Subscriptions (Razorpay recurring) ─────────────────────────────────────
     # When subscription_enabled is false, login is NOT gated (has_subscription is
     # reported true) so the app behaves as before — flip it on once Razorpay is set.

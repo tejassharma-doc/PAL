@@ -15,3 +15,13 @@ services:
       - /data/apps/docmode/hf-cache:/cache        # model downloads once, persists
     mem_limit: 5g                     # leave headroom for Postgres/pgvector on 8 GB
     cpus: 4
+    networks:
+      - pal-network                   # so the PAL api container can reach it as http://pal-embed:8080
+
+networks:
+  pal-network:
+    external: true
+    # Real Docker network name (project-prefixed). Verify with:
+    #   docker network ls | grep pal
+    # and set it here if different (commonly pal_pal-network).
+    name: pal_pal-network
