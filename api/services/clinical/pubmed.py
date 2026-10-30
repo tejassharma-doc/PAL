@@ -651,6 +651,27 @@ async def search_pubmed(
     return [a for a in filter_by_year(articles, floor) if a.abstract]
 
 
+async def fetch_pubmed_by_pmids(pmids: list[str], *, timeout: float | None = None) -> list[PubmedArticle]:
+    """Fetch full articles (title + abstract) for specific PMIDs via NCBI efetch.
+
+    Used by the embedding-RAG path: the FAISS index returns PMIDs, we pull their
+    text here so Gemma has real abstracts to ground on. Returns [] on failure.
+    """
+    ids = [str(p).strip() for p in pmids if str(p).strip()]
+    if not ids:
+        return []
+    config = get_config()
+    wait = config.timeout_seconds if timeout is None else timeout
+    try:
+        async with httpx.AsyncClient(
+            timeout=wait, headers={"User-Agent": f"{config.tool}-Clinical/1.0"}
+        ) as client:
+            return await _efetch(client, ids)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("fetch_pubmed_by_pmids failed for %d pmids: %s", len(ids), exc)
+        return []
+
+
 async def search_pubmed_many(
     queries: list[str],
     *,

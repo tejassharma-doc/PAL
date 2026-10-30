@@ -975,6 +975,32 @@ class FastMCPClient:
             str(v) for key, v in r.items() if key not in ("score", "pos") and isinstance(v, str)
         )
 
+    async def _attach_pubmed_text(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Enrich FAISS hits (which carry only a PMID) with real title+abstract from
+        NCBI. Drops any hit whose abstract can't be fetched, so Gemma never sees a
+        bare reference with no text."""
+        pmids = [str(r.get("PMID") or r.get("pmid") or "").strip() for r in results]
+        pmids = [p for p in pmids if p]
+        if not pmids:
+            return results
+        try:
+            from services.clinical.pubmed import fetch_pubmed_by_pmids
+            articles = await fetch_pubmed_by_pmids(pmids)
+        except Exception as exc:
+            logger.warning("Knowledge: PMID text fetch failed: %s", exc)
+            return []
+        by_pmid = {a.pmid: a for a in articles}
+        enriched: List[Dict[str, Any]] = []
+        for r in results:
+            pmid = str(r.get("PMID") or r.get("pmid") or "").strip()
+            art = by_pmid.get(pmid)
+            if art and art.abstract:
+                enriched.append({
+                    **r, "pmid": pmid, "title": art.title, "abstract": art.abstract,
+                    "journal": art.journal, "year": art.year, "url": art.url,
+                })
+        return enriched
+
     async def _judge_relevance(self, query: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Ask Gemma which passages are actually relevant; drop the rest. Fails open
         to the cosine-filtered list if the judge errors."""
@@ -1025,8 +1051,14 @@ class FastMCPClient:
                 "note": "Could not reach the medical literature service; tell the user you were unable to check the literature (do NOT answer from memory).",
             }
 
-        # Cosine floor, then LLM relevance judge.
+        # Cosine floor first.
         results = [r for r in results if float(r.get("score", 0) or 0) >= s.knowledge_min_score]
+
+        # The index stores only identifiers (PMID) — fetch the real abstract text
+        # by PMID so Gemma has something to ground on. Passages whose text can't be
+        # fetched are dropped (no text = nothing to quote).
+        results = await self._attach_pubmed_text(results)
+
         if s.knowledge_judge_enabled and results:
             results = await self._judge_relevance(query, results)
 
