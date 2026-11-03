@@ -17,7 +17,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 
-MODEL_ID = os.getenv("EMBED_MODEL_ID", "google/embeddinggemma-300m")
+MODEL_ID = os.getenv("EMBED_MODEL_ID", "NeuML/pubmedbert-base-embeddings")
 QUERY_PROMPT = os.getenv("EMBED_QUERY_PROMPT", "SearchQuery")
 DOC_PROMPT = os.getenv("EMBED_DOC_PROMPT", "SearchDocument")
 THREADS = int(os.getenv("OMP_NUM_THREADS", "4"))
@@ -52,15 +52,11 @@ class DocsIn(BaseModel):
 def _encode(texts: List[str], kind: str) -> List[List[float]]:
     """kind = 'query' or 'document'. Prefer the model's built-in query/document
     prompts (EmbeddingGemma defines them); fall back to a configurable prompt_name."""
-    m = _state["model"]
-    if kind == "query" and hasattr(m, "encode_query"):
-        vecs = m.encode_query(texts, normalize_embeddings=True, batch_size=BATCH, convert_to_numpy=True)
-    elif kind == "document" and hasattr(m, "encode_document"):
-        vecs = m.encode_document(texts, normalize_embeddings=True, batch_size=BATCH, convert_to_numpy=True)
-    else:
-        prompt = QUERY_PROMPT if kind == "query" else DOC_PROMPT
-        vecs = m.encode(texts, prompt_name=prompt, normalize_embeddings=True,
-                        batch_size=BATCH, convert_to_numpy=True)
+    # PubMedBERT (NeuML/pubmedbert-base-embeddings) has no query/document prompts —
+    # plain encode, normalized, exactly how the corpus was embedded (metric=IP).
+    vecs = _state["model"].encode(
+        texts, normalize_embeddings=True, batch_size=BATCH, convert_to_numpy=True,
+    )
     return [v.tolist() for v in vecs]
 
 
