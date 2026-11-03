@@ -509,6 +509,12 @@ async def upsert_appointment(
         except:
             pass
 
+    # notes is a TEXT column — serialize dict/list payloads to a JSON string so
+    # asyncpg doesn't reject them ("expected str, got dict").
+    notes_val = appointment_data.get("notes")
+    if isinstance(notes_val, (dict, list)):
+        notes_val = json.dumps(notes_val)
+
     if row:
         # Update existing
         appointment_id = uuid.UUID(str(row[0]))
@@ -539,7 +545,7 @@ async def upsert_appointment(
                 "type": appointment_data.get("type"),
                 "status": appointment_data.get("status", "SCHEDULED").lower(),
                 "reason": appointment_data.get("reasonForVisit"),
-                "notes": appointment_data.get("notes"),
+                "notes": notes_val,
                 "doctor_name": doctor_name,
                 "clinic_name": clinic_name
             }
@@ -576,7 +582,7 @@ async def upsert_appointment(
             "type": appointment_data.get("type"),
             "status": appointment_data.get("status", "SCHEDULED").lower(),
             "reason": appointment_data.get("reasonForVisit"),
-            "notes": appointment_data.get("notes"),
+            "notes": notes_val,
             "doctor_name": doctor_name,
             "clinic_name": clinic_name
         }
