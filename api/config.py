@@ -130,10 +130,10 @@ class Settings(BaseSettings):
     # numbers that get the fixed code — real numbers still get real SMS (safe on a
     # shared server). `otp_test_mode=true` applies the fixed code to ALL numbers —
     # dev only; NEVER enable on a public deployment.
-    otp_test_mode: bool = False
+    # otp_test_mode=True => EVERY number logs in with the fixed code (000000) and no
+    # SMS is sent. Dev/testing only. Set False to go back to the real Exotel OTP.
+    otp_test_mode: bool = True
     otp_test_code: str = "000000"
-    # Empty => NO bypass; every number uses the real Exotel OTP. (Add comma-separated
-    # 10-digit numbers here, or via OTP_TEST_NUMBERS, only when you need dummy logins.)
     otp_test_numbers: str = ""
 
     # Document upload
