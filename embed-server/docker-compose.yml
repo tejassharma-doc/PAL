@@ -24,4 +24,4 @@ networks:
     # Real Docker network name (project-prefixed). Verify with:
     #   docker network ls | grep pal
     # and set it here if different (commonly pal_pal-network).
-    name: pal_pal-network
+    name: pal-prod_pal-network
