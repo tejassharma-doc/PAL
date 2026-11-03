@@ -124,6 +124,18 @@ class Settings(BaseSettings):
     exotel_dlt_entity_id: str = "1001537080827379238"
     exotel_dlt_template_id: str = "1077157490022914480"
 
+    # ── OTP dev/test bypass ─────────────────────────────────────────────────────
+    # For development/testing: use a fixed code (and skip SMS) so you can log into
+    # dummy accounts. `otp_test_numbers` is a comma-separated list of 10-digit
+    # numbers that get the fixed code — real numbers still get real SMS (safe on a
+    # shared server). `otp_test_mode=true` applies the fixed code to ALL numbers —
+    # dev only; NEVER enable on a public deployment.
+    otp_test_mode: bool = False
+    otp_test_code: str = "000000"
+    # Empty => NO bypass; every number uses the real Exotel OTP. (Add comma-separated
+    # 10-digit numbers here, or via OTP_TEST_NUMBERS, only when you need dummy logins.)
+    otp_test_numbers: str = ""
+
     # Document upload
     upload_dir: str = "./uploads"
 

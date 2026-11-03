@@ -101,8 +101,11 @@ async def request_phone_otp(
             redacted_phone = f"***{phone[-4:]}" if len(phone) >= 4 else "***"
             logger.debug(f"Created new user for phone ending in {redacted_phone}")
 
-    # Generate OTP
-    otp_code = generate_otp()
+    # Generate OTP — fixed test code for dev / whitelisted dummy numbers, else random.
+    settings = get_settings()
+    _test_numbers = {n.strip() for n in (settings.otp_test_numbers or "").split(",") if n.strip()}
+    use_test_code = settings.otp_test_mode or (phone in _test_numbers)
+    otp_code = settings.otp_test_code if use_test_code else generate_otp()
     otp_hash = hash_otp(otp_code)
     expires_at = otp_expiry()
 
@@ -135,10 +138,10 @@ async def request_phone_otp(
         "expires_in": int((expires_at - datetime.now(timezone.utc)).total_seconds())
     }
 
-    # Deliver the OTP over SMS via Exotel (DLT-approved template) whenever enabled
-    # and configured — independent of ENVIRONMENT so it works on any deployment.
+    # Test/dummy numbers (and dev test mode) use the fixed code and skip SMS.
+    # Otherwise deliver over SMS via Exotel whenever enabled and configured.
     sms_sent = False
-    if settings.exotel_enabled and exotel.configured():
+    if not use_test_code and settings.exotel_enabled and exotel.configured():
         try:
             await exotel.send_otp_sms(phone, otp_code)
             sms_sent = True
@@ -146,12 +149,12 @@ async def request_phone_otp(
             logger.error("OTP SMS delivery failed: %s", exc)
             raise HTTPException(status_code=502, detail="Could not send OTP. Please try again.")
 
-    # Only expose the code when no SMS went out (local/dev without Exotel). Never
-    # leak it once SMS delivery is active.
-    if not sms_sent and settings.environment == "development" and settings.debug:
+    # Expose the code only when no real SMS went out: test/dummy numbers, or local
+    # dev. Never leak it once real SMS delivery is active for a real number.
+    if use_test_code or (not sms_sent and settings.environment == "development" and settings.debug):
         response["dev_otp"] = otp_code
         redacted_phone = f"***{phone[-4:]}" if len(phone) >= 4 else "***"
-        logger.debug(f"OTP requested for phone ending in {redacted_phone}")
+        logger.debug("OTP (test=%s) for phone ending in %s", use_test_code, redacted_phone)
 
     return response
 
