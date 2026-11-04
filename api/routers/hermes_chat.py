@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
@@ -206,58 +207,31 @@ Remember: Be helpful, accurate, and only use the data provided above.
     return system_prompt
 
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat_with_hermes(
-    request: ChatRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Chat with Hermes AI assistant with FastMCP tool calling
-    - Gemma calls FastMCP tools to fetch patient data dynamically
-    - Uses function calling for grounded responses
-    """
-    try:
-        logger.info(f"Hermes chat request from user {user.id}: {request.query[:100]}")
+async def _build_chat_setup(request: "ChatRequest", user, db) -> dict:
+    """Shared setup for /chat and /chat/stream: PAL-MCP auth gate, patient-scoped
+    token, conversation history, tool definitions, system prompt and the initial
+    messages. Raises HTTPException(403) if the user doesn't own the patient."""
+    conversation_id = request.conversation_id or str(uuid.uuid4())
+    conversation_uuid = uuid.UUID(conversation_id)
+    patient_uuid = uuid.UUID(request.patient_id)
 
-        # Get or create conversation ID
-        conversation_id = request.conversation_id or str(uuid.uuid4())
-        conversation_uuid = uuid.UUID(conversation_id)
-        patient_uuid = uuid.UUID(request.patient_id)
+    allowed_pids = await owned_patient_ids(db, user)
+    if settings.mcp_auth_required and not user_owns_patient(request.patient_id, allowed_pids):
+        logger.warning("Hermes chat: user %s attempted patient_id %s they do not own",
+                       user.id, request.patient_id)
+        raise HTTPException(status_code=403,
+                            detail="You are not authorized to access this patient's records")
+    mcp_token = mint_mcp_token(str(user.id), allowed_pids)
 
-        # ── PAL MCP authentication gate ────────────────────────────────────────
-        # The patient-data tools are about to run against `request.patient_id`,
-        # which arrived in the request body. Before any PAL-MCP call, confirm the
-        # authenticated user actually owns that patient record, then mint the
-        # short-lived, patient-scoped JWT the MCP now requires. If the user owns
-        # nothing (or not this patient), stop here — no token, no chat over PHI.
-        allowed_pids = await owned_patient_ids(db, user)
-        if settings.mcp_auth_required and not user_owns_patient(request.patient_id, allowed_pids):
-            logger.warning(
-                "Hermes chat: user %s attempted patient_id %s they do not own",
-                user.id, request.patient_id,
-            )
-            raise HTTPException(
-                status_code=403,
-                detail="You are not authorized to access this patient's records",
-            )
-        mcp_token = mint_mcp_token(str(user.id), allowed_pids)
+    hindsight = Hindsight(db, None, patient_uuid)
+    conversation_history = await hindsight.get_summary(conversation_uuid)
 
-        # Get conversation history from Hindsight
-        tenant_id = None  # Tenant concept removed
-        hindsight = Hindsight(db, tenant_id, patient_uuid)
-        conversation_history = await hindsight.get_summary(conversation_uuid)
+    fastmcp_client = get_fastmcp_client()
+    tools = await fastmcp_client.get_tool_definitions()
 
-        # Get FastMCP client with tool definitions
-        fastmcp_client = get_fastmcp_client()
-
-        # Get tools from FastMCP server (includes external MCP tools)
-        tools = await fastmcp_client.get_tool_definitions()
-
-        # Build conversation context section
-        history_context = ""
-        if conversation_history:
-            history_context = f"""
+    history_context = ""
+    if conversation_history:
+        history_context = f"""
 
 **PREVIOUS CONVERSATION:**
 {conversation_history}
@@ -265,34 +239,31 @@ async def chat_with_hermes(
 Use this context to understand what the patient is referring to. If they say "that", "it", or "what I asked before", refer to the conversation above.
 """
 
-        # Detect which optional tool groups are available
-        tool_names = {t.get("function", {}).get("name", "") for t in tools}
-        has_biorxiv = any(n.startswith("biorxiv_") for n in tool_names)
-        has_knowledge = "search_medical_literature" in tool_names
+    tool_names = {t.get("function", {}).get("name", "") for t in tools}
+    has_biorxiv = any(n.startswith("biorxiv_") for n in tool_names)
+    has_knowledge = "search_medical_literature" in tool_names
 
-        if has_knowledge:
-            # New embedding-RAG path: a single curated-corpus tool with a built-in
-            # relevance judge replaces PubMed/bioRxiv.
-            literature_tools_section = """
+    if has_knowledge:
+        literature_tools_section = """
 MEDICAL LITERATURE TOOL:
 - search_medical_literature: Search the curated PubMed corpus for passages relevant to a medical/health question. It returns only passages that pass a relevance check."""
-            retrieval_instructions = """CRITICAL — MEDICAL & HEALTH QUESTIONS REQUIRE LITERATURE RETRIEVAL:
+        retrieval_instructions = """CRITICAL — MEDICAL & HEALTH QUESTIONS REQUIRE LITERATURE RETRIEVAL:
 For ANY question about a medication, treatment, symptom, diagnosis, health condition, or clinical topic:
   a. You MUST call search_medical_literature BEFORE composing your answer.
   b. Answer ONLY from the passages it returns. Synthesise them into one clear, user-friendly answer.
   c. If the result has "relevant": false or no results, tell the user you do not have reliable evidence on this — do NOT answer from memory.
   d. Cite the sources you used (title / PMID where present).
   e. Never invent facts, numbers, or citations that are not in the returned passages."""
-        else:
-            literature_tools_section = """
+    else:
+        literature_tools_section = """
 MEDICAL LITERATURE TOOLS:
 - pubmed_search: Search PubMed for peer-reviewed human clinical studies. Use for any medical or health question.
 - pubmed_search_advanced: Search PubMed for high-evidence studies only (RCTs, meta-analyses, systematic reviews, practice guidelines). Use when the strongest evidence is needed or for a second opinion."""
-            if has_biorxiv:
-                literature_tools_section += """
+        if has_biorxiv:
+            literature_tools_section += """
 - biorxiv_search_preprints: Search bioRxiv/medRxiv for the latest medical preprints. Use alongside PubMed to surface cutting-edge research not yet in peer-reviewed journals."""
-            biorxiv_rule = "and biorxiv_search_preprints " if has_biorxiv else ""
-            retrieval_instructions = f"""CRITICAL — MEDICAL & HEALTH QUESTIONS REQUIRE LITERATURE RETRIEVAL:
+        biorxiv_rule = "and biorxiv_search_preprints " if has_biorxiv else ""
+        retrieval_instructions = f"""CRITICAL — MEDICAL & HEALTH QUESTIONS REQUIRE LITERATURE RETRIEVAL:
 For ANY question about a medication, treatment, symptom, diagnosis, health condition, or clinical topic:
   a. You MUST call pubmed_search {biorxiv_rule}BEFORE composing your answer.
   b. Call pubmed_search_advanced as well when the user asks for strong evidence, guidelines, or a second opinion.
@@ -301,8 +272,7 @@ For ANY question about a medication, treatment, symptom, diagnosis, health condi
   e. NEVER answer a medical question from your training knowledge alone — always retrieve first.
   f. If retrieval returns no results, say so explicitly rather than answering from memory."""
 
-        # Build system prompt
-        system_prompt = f"""You are PAL Health Assistant, an AI medical assistant with access to patient data, appointment systems, and medical literature databases.{history_context}
+    system_prompt = f"""You are PAL Health Assistant, an AI medical assistant with access to patient data, appointment systems, and medical literature databases.{history_context}
 
 AVAILABLE TOOLS:
 
@@ -334,11 +304,101 @@ IMPORTANT RULES:
 Patient ID for this conversation: {request.patient_id}
 """
 
-        # Build messages
-        messages = [
+    return {
+        "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": request.query}
-        ]
+            {"role": "user", "content": request.query},
+        ],
+        "tools": tools,
+        "fastmcp_client": fastmcp_client,
+        "mcp_token": mcp_token,
+        "conversation_id": conversation_id,
+        "conversation_uuid": conversation_uuid,
+        "patient_uuid": patient_uuid,
+        "hindsight": hindsight,
+    }
+
+
+@router.post("/chat/stream")
+async def chat_with_hermes_stream(
+    request: ChatRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Streaming chat: resolves tool calls, then streams the answer as SSE.
+    Events: `data: {"delta": "..."}` per chunk, then `data: {"done": true, ...}`."""
+    ctx = await _build_chat_setup(request, user, db)
+    messages = ctx["messages"]
+    tools = ctx["tools"]
+    fastmcp_client = ctx["fastmcp_client"]
+    mcp_token = ctx["mcp_token"]
+    conversation_id = ctx["conversation_id"]
+    conversation_uuid = ctx["conversation_uuid"]
+    patient_uuid = ctx["patient_uuid"]
+    hindsight = ctx["hindsight"]
+    vertex_client = get_vertex_client()
+
+    async def tool_executor(name: str, args_json: str):
+        try:
+            args = json.loads(args_json or "{}")
+        except json.JSONDecodeError:
+            args = {}
+        try:
+            return await fastmcp_client.call_tool(name, args, db, mcp_token=mcp_token)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Stream tool %s failed: %s", name, exc)
+            return {"error": str(exc)}
+
+    async def event_stream():
+        parts: list[str] = []
+        try:
+            async for delta in vertex_client.stream_tokens(messages, tools, tool_executor):
+                parts.append(delta)
+                yield f"data: {json.dumps({'delta': delta})}\n\n"
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Hermes stream error")
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+        answer = "".join(parts)
+        try:
+            await store_conversation(db=db, conversation_id=conversation_uuid, user=user,
+                                     patient_id=patient_uuid, query=request.query, answer=answer)
+            await hindsight.update_summary(query=request.query, answer=answer,
+                                           conversation_id=conversation_uuid)
+        except Exception:  # noqa: BLE001
+            logger.exception("Hermes stream: post-stream persist failed")
+        yield f"data: {json.dumps({'done': True, 'conversation_id': conversation_id})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat_with_hermes(
+    request: ChatRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Chat with Hermes AI assistant with FastMCP tool calling
+    - Gemma calls FastMCP tools to fetch patient data dynamically
+    - Uses function calling for grounded responses
+    """
+    try:
+        logger.info(f"Hermes chat request from user {user.id}: {request.query[:100]}")
+
+        # Shared setup: auth gate, mcp token, history, tools, system prompt, messages.
+        ctx = await _build_chat_setup(request, user, db)
+        messages = ctx["messages"]
+        tools = ctx["tools"]
+        fastmcp_client = ctx["fastmcp_client"]
+        mcp_token = ctx["mcp_token"]
+        conversation_id = ctx["conversation_id"]
+        conversation_uuid = ctx["conversation_uuid"]
+        patient_uuid = ctx["patient_uuid"]
+        hindsight = ctx["hindsight"]
 
         # Call Gemma with tools
         vertex_client = get_vertex_client()

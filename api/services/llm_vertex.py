@@ -116,6 +116,79 @@ class VertexAIClient:
             logger.exception("Error calling LiteLLM proxy with tools")
             raise
 
+    async def stream_tokens(
+        self,
+        messages: List[Dict],
+        tools: Optional[List[Dict]],
+        tool_executor,
+        max_rounds: int = 6,
+    ):
+        """Agentic streaming: run tool-call rounds, then stream the final answer's
+        text deltas. `tool_executor(name, arguments_json) -> result` (awaitable) runs
+        each tool. Yields answer text chunks as they arrive — nothing is yielded
+        during tool rounds (there's no user-facing text then).
+        """
+        import json as _json
+
+        for _ in range(max_rounds):
+            stream = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                tools=tools or None,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                stream=True,
+            )
+            tool_calls: Dict[int, Dict] = {}
+            content_parts: List[str] = []
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if getattr(delta, "content", None):
+                    content_parts.append(delta.content)
+                    yield delta.content
+                for tc in (getattr(delta, "tool_calls", None) or []):
+                    slot = tool_calls.setdefault(tc.index, {"id": "", "name": "", "args": ""})
+                    if tc.id:
+                        slot["id"] = tc.id
+                    if tc.function and tc.function.name:
+                        slot["name"] = tc.function.name
+                    if tc.function and tc.function.arguments:
+                        slot["args"] += tc.function.arguments
+
+            if not tool_calls:
+                return  # final answer already streamed above
+
+            # Record the assistant's tool-call turn, then run the tools.
+            messages.append({
+                "role": "assistant",
+                "content": "".join(content_parts) or None,
+                "tool_calls": [
+                    {"id": s["id"], "type": "function",
+                     "function": {"name": s["name"], "arguments": s["args"]}}
+                    for s in tool_calls.values()
+                ],
+            })
+            for s in tool_calls.values():
+                try:
+                    result = await tool_executor(s["name"], s["args"])
+                except Exception as exc:  # noqa: BLE001
+                    result = {"error": str(exc)}
+                messages.append({
+                    "role": "tool", "tool_call_id": s["id"],
+                    "content": _json.dumps(result, default=str),
+                })
+
+        # Hit the round cap — stream one last answer with tools disabled.
+        stream = await self.client.chat.completions.create(
+            model=self.model, messages=messages,
+            temperature=self.temperature, max_tokens=self.max_tokens, stream=True,
+        )
+        async for chunk in stream:
+            if chunk.choices and getattr(chunk.choices[0].delta, "content", None):
+                yield chunk.choices[0].delta.content
+
     def generate_sync(
         self,
         messages: List[Dict[str, str]],

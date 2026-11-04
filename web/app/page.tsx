@@ -657,21 +657,23 @@ export default function PAL() {
     const activeConvId = opts.convId ?? conversationId;
 
     try {
-      // Call Hermes AI with MCP + Vertex AI
-      const { askHermes } = await import('../lib/hermes-api');
-      const result = await askHermes(text, patientId || '', activeConvId || undefined);
-
-      if (result.conversation_id) setConversationId(result.conversation_id);
-
+      // Stream the answer from Gemma (resolves retrieval tools first, then streams).
+      const { askHermesStream } = await import('../lib/hermes-api');
+      let acc = '';
+      await askHermesStream(
+        text, patientId || '', activeConvId || undefined,
+        (delta) => {
+          acc += delta;
+          setChatMessages(prev => prev.map(m =>
+            m.id === `t-${msgId}` ? { ...m, text: acc, isThinking: false } : m
+          ));
+          if (acc.length < 400) setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 10);
+        },
+        (convId) => { if (convId) setConversationId(convId); },
+      );
+      // Finalise the message id once streaming completes.
       setChatMessages(prev => prev.map(m =>
-        m.id === `t-${msgId}`
-          ? {
-              id: `a-${msgId}`,
-              role: 'assistant' as const,
-              text: result.answer,
-              isThinking: false
-            }
-          : m
+        m.id === `t-${msgId}` ? { ...m, id: `a-${msgId}`, isThinking: false } : m
       ));
     } catch (err) {
       setChatMessages(prev => prev.map(m =>
