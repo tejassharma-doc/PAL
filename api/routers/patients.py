@@ -113,27 +113,54 @@ async def create_patient(
             # Email users have email
             email = user.email
 
-    # Create patient and link to phone_user if applicable
-    patient = Patient(
-        full_name=req.full_name,
-        phone=req.phone,
-        email=email,
-        date_of_birth=dob,
-        gender=req.gender,
-        blood_group=req.blood_group,
-        address=req.address,
-        mrn=req.mrn,
-        abha_id=req.abha_id,
-        abha_address=req.abha_address,
-        allergies=req.allergies,
-        chronic_conditions=req.chronic_conditions,
-        current_medications=req.current_medications,
-        emergency_contact=req.emergency_contact.dict(),  # ✅ Convert Pydantic model to dict
-        is_active=req.is_active,
-        phone_user_id=user.id if isinstance(user, PhoneUser) else None
-    )
+    # One patient per phone user: if this phone_user already has a patient, update
+    # it instead of inserting a duplicate (prevents multiple patients per number).
+    patient = None
+    if isinstance(user, PhoneUser):
+        existing = await db.execute(
+            select(Patient)
+            .where(Patient.phone_user_id == user.id)
+            .order_by(Patient.created_at.desc())
+        )
+        patient = existing.scalars().first()
 
-    db.add(patient)
+    if patient is not None:
+        patient.full_name = req.full_name
+        patient.phone = req.phone
+        patient.email = email
+        patient.date_of_birth = dob
+        patient.gender = req.gender
+        patient.blood_group = req.blood_group
+        patient.address = req.address
+        patient.mrn = req.mrn
+        patient.abha_id = req.abha_id
+        patient.abha_address = req.abha_address
+        patient.allergies = req.allergies
+        patient.chronic_conditions = req.chronic_conditions
+        patient.current_medications = req.current_medications
+        patient.emergency_contact = req.emergency_contact.dict()
+        patient.is_active = req.is_active
+    else:
+        patient = Patient(
+            full_name=req.full_name,
+            phone=req.phone,
+            email=email,
+            date_of_birth=dob,
+            gender=req.gender,
+            blood_group=req.blood_group,
+            address=req.address,
+            mrn=req.mrn,
+            abha_id=req.abha_id,
+            abha_address=req.abha_address,
+            allergies=req.allergies,
+            chronic_conditions=req.chronic_conditions,
+            current_medications=req.current_medications,
+            emergency_contact=req.emergency_contact.dict(),  # ✅ Convert Pydantic model to dict
+            is_active=req.is_active,
+            phone_user_id=user.id if isinstance(user, PhoneUser) else None
+        )
+        db.add(patient)
+
     await db.commit()
     await db.refresh(patient)
 

@@ -220,11 +220,15 @@ async def verify_phone_otp(
     phone_user.is_verified = True
     await db.commit()
 
-    # Get patient linked to this phone_user
+    # Get patient linked to this phone_user. Use the most recent and tolerate
+    # duplicates — a phone_user can end up with more than one patients row (e.g.
+    # repeated onboarding), and scalar_one_or_none() would 500 on that.
     patient_result = await db.execute(
-        select(Patient).where(Patient.phone_user_id == phone_user.id)
+        select(Patient)
+        .where(Patient.phone_user_id == phone_user.id)
+        .order_by(Patient.created_at.desc())
     )
-    patient = patient_result.scalar_one_or_none()
+    patient = patient_result.scalars().first()
 
     # Generate proper JWT token for phone auth
     token = create_phone_token(
