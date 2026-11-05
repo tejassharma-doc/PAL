@@ -1746,14 +1746,8 @@ export default function PAL() {
                                   </div>
                                 )}
 
-                                {appt.soap_note && (
-                                  <div style={{ marginBottom: 12 }}>
-                                    <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 6 }}>Clinical Notes (SOAP)</div>
-                                    <div style={{ fontSize: 14, lineHeight: 1.6, whiteSpace: 'pre-wrap', color: '#4a5a5f', padding: 10, background: '#f9fafb', borderRadius: 10 }}>
-                                      {appt.soap_note}
-                                    </div>
-                                  </div>
-                                )}
+                                {/* Clinical Notes (SOAP) intentionally hidden in the Records
+                                   section — only the prescription is shown to the patient. */}
 
                                 {appt.management_plan && (
                                   <div style={{ marginBottom: 12, padding: 12, background: 'rgba(90,143,168,.08)', borderRadius: 10 }}>
@@ -1769,12 +1763,8 @@ export default function PAL() {
                                   </div>
                                 )}
 
-                                {appt.notes && (
-                                  <div style={{ marginBottom: 12 }}>
-                                    <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 4 }}>Doctor's Notes</div>
-                                    <div style={{ fontSize: 15, lineHeight: 1.5, color: '#4a5a5f' }}>{appt.notes}</div>
-                                  </div>
-                                )}
+                                {/* Doctor's Notes also hidden — clinical notes are not
+                                   shown to the patient in the Records section. */}
                               </div>
                             )}
                           </div>
