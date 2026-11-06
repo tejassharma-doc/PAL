@@ -20,7 +20,7 @@
 .pal .side{padding-top:calc(1.2em + env(safe-area-inset-top,0px))}
 .pal.signin .brandside{padding-top:calc(1.6em + env(safe-area-inset-top,0px))}
 
-.pal{--scale:1;font-size:calc(17px * var(--scale));height:100%;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr auto;grid-template-areas:"top" "main" "bottom";background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.5}
+.pal{--scale:1;font-size:calc(17px * var(--scale));height:100vh;height:100dvh;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr auto;grid-template-areas:"top" "main" "bottom";background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.5}
 .pal button{min-height:3em}
 .pal .ico{width:1.4em;height:1.4em;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 
