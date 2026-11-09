@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- PAL soft paper (#fbf9f4) background behind the PAL logo for the adaptive launcher icon. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="#fbf9f4" />
-</shape>

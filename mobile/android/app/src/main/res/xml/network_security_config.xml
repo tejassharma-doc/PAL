@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!--
-    Release network policy: HTTPS only (production API is https://palcare.life/api).
-    Debug builds use src/debug/res/xml/network_security_config.xml, which allows
-    cleartext to the emulator host / LAN backend for development.
--->
-<network-security-config>
-    <base-config cleartextTrafficPermitted="false" />
-</network-security-config>

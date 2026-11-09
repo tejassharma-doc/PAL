@@ -3,9 +3,7 @@
  *
  * The AI answers arrive as Markdown (### headings, **bold**, * bullets,
  * [links](url), --- rules). This turns them into a small block tree that the
- * web (React DOM) and the app (React Native) render with their own components.
- * The SAME file is used by both: web/lib/markdown.ts is a copy of
- * mobile/src/lib/markdown.ts — keep them identical.
+ * web (React DOM) renders this with its own components.
  *
  * It never produces HTML strings, so there is nothing to sanitise.
  */
