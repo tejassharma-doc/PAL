@@ -1,331 +1,140 @@
-'use client';
+'use client'
 
 /**
- * Notifications (bell) screen.
- *
- * Shows the active patient's real medication reminders, driven entirely by the
- * backend (routers/medications.py): today's scheduled doses derived from their
- * medication_schedules, plus any dose that is still awaiting an answer, with the
- * four response buttons wired to POST /medications/doses/{id}/respond.
- *
- * No static/sample content — when there is nothing scheduled it shows an empty
- * state that links to the medication-schedule manager.
+ * Notifications (bell) — redesigned onto AppShell (matches the rest of the app).
+ * Real medication reminders: doses awaiting your answer (with the four response
+ * buttons) + today's scheduled doses. Data via lib/medications-api.
  */
-import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import PhoneShell from '@/components/layout/PhoneShell';
-import AppBar from '@/components/layout/AppBar';
-import TabBar from '@/components/layout/TabBar';
-import PersonSheet from '@/components/layout/PersonSheet';
+import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { AppShell } from '@/components/layout/AppShell'
+import { Icon } from '@/components/ui/Icon'
 import {
-  listMedicationSchedules,
-  pendingDoses,
-  respondToDose,
-  type MedicationSchedule,
-  type PendingDose,
-  type DoseResponse,
-} from '@/lib/medications-api';
+  listMedicationSchedules, pendingDoses, respondToDose,
+  type MedicationSchedule, type PendingDose, type DoseResponse,
+} from '@/lib/medications-api'
 
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-const ACK_OPTIONS: { value: DoseResponse; label: string }[] = [
-  { value: 'yes', label: 'Yes' },
-  { value: 'no', label: 'No' },
-  { value: 'take_now', label: 'Will take now' },
+const ACK: { value: DoseResponse; label: string; primary?: boolean }[] = [
+  { value: 'yes', label: 'Yes', primary: true },
+  { value: 'take_now', label: 'Will take now', primary: true },
   { value: 'snooze_10', label: 'In 10 mins' },
-];
-
-function activePatient(): { id: string | null; name: string } {
-  if (typeof window === 'undefined') return { id: null, name: 'You' };
-  return {
-    id: localStorage.getItem('pal_patient_id'),
-    name: localStorage.getItem('pal_patient_name') || 'You',
-  };
+  { value: 'no', label: 'No' },
+]
+function todayDow(): number { return (new Date().getDay() + 6) % 7 }
+function fmtTime(t: string): string {
+  const [h, m] = (t || '').split(':').map(Number)
+  if (Number.isNaN(h)) return t
+  const am = h < 12; const h12 = h % 12 === 0 ? 12 : h % 12
+  return `${h12}:${String(m || 0).padStart(2, '0')} ${am ? 'am' : 'pm'}`
 }
-
-// Mon=0 .. Sun=6, matching the backend's days_of_week encoding.
-function todayDow(): number {
-  return (new Date().getDay() + 6) % 7;
-}
-
-interface TodayDose {
-  key: string;
-  medicine: string;
-  dosage: string | null;
-  time: string;
-}
-
-/** Flatten active schedules into the individual doses due today. */
+type TodayDose = { key: string; medicine: string; dosage: string | null; time: string }
 function dosesForToday(schedules: MedicationSchedule[]): TodayDose[] {
-  const dow = todayDow();
-  const out: TodayDose[] = [];
+  const dow = todayDow(); const out: TodayDose[] = []
   for (const s of schedules) {
-    if (!s.active) continue;
-    if (s.days_of_week?.length && !s.days_of_week.includes(dow)) continue;
-    for (const time of s.times || []) {
-      out.push({ key: `${s.id}:${time}`, medicine: s.medicine_name, dosage: s.dosage, time });
-    }
+    if (!s.active) continue
+    if (s.days_of_week?.length && !s.days_of_week.includes(dow)) continue
+    for (const time of s.times || []) out.push({ key: `${s.id}:${time}`, medicine: s.medicine_name, dosage: s.dosage, time })
   }
-  return out.sort((a, b) => a.time.localeCompare(b.time));
+  return out.sort((a, b) => a.time.localeCompare(b.time))
 }
 
 export default function NotificationsPage() {
-  const router = useRouter();
-  const [showSheet, setShowSheet] = useState(false);
-  const [patientId, setPatientId] = useState<string | null>(null);
-  const [personName, setPersonName] = useState('You');
-  const [schedules, setSchedules] = useState<MedicationSchedule[]>([]);
-  const [pending, setPending] = useState<PendingDose[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  const router = useRouter()
+  const [patientId, setPatientId] = useState<string | null>(null)
+  const [schedules, setSchedules] = useState<MedicationSchedule[]>([])
+  const [pending, setPending] = useState<PendingDose[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
 
   useEffect(() => {
-    const p = activePatient();
-    setPatientId(p.id);
-    setPersonName(p.name);
-  }, []);
+    if (typeof window === 'undefined') return
+    if (!localStorage.getItem('pal_token')) { router.replace('/login'); return }
+    setPatientId(localStorage.getItem('pal_patient_id'))
+  }, [router])
 
   const load = useCallback(async () => {
-    if (!patientId) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
+    if (!patientId) { setLoading(false); return }
+    setLoading(true)
     try {
-      const [sch, doses] = await Promise.all([
-        listMedicationSchedules(patientId),
-        pendingDoses(patientId),
-      ]);
-      setSchedules(sch);
-      setPending(doses);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load reminders');
-    } finally {
-      setLoading(false);
-    }
-  }, [patientId]);
+      const [sch, doses] = await Promise.all([listMedicationSchedules(patientId), pendingDoses(patientId)])
+      setSchedules(sch); setPending(doses); setError(null)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to load reminders') }
+    finally { setLoading(false) }
+  }, [patientId])
+  useEffect(() => { void load() }, [load])
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  async function answer(doseId: string, value: DoseResponse) {
+    setBusy(doseId)
+    try { await respondToDose(doseId, value); await load() }
+    catch (e) { setError(e instanceof Error ? e.message : 'Failed to respond') }
+    finally { setBusy(null) }
+  }
 
-  const answer = async (doseId: string, value: DoseResponse) => {
-    setBusy(doseId);
-    try {
-      await respondToDose(doseId, value);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to respond');
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const person = {
-    initial: personName.charAt(0).toUpperCase() || 'Y',
-    grad: 'linear-gradient(150deg,#37b59b,#1f7d6b)',
-    name: personName,
-    sub: 'reminders',
-  };
-
-  const awaiting = pending.filter((d) => d.status === 'awaiting_ack');
-  const today = dosesForToday(schedules);
-
-  const sectionLabel = {
-    fontFamily: "'Space Mono', monospace",
-    fontSize: 12,
-    textTransform: 'uppercase' as const,
-    margin: '14px 2px 10px',
-    color: '#4a5a5f',
-  };
-
-  const cardBase = {
-    background: '#fff',
-    border: '1px solid rgba(13,31,36,.14)',
-    borderRadius: 14,
-    padding: 13,
-    marginBottom: 10,
-    display: 'flex',
-    gap: 12,
-    alignItems: 'flex-start' as const,
-  };
-
-  const iconBox = {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    background: 'rgba(90,143,168,.14)',
-    color: '#33607a',
-    display: 'grid',
-    placeItems: 'center' as const,
-    fontSize: 16,
-    flexShrink: 0,
-  };
+  const awaiting = pending.filter(d => d.status === 'awaiting_ack')
+  const today = dosesForToday(schedules)
+  const empty = !loading && patientId && awaiting.length === 0 && today.length === 0
 
   return (
-    <PhoneShell>
-      <AppBar person={person} onAvatarTap={() => setShowSheet(true)} />
+    <AppShell active="meds" title="Notifications" medsBadge={awaiting.length}>
+      <div className="page narrow">
+        <h1 className="h">Reminders</h1>
+        <p className="lede">Your medicine reminders appear here at their scheduled times.</p>
 
-      <div className="scr" style={{ flex: 1, overflowY: 'auto', padding: '6px 18px 92px' }}>
-        <div style={{
-          fontFamily: "'Newsreader', serif",
-          fontSize: '1.3rem',
-          color: '#0d1f24',
-          margin: '10px 2px 2px',
-        }}>
-          Reminders
-        </div>
+        {error && <div className="alertcard" style={{ marginTop: '1em' }}><Icon name="alert" /><div><b>Something went wrong</b><span className="muted small">{error}</span></div></div>}
+        {loading && <div className="muted" style={{ marginTop: '1em' }}>Loading…</div>}
 
-        {!patientId && (
-          <div style={{ ...cardBase, display: 'block', color: '#0d1f24', marginTop: 12 }}>
-            Select a patient to see their medication reminders.
-          </div>
-        )}
-
-        {error && (
-          <div style={{ ...cardBase, display: 'block', color: '#b4433a', marginTop: 12 }}>
-            {error}
-          </div>
-        )}
-
-        {loading && patientId && (
-          <div style={{  color: '#4a5a5f', marginTop: 16 }}>Loading…</div>
-        )}
-
-        {/* Awaiting acknowledgement — the "did you take it?" prompts */}
-        {!loading && awaiting.length > 0 && (
-          <>
-            <div style={sectionLabel}>Needs your answer</div>
-            {awaiting.map((d) => (
-              <div key={d.id} style={{ ...cardBase, borderColor: 'rgba(55,181,155,.5)' }}>
-                <div style={{ ...iconBox, background: 'rgba(55,181,155,.14)', color: '#1f7d6b' }}>💊</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 15, color: '#0d1f24' }}>
-                    Did you take your medicine?
+        {!loading && awaiting.length > 0 && (<>
+          <h2 className="s">Needs your answer</h2>
+          <div className="tl">
+            {awaiting.map(d => (
+              <article className="card due" key={d.id}>
+                <div className="head">
+                  <div className="pillico"><Icon name="pill" /></div>
+                  <div>
+                    <div className="when">{fmtTime(d.scheduled_time || '')}{d.scheduled_date ? ` · ${d.scheduled_date}` : ''}</div>
+                    <div className="what">Did you take your medicine?</div>
                   </div>
-                  <div style={{
-                    fontFamily: "'Space Mono', monospace",
-                    fontSize: 12,
-                    marginTop: 6,
-                    color: '#4a5a5f',
-                  }}>
-                    {d.scheduled_time?.slice(0, 5)} · {d.scheduled_date}
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                    {ACK_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        disabled={busy === d.id}
-                        onClick={() => void answer(d.id, opt.value)}
-                        style={{
-                          background: opt.value === 'yes' || opt.value === 'take_now' ? '#37b59b' : 'transparent',
-                          color: opt.value === 'yes' || opt.value === 'take_now' ? '#0c2429' : '#0d1f24',
-                          border: opt.value === 'yes' || opt.value === 'take_now'
-                            ? 'none'
-                            : '1px solid rgba(13,31,36,.16)',
-                          borderRadius: 8,
-                          padding: '7px 13px',
-                          fontSize: 13,
-                          fontWeight: 600,
-                          cursor: busy === d.id ? 'default' : 'pointer',
-                          opacity: busy === d.id ? 0.6 : 1,
-                        }}
-                      >
-                        {opt.label}
-                      </button>
+                </div>
+                <div className="acts">
+                  <div className="two">
+                    {ACK.map(opt => (
+                      <button key={opt.value} className={`btn ${opt.primary ? 'pri' : 'sec'}`} disabled={busy === d.id} onClick={() => void answer(d.id, opt.value)}>{opt.label}</button>
                     ))}
                   </div>
                 </div>
-              </div>
+              </article>
             ))}
-          </>
-        )}
-
-        {/* Today's scheduled doses */}
-        {!loading && patientId && today.length > 0 && (
-          <>
-            <div style={sectionLabel}>Today</div>
-            {today.map((d) => (
-              <div key={d.key} style={cardBase}>
-                <div style={iconBox}>💊</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 15, color: '#0d1f24' }}>
-                    {d.medicine}
-                  </div>
-                  {d.dosage && (
-                    <div style={{ fontSize: 14,  marginTop: 3, color: '#4a5a5f' }}>
-                      {d.dosage}
-                    </div>
-                  )}
-                  <div style={{
-                    fontFamily: "'Space Mono', monospace",
-                    fontSize: 12,
-                    marginTop: 6,
-                    color: '#4a5a5f',
-                  }}>
-                    {d.time}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </>
-        )}
-
-        {/* Empty state */}
-        {!loading && patientId && awaiting.length === 0 && today.length === 0 && (
-          <div style={{ textAlign: 'center', marginTop: 40, color: '#0d1f24' }}>
-            <div style={{ fontSize: '1.6rem', marginBottom: 8 }}>🔔</div>
-            <div style={{ fontFamily: "'Newsreader', serif", fontSize: '1rem', marginBottom: 6 }}>
-              No reminders right now
-            </div>
-            <div style={{ fontSize: 14, color: '#4a5a5f', marginBottom: 16 }}>
-              Medicine reminders will appear here at their scheduled times.
-            </div>
-            <button
-              onClick={() => router.push('/medications')}
-              style={{
-                background: '#37b59b',
-                color: '#0c2429',
-                border: 'none',
-                borderRadius: 8,
-                padding: '9px 16px',
-                fontSize: 14,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              Manage medication reminders
-            </button>
           </div>
+        </>)}
+
+        {!loading && today.length > 0 && (<>
+          <h2 className="s">Today</h2>
+          <div className="list">
+            {today.map(d => (
+              <div className="li" key={d.key}>
+                <span className="ic rx"><Icon name="pill" /></span>
+                <span className="tx"><b>{d.medicine}</b><span>{[d.dosage, fmtTime(d.time)].filter(Boolean).join(' · ')}</span></span>
+              </div>
+            ))}
+          </div>
+        </>)}
+
+        {empty && (
+          <article className="card" style={{ marginTop: '1em', textAlign: 'center' }}>
+            <div className="pillico" style={{ margin: '0 auto .6em' }}><Icon name="bell" /></div>
+            <b>No reminders right now</b>
+            <p className="muted small" style={{ margin: '.3em 0 1em' }}>Medicine reminders will appear here at their scheduled times.</p>
+            <button className="btn pri" onClick={() => router.push('/medications')}>Manage medicines</button>
+          </article>
         )}
 
-        {/* Footer link to the schedule manager when there is content above */}
         {!loading && patientId && (awaiting.length > 0 || today.length > 0) && (
-          <div style={{ textAlign: 'center', marginTop: 18 }}>
-            <button
-              onClick={() => router.push('/medications')}
-              style={{
-                background: 'transparent',
-                border: '1px solid rgba(13,31,36,.16)',
-                borderRadius: 8,
-                padding: '8px 14px',
-                fontSize: 13,
-                fontWeight: 600,
-                color: '#0d1f24',
-                cursor: 'pointer',
-              }}
-            >
-              Manage schedules
-            </button>
+          <div className="row" style={{ marginTop: '1em', justifyContent: 'center' }}>
+            <button className="btn sec" onClick={() => router.push('/medications')}>Manage schedules</button>
           </div>
         )}
       </div>
-
-      <TabBar />
-
-      {showSheet && <PersonSheet onClose={() => setShowSheet(false)} />}
-    </PhoneShell>
-  );
+    </AppShell>
+  )
 }

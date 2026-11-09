@@ -69,15 +69,17 @@ class Settings(BaseSettings):
 
     # DocEHR integration
     # Priority: docehr_mcp_url (A2A via MCP) > docehr_url (REST) > stub
-    docehr_enabled: bool = False
+    # Defaults baked to the vaide staging MCP so booking works on a plain push;
+    # override any of these via .env.production if the endpoint/creds change.
+    docehr_enabled: bool = True
     docehr_url: str = ""       # e.g. http://docehr.internal  (REST)
-    docehr_mcp_url: str = ""   # e.g. https://docehr.internal/mcp  (MCP)
-    # DocEHR MCP now requires OAuth2 client-credentials: we fetch a bearer token
+    docehr_mcp_url: str = "https://mcp-stage.vaide.health"   # MCP base; serves /tools/list, /tools/call
+    # DocEHR MCP requires OAuth2 client-credentials: we fetch a bearer token
     # once and send it on every MCP call. Leave the secret blank to disable auth
     # (calls go out unauthenticated, as before).
     docehr_mcp_client_id: str = "pal"
-    docehr_mcp_client_secret: str = ""
-    # Blank => derive "{scheme}://{host}/oauth/token" from docehr_mcp_url.
+    docehr_mcp_client_secret: str = "TCRUCQTROJmkkIRt0kCR-vlTd80aeSi1U_l9MLUhk_s"
+    # Blank => derive "{scheme}://{host}/oauth/token" from docehr_mcp_url (works for stage).
     docehr_mcp_token_url: str = ""
 
     # ── Research-evidence tools (PubMed + bioRxiv) ─────────────────────────────
