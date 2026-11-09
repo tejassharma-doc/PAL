@@ -1,444 +1,271 @@
-'use client';
+'use client'
 
 /**
- * Medication schedule manager.
- *
- * Lists the active patient's medicine schedules and lets them add / deactivate /
- * delete one. The Celery worker reads these rows and fires reminders at each
- * listed time (see api/tasks/medication_tasks.py). Reminder prompts themselves
- * are shown globally by components/medications/MedicationReminderHost.tsx.
+ * Medicines — redesigned onto AppShell (pal-app.html `S.meds`).
+ * Today's timeline (taken / skipped / due-now) from pending doses joined to
+ * schedules, the due-now card with Yes / snooze / skip, and the full medicine
+ * list with add / edit / pause / delete. All data via lib/medications-api.
  */
-import { useCallback, useEffect, useState } from 'react';
-import PhoneShell from '@/components/layout/PhoneShell';
-import AppBar from '@/components/layout/AppBar';
-import TabBar from '@/components/layout/TabBar';
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { AppShell } from '@/components/layout/AppShell'
+import { Icon } from '@/components/ui/Icon'
 import {
-  listMedicationSchedules,
-  createMedicationSchedule,
-  updateMedicationSchedule,
-  deleteMedicationSchedule,
-  type MedicationSchedule,
-} from '@/lib/medications-api';
+  listMedicationSchedules, pendingDoses, respondToDose,
+  createMedicationSchedule, updateMedicationSchedule, deleteMedicationSchedule,
+  type MedicationSchedule, type PendingDose, type DoseResponse,
+} from '@/lib/medications-api'
 
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const DOW_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 
-function activePatient(): { id: string | null; name: string } {
-  if (typeof window === 'undefined') return { id: null, name: 'You' };
-  return {
-    id: localStorage.getItem('pal_patient_id'),
-    name: localStorage.getItem('pal_patient_name') || 'You',
-  };
+function fmtTime(t: string): string {
+  // "21:00" -> "9:00 pm"
+  const [h, m] = (t || '').split(':').map(Number)
+  if (Number.isNaN(h)) return t
+  const am = h < 12
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return `${h12}:${String(m || 0).padStart(2, '0')} ${am ? 'am' : 'pm'}`
+}
+function todayStr(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+type DoseState = 'taken' | 'skipped' | 'due'
+function doseState(d: PendingDose): DoseState {
+  const r = (d.response || '').toLowerCase()
+  const s = (d.status || '').toLowerCase()
+  if (r === 'yes' || s === 'taken' || s === 'confirmed') return 'taken'
+  if (r === 'no' || s === 'skipped' || s === 'missed') return 'skipped'
+  return 'due'
 }
 
 export default function MedicationsPage() {
-  const [patientId, setPatientId] = useState<string | null>(null);
-  const [personName, setPersonName] = useState('You');
-  const [schedules, setSchedules] = useState<MedicationSchedule[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const router = useRouter()
+  const [patientId, setPatientId] = useState<string | null>(null)
+  const [schedules, setSchedules] = useState<MedicationSchedule[]>([])
+  const [doses, setDoses] = useState<PendingDose[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [busyDose, setBusyDose] = useState<string | null>(null)
 
-  // form state
-  const [medicine, setMedicine] = useState('');
-  const [dosage, setDosage] = useState('');
-  const [times, setTimes] = useState<string[]>(['09:00']);
-  const [days, setDays] = useState<number[]>([]);
-  const [saving, setSaving] = useState(false);
-
-  // inline edit state (per-schedule)
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editMed, setEditMed] = useState('');
-  const [editDosage, setEditDosage] = useState('');
-  const [editTimes, setEditTimes] = useState<string[]>([]);
-  const [editDays, setEditDays] = useState<number[]>([]);
-  const [editSaving, setEditSaving] = useState(false);
+  // add/edit form
+  const [showAdd, setShowAdd] = useState(false)
+  const [medicine, setMedicine] = useState('')
+  const [dosage, setDosage] = useState('')
+  const [times, setTimes] = useState<string[]>(['09:00'])
+  const [days, setDays] = useState<number[]>([])
+  const [saving, setSaving] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   useEffect(() => {
-    const p = activePatient();
-    setPatientId(p.id);
-    setPersonName(p.name);
-  }, []);
+    if (typeof window === 'undefined') return
+    if (!localStorage.getItem('pal_token')) { router.replace('/login'); return }
+    setPatientId(localStorage.getItem('pal_patient_id'))
+  }, [router])
 
   const load = useCallback(async () => {
-    if (!patientId) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
+    if (!patientId) { setLoading(false); return }
+    setLoading(true)
     try {
-      setSchedules(await listMedicationSchedules(patientId));
-      setError(null);
+      const [sch, ds] = await Promise.all([
+        listMedicationSchedules(patientId),
+        pendingDoses(patientId).catch(() => [] as PendingDose[]),
+      ])
+      setSchedules(sch)
+      setDoses(ds)
+      setError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load schedules');
+      setError(e instanceof Error ? e.message : 'Failed to load medicines')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  }, [patientId]);
+  }, [patientId])
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => { void load() }, [load])
 
-  const toggleDay = (d: number) =>
-    setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort()));
+  const schedById = useMemo(() => {
+    const m = new Map<string, MedicationSchedule>()
+    schedules.forEach(s => m.set(s.id, s))
+    return m
+  }, [schedules])
 
-  const updateTime = (i: number, v: string) =>
-    setTimes((prev) => prev.map((t, idx) => (idx === i ? v : t)));
+  const today = todayStr()
+  const todayDoses = useMemo(
+    () => doses
+      .filter(d => !d.scheduled_date || d.scheduled_date === today)
+      .sort((a, b) => (a.scheduled_time || '').localeCompare(b.scheduled_time || '')),
+    [doses, today],
+  )
+  const dueCount = useMemo(() => todayDoses.filter(d => doseState(d) === 'due').length, [todayDoses])
 
-  const addTimeRow = () => setTimes((prev) => [...prev, '12:00']);
-  const removeTimeRow = (i: number) => setTimes((prev) => prev.filter((_, idx) => idx !== i));
-
-  const submit = async () => {
-    if (!patientId || !medicine.trim()) return;
-    setSaving(true);
+  async function respond(dose: PendingDose, r: DoseResponse) {
+    setBusyDose(dose.id)
     try {
-      await createMedicationSchedule({
-        patient_id: patientId,
-        medicine_name: medicine.trim(),
-        dosage: dosage.trim() || undefined,
-        times: times.filter(Boolean),
-        days_of_week: days,
-      });
-      setMedicine('');
-      setDosage('');
-      setTimes(['09:00']);
-      setDays([]);
-      await load();
+      await respondToDose(dose.id, r)
+      await load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save');
+      setError(e instanceof Error ? e.message : 'Could not update dose')
     } finally {
-      setSaving(false);
+      setBusyDose(null)
     }
-  };
-
-  const toggleActive = async (s: MedicationSchedule) => {
-    await updateMedicationSchedule(s.id, { active: !s.active });
-    await load();
-  };
-
-  const remove = async (s: MedicationSchedule) => {
-    await deleteMedicationSchedule(s.id);
-    await load();
-  };
-
-  // ── inline edit ──────────────────────────────────────────────────────────────
-  const startEdit = (s: MedicationSchedule) => {
-    setEditingId(s.id);
-    setEditMed(s.medicine_name);
-    setEditDosage(s.dosage || '');
-    setEditTimes(s.times?.length ? [...s.times] : ['09:00']);
-    setEditDays(s.days_of_week?.length ? [...s.days_of_week] : [0, 1, 2, 3, 4, 5, 6]);
-  };
-  const cancelEdit = () => setEditingId(null);
-  const toggleEditDay = (d: number) =>
-    setEditDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort((a, b) => a - b)));
-  const updateEditTime = (i: number, v: string) =>
-    setEditTimes((prev) => prev.map((t, idx) => (idx === i ? v : t)));
-  const addEditTime = () => setEditTimes((prev) => [...prev, '12:00']);
-  const removeEditTime = (i: number) => setEditTimes((prev) => prev.filter((_, idx) => idx !== i));
-  const saveEdit = async (s: MedicationSchedule) => {
-    if (!editMed.trim()) return;
-    setEditSaving(true);
-    try {
-      await updateMedicationSchedule(s.id, {
-        medicine_name: editMed.trim(),
-        dosage: editDosage.trim() || undefined,
-        times: editTimes.filter(Boolean),
-        days_of_week: editDays,
-      });
-      setEditingId(null);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to update');
-    } finally {
-      setEditSaving(false);
-    }
-  };
-
-  const person = {
-    initial: personName.charAt(0).toUpperCase() || 'Y',
-    grad: 'linear-gradient(150deg,#37b59b,#1f7d6b)',
-    name: personName,
-    sub: 'medication schedule',
-  };
-
-  // Light theme, matching the rest of the app (PhoneShell is cream with dark ink).
-  const ink = '#0d1f24';
-  const jade = '#37b59b';
-  const jadeD = '#1f7d6b';
-  const rose = '#b4433a';
-  const border = 'rgba(13,31,36,0.12)';
-  const muted = 'rgba(13,31,36,0.58)';
-
-  const label = { fontSize: 14, color: muted, marginBottom: 5, display: 'block', fontWeight: 600 } as const;
-  const input = {
-    width: '100%',
-    boxSizing: 'border-box' as const,
-    padding: '10px 12px',
-    borderRadius: 10,
-    border: `1px solid ${border}`,
-    background: '#fff',
-    color: ink,
-    fontSize: 16,
-    outline: 'none',
-  } as const;
-  const card = {
-    background: '#fff',
-    borderRadius: 16,
-    padding: 16,
-    margin: '0 0 14px',
-    border: `1px solid ${border}`,
-    boxShadow: '0 1px 2px rgba(13,31,36,.04)',
-  } as const;
-
-  const DOW_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-
-  function scheduleSummary(s: MedicationSchedule): string {
-    const t = (s.times || []).join(', ') || '—';
-    // Always list the days explicitly; an empty array means every day → list all 7.
-    const dows = s.days_of_week?.length ? s.days_of_week : [0, 1, 2, 3, 4, 5, 6];
-    const d = dows.map((x) => DAYS[x]).join(', ');
-    return `${t} · ${d}`;
   }
 
-  return (
-    <PhoneShell>
-      <AppBar person={person} />
+  // ── add / edit ──
+  const toggleDay = (d: number) => setDays(p => p.includes(d) ? p.filter(x => x !== d) : [...p, d].sort())
+  const resetForm = () => { setMedicine(''); setDosage(''); setTimes(['09:00']); setDays([]); setEditingId(null) }
+  const startAdd = () => { resetForm(); setShowAdd(true) }
+  const startEdit = (s: MedicationSchedule) => {
+    setEditingId(s.id); setMedicine(s.medicine_name); setDosage(s.dosage || '')
+    setTimes(s.times?.length ? [...s.times] : ['09:00']); setDays(s.days_of_week || [])
+    setShowAdd(true)
+  }
+  const submit = async () => {
+    if (!patientId || !medicine.trim()) return
+    setSaving(true)
+    try {
+      if (editingId) {
+        await updateMedicationSchedule(editingId, {
+          medicine_name: medicine.trim(), dosage: dosage.trim() || undefined,
+          times: times.filter(Boolean), days_of_week: days,
+        })
+      } else {
+        await createMedicationSchedule({
+          patient_id: patientId, medicine_name: medicine.trim(), dosage: dosage.trim() || undefined,
+          times: times.filter(Boolean), days_of_week: days,
+        })
+      }
+      resetForm(); setShowAdd(false); await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save')
+    } finally { setSaving(false) }
+  }
+  const toggleActive = async (s: MedicationSchedule) => { await updateMedicationSchedule(s.id, { active: !s.active }); await load() }
+  const remove = async (s: MedicationSchedule) => { await deleteMedicationSchedule(s.id); await load() }
 
-      <div className="scr" style={{ flex: 1, overflowY: 'auto', padding: '10px 18px 92px', color: ink }}>
-        <h2 style={{ fontSize: 20, margin: '6px 0 2px', color: ink, fontWeight: 700 }}>
-          Medication reminders
-        </h2>
-        <div style={{ fontSize: 14, color: muted, marginBottom: 14 }}>
-          {schedules.length > 0
-            ? `${schedules.filter((s) => s.active).length} active · ${schedules.length} total`
-            : 'Add medicines to get reminders at the right time'}
+  function scheduleSummary(s: MedicationSchedule): string {
+    const t = (s.times || []).map(fmtTime).join(', ') || '—'
+    const dows = s.days_of_week?.length ? s.days_of_week : [0, 1, 2, 3, 4, 5, 6]
+    const d = dows.length === 7 ? 'every day' : dows.map(x => DAYS[x]).join(', ')
+    return `${t} · ${d}`
+  }
+
+  const dateLabel = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
+
+  return (
+    <AppShell active="meds" title="Medicines" medsBadge={dueCount}>
+      <div className="page narrow">
+        <div className="headrow">
+          <div><h1 className="h">Today&apos;s medicines</h1><p className="lede">{dateLabel}</p></div>
+          <button className="btn sec" onClick={startAdd}><Icon name="plus" /> Add a medicine</button>
         </div>
 
-        {!patientId && (
-          <div style={{ ...card, color: ink }}>Select a patient to manage medication reminders.</div>
-        )}
-        {error && (
-          <div style={{ ...card, color: rose, borderColor: 'rgba(180,67,58,.35)' }}>{error}</div>
-        )}
+        {error && <div className="alertcard" style={{ marginTop: '1em' }}><Icon name="alert" /><div><b>Something went wrong</b><span className="muted small">{error}</span></div></div>}
 
-        {patientId && (
-          <div style={card}>
-            <div style={{
-              fontFamily: "'Space Mono', monospace",
-              fontSize: 12,
-              letterSpacing: '0.12em',
-              textTransform: 'uppercase',
-              color: jadeD,
-              marginBottom: 12,
-            }}>
-              ✶ add a medicine
+        {/* add / edit form */}
+        {showAdd && (
+          <article className="card" style={{ marginTop: '1em' }}>
+            <h2 className="s" style={{ marginTop: 0 }}>{editingId ? 'Edit medicine' : 'Add a medicine'}</h2>
+            <div className="field"><label>Medicine name</label><input value={medicine} onChange={e => setMedicine(e.target.value)} placeholder="e.g. Atorvastatin" /></div>
+            <div className="field"><label>Dosage (optional)</label><input value={dosage} onChange={e => setDosage(e.target.value)} placeholder="e.g. 1 tablet" /></div>
+            <div className="field"><label>Times</label>
+              {times.map((t, i) => (
+                <div key={i} className="row" style={{ marginBottom: 6 }}>
+                  <input type="time" style={{ flex: 1 }} value={t} onChange={e => setTimes(p => p.map((x, j) => j === i ? e.target.value : x))} />
+                  {times.length > 1 && <button className="btn sec" onClick={() => setTimes(p => p.filter((_, j) => j !== i))}>✕</button>}
+                </div>
+              ))}
+              <button className="btn ghost" style={{ padding: 0 }} onClick={() => setTimes(p => [...p, '12:00'])}>+ add another time</button>
             </div>
-
-            <label style={label}>Medicine name</label>
-            <input style={input} value={medicine} onChange={(e) => setMedicine(e.target.value)}
-                   placeholder="e.g. Atorvastatin" />
-
-            <div style={{ height: 12 }} />
-            <label style={label}>Dosage (optional)</label>
-            <input style={input} value={dosage} onChange={(e) => setDosage(e.target.value)}
-                   placeholder="e.g. 1 tablet" />
-
-            <div style={{ height: 12 }} />
-            <label style={label}>Times</label>
-            {times.map((t, i) => (
-              <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                <input type="time" style={{ ...input, flex: 1 }} value={t}
-                       onChange={(e) => updateTime(i, e.target.value)} />
-                {times.length > 1 && (
-                  <button onClick={() => removeTimeRow(i)}
-                          style={{ ...input, width: 44, cursor: 'pointer', color: rose, fontWeight: 700 }}>✕</button>
-                )}
-              </div>
-            ))}
-            <button onClick={addTimeRow}
-                    style={{ background: 'transparent', border: 'none', color: jadeD,
-                             fontSize: 15, fontWeight: 600, cursor: 'pointer', padding: '2px 0' }}>
-              + add another time
-            </button>
-
-            <div style={{ height: 14 }} />
-            <label style={label}>Days (none = every day)</label>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {DAYS.map((d, i) => {
-                const on = days.includes(i);
-                return (
-                  <button key={d} onClick={() => toggleDay(i)}
-                          title={d}
-                          style={{
-                            width: 36, height: 36,
-                            borderRadius: 999,
-                            border: on ? 'none' : `1px solid ${border}`,
-                            background: on ? jade : '#fff',
-                            color: on ? '#06201a' : ink,
-                            fontSize: 15,
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                          }}>
+            <div className="field"><label>Days (none = every day)</label>
+              <div className="row">
+                {DAYS.map((d, i) => (
+                  <button key={d} title={d} onClick={() => toggleDay(i)} aria-pressed={days.includes(i)}
+                    style={{ width: '2.4em', height: '2.4em', borderRadius: 999, border: days.includes(i) ? 'none' : '1px solid var(--line-2)', background: days.includes(i) ? 'var(--jade-deep)' : '#fff', color: days.includes(i) ? '#fff' : 'var(--ink)', fontWeight: 600, minHeight: 0 }}>
                     {DOW_SHORT[i]}
                   </button>
-                );
-              })}
-            </div>
-
-            <div style={{ height: 16 }} />
-            <button onClick={() => void submit()} disabled={saving || !medicine.trim()}
-                    style={{
-                      width: '100%',
-                      padding: '12px',
-                      borderRadius: 10,
-                      border: 'none',
-                      background: jade,
-                      color: '#06201a',
-                      fontWeight: 700,
-                      fontSize: 15,
-                      cursor: saving ? 'default' : 'pointer',
-                      opacity: saving || !medicine.trim() ? 0.6 : 1,
-                    }}>
-              {saving ? 'Saving…' : '＋ Add reminder'}
-            </button>
-          </div>
-        )}
-
-        {loading ? (
-          <div style={{ color: muted }}>Loading…</div>
-        ) : (
-          schedules.map((s) =>
-            editingId === s.id ? (
-              // ── inline editor ──
-              <div key={s.id} style={{ ...card, borderLeft: `3px solid ${jade}` }}>
-                <div style={{
-                  fontFamily: "'Space Mono', monospace", fontSize: 12,
-                  letterSpacing: '0.12em', textTransform: 'uppercase', color: jadeD, marginBottom: 12,
-                }}>
-                  ✎ edit reminder
-                </div>
-
-                <label style={label}>Medicine name</label>
-                <input style={input} value={editMed} onChange={(e) => setEditMed(e.target.value)} />
-
-                <div style={{ height: 12 }} />
-                <label style={label}>Dosage (optional)</label>
-                <input style={input} value={editDosage} onChange={(e) => setEditDosage(e.target.value)}
-                       placeholder="e.g. 1 tablet" />
-
-                <div style={{ height: 12 }} />
-                <label style={label}>Times</label>
-                {editTimes.map((t, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                    <input type="time" style={{ ...input, flex: 1 }} value={t}
-                           onChange={(e) => updateEditTime(i, e.target.value)} />
-                    {editTimes.length > 1 && (
-                      <button onClick={() => removeEditTime(i)}
-                              style={{ ...input, width: 44, cursor: 'pointer', color: rose, fontWeight: 700 }}>✕</button>
-                    )}
-                  </div>
                 ))}
-                <button onClick={addEditTime}
-                        style={{ background: 'transparent', border: 'none', color: jadeD,
-                                 fontSize: 15, fontWeight: 600, cursor: 'pointer', padding: '2px 0' }}>
-                  + add another time
-                </button>
-
-                <div style={{ height: 14 }} />
-                <label style={label}>Days</label>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {DAYS.map((d, i) => {
-                    const on = editDays.includes(i);
-                    return (
-                      <button key={d} onClick={() => toggleEditDay(i)} title={d}
-                              style={{
-                                width: 36, height: 36, borderRadius: 999,
-                                border: on ? 'none' : `1px solid ${border}`,
-                                background: on ? jade : '#fff',
-                                color: on ? '#06201a' : ink,
-                                fontSize: 15, fontWeight: 600, cursor: 'pointer',
-                              }}>
-                        {DOW_SHORT[i]}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div style={{ height: 16 }} />
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => void saveEdit(s)} disabled={editSaving || !editMed.trim()}
-                          style={{ flex: 1, padding: '11px', borderRadius: 10, border: 'none',
-                                   background: jade, color: '#06201a', fontWeight: 700, fontSize: 16,
-                                   cursor: editSaving ? 'default' : 'pointer',
-                                   opacity: editSaving || !editMed.trim() ? 0.6 : 1 }}>
-                    {editSaving ? 'Saving…' : 'Save changes'}
-                  </button>
-                  <button onClick={cancelEdit}
-                          style={{ padding: '11px 16px', borderRadius: 10, border: `1px solid ${border}`,
-                                   background: '#fff', color: ink, fontWeight: 600, fontSize: 16, cursor: 'pointer' }}>
-                    Cancel
-                  </button>
-                </div>
               </div>
-            ) : (
-              // ── normal card ──
-              <div key={s.id} style={{
-                ...card,
-                opacity: s.active ? 1 : 0.6,
-                borderLeft: `3px solid ${s.active ? jade : border}`,
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 10 }}>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: ink, wordBreak: 'break-word' }}>
-                      {s.medicine_name}
-                    </div>
-                    {s.dosage && <div style={{ fontSize: 15, color: muted, marginTop: 2 }}>{s.dosage}</div>}
-                    <div style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8,
-                      background: 'rgba(55,181,155,.12)', color: jadeD,
-                      borderRadius: 8, padding: '4px 9px', fontSize: 14, fontWeight: 600,
-                    }}>
-                      ⏰ {scheduleSummary(s)}
-                    </div>
-                    {!s.active && (
-                      <div style={{ fontSize: 13, color: muted, marginTop: 6, fontStyle: 'italic' }}>Paused</div>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
-                    <button onClick={() => startEdit(s)}
-                            style={{ fontSize: 14, fontWeight: 600, padding: '7px 12px', borderRadius: 8,
-                                     border: 'none', background: jade, color: '#06201a', cursor: 'pointer' }}>
-                      Edit
-                    </button>
-                    <button onClick={() => void toggleActive(s)}
-                            style={{ fontSize: 14, fontWeight: 600, padding: '7px 12px', borderRadius: 8,
-                                     border: `1px solid ${border}`, background: '#fff',
-                                     color: ink, cursor: 'pointer' }}>
-                      {s.active ? 'Pause' : 'Resume'}
-                    </button>
-                    <button onClick={() => void remove(s)}
-                            style={{ fontSize: 14, fontWeight: 600, padding: '7px 12px', borderRadius: 8,
-                                     border: `1px solid rgba(180,67,58,.35)`, background: '#fff',
-                                     color: rose, cursor: 'pointer' }}>
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )
-          )
+            </div>
+            <div className="row" style={{ marginTop: '1em' }}>
+              <button className="btn pri" onClick={() => void submit()} disabled={saving || !medicine.trim()}>{saving ? 'Saving…' : editingId ? 'Save changes' : 'Add reminder'}</button>
+              <button className="btn ghost" onClick={() => { resetForm(); setShowAdd(false) }}>Cancel</button>
+            </div>
+          </article>
         )}
 
-        {!loading && patientId && schedules.length === 0 && (
-          <div style={{ textAlign: 'center', marginTop: 32, color: muted }}>
-            <div style={{ fontSize: '1.6rem', marginBottom: 8 }}>💊</div>
-            <div style={{ fontSize: 16, color: ink, fontWeight: 600 }}>No medication reminders yet</div>
-            <div style={{ fontSize: 14, marginTop: 4 }}>Add one above, or upload a prescription.</div>
+        {/* today's timeline */}
+        {loading ? (
+          <div className="muted" style={{ marginTop: '1.4em' }}>Loading…</div>
+        ) : todayDoses.length > 0 ? (
+          <div className="tl" style={{ marginTop: '1.4em' }}>
+            {todayDoses.map(dose => {
+              const sch = schedById.get(dose.schedule_id)
+              const name = sch?.medicine_name || 'Medicine'
+              const dose2 = sch?.dosage ? `${sch.dosage}` : ''
+              const st = doseState(dose)
+              return (
+                <div className="tli" key={dose.id}>
+                  <div className="tm" style={st === 'due' ? { color: 'var(--jade-deep)' } : undefined}>{fmtTime(dose.scheduled_time)}</div>
+                  {st === 'due' ? (
+                    <article className="card due">
+                      <div className="head">
+                        <div className="pillico"><Icon name="pill" /></div>
+                        <div>
+                          <div className="when">Due now, {fmtTime(dose.scheduled_time)}</div>
+                          <div className="what">{name}</div>
+                          {dose2 && <div className="dhow">{dose2}</div>}
+                        </div>
+                      </div>
+                      <div className="acts">
+                        <button className="btn pri" disabled={busyDose === dose.id} onClick={() => void respond(dose, 'yes')}><Icon name="check" /> Yes, I took it</button>
+                        <div className="two">
+                          <button className="btn sec" disabled={busyDose === dose.id} onClick={() => void respond(dose, 'snooze_10')}><Icon name="clock" /> In 10 minutes</button>
+                          <button className="btn sec" disabled={busyDose === dose.id} onClick={() => void respond(dose, 'no')}>Skip this dose</button>
+                        </div>
+                      </div>
+                    </article>
+                  ) : (
+                    <div className="card doneline">
+                      <div className="pillico" style={st === 'skipped' ? { background: 'var(--soft)', color: 'var(--ink-3)' } : undefined}><Icon name="pill" /></div>
+                      <div><b>{name}</b>{dose2 && <div className="muted small">{dose2}</div>}</div>
+                      {st === 'taken'
+                        ? <span className="tag ok st"><Icon name="check" /> Taken</span>
+                        : <span className="tag warn st">Skipped</span>}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="muted" style={{ marginTop: '1.4em' }}>No doses scheduled for today.</p>
+        )}
+
+        {/* all medicines */}
+        <h2 className="s">All your medicines</h2>
+        {schedules.length === 0 && !loading ? (
+          <article className="card"><p className="muted">No medicines yet. Add one above, or upload a prescription.</p></article>
+        ) : (
+          <div className="list">
+            {schedules.map(s => (
+              <div key={s.id} className="li medrow" style={{ opacity: s.active ? 1 : 0.6, alignItems: 'flex-start' }}>
+                <span className={`ic ${s.active ? 'rx' : ''}`}><Icon name="pill" /></span>
+                <span className="tx">
+                  <b>{s.medicine_name}{s.dosage ? ` ${s.dosage}` : ''}</b>
+                  <span>{scheduleSummary(s)}{!s.active ? ' · Paused' : ''}</span>
+                </span>
+                <span className="row" style={{ flexWrap: 'nowrap', gap: '.4em' }}>
+                  <button className="btn sec small" style={{ minHeight: '2.4em', padding: '0 .7em' }} onClick={() => startEdit(s)}>Edit</button>
+                  <button className="btn sec small" style={{ minHeight: '2.4em', padding: '0 .7em' }} onClick={() => void toggleActive(s)}>{s.active ? 'Pause' : 'Resume'}</button>
+                  <button className="btn ghost small" style={{ minHeight: '2.4em', color: 'var(--rose-deep)' }} onClick={() => void remove(s)}>Delete</button>
+                </span>
+              </div>
+            ))}
           </div>
         )}
+        <p className="muted small" style={{ marginTop: '1em' }}>New prescriptions from your doctor are added here automatically. Reminders arrive as a notification at each time.</p>
       </div>
-
-      <TabBar />
-    </PhoneShell>
-  );
+    </AppShell>
+  )
 }

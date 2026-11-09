@@ -53,7 +53,9 @@ const nextConfig = {
       beforeFiles: [
         { source: '/', missing: [{ type: 'cookie', key: 'pal_session' }], destination: '/landing.html' },
         { source: '/welcome', destination: '/landing.html' },
-        { source: '/pricing', destination: '/pricing.html' },
+        // NOTE: /pricing is the React app/pricing/page.tsx (authenticated, Razorpay-wired).
+        // The old /pricing → /pricing.html rewrite was removed so that page is reachable.
+        // The static marketing page is still at the literal /pricing.html URL.
         { source: '/terms', destination: '/terms.html' },
         { source: '/privacy', destination: '/privacy.html' },
       ],

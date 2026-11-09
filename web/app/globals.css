@@ -26,6 +26,17 @@
   --serif: 'Newsreader', Georgia, serif;
   --sans: 'Space Grotesk', ui-sans-serif, sans-serif;
   --mono: 'Space Mono', ui-monospace, monospace;
+
+  /* Derived tokens used by the pal-app.html redesign (additive, non-breaking) */
+  --ink-2: #3e5156;
+  --ink-3: #5d6e72;
+  --soft: #fbf9f4;
+  --jade-tint: #e3f3ee;
+  --mist-jade: #e9f4f0;
+  --gold: #d8a24a;
+  --amber-tint: #f8eedb;
+  --rose-deep: #9c4239;
+  --rose-tint: #f6e3e0;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }

@@ -1,2 +1,6 @@
-// /reminders — the Reminders section. Renders the main PAL app (see app/page.tsx).
-export { default } from '../page';
+import { redirect } from 'next/navigation'
+
+// Reminders are part of the Medicines screen now.
+export default function RemindersPage() {
+  redirect('/medications')
+}

@@ -1,742 +1,168 @@
 'use client'
 
+/**
+ * Sign in — redesigned onto the pal-app.html `S.signin` + `S.otp` screens
+ * (brandside + formside, 6-box OTP). All auth logic preserved: phone OTP with
+ * dev_otp autofill + resend timer, verify routing (onboarding/pricing/home),
+ * and the email/password fallback.
+ */
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { PalEmblem } from '../../components/PalEmblem'
+import { Icon } from '../../components/ui/Icon'
 import { markSignedIn } from '../../lib/sessionCookie'
-import {
-  loginWithPassword,
-  requestLoginOTP,
-  verifyLoginOTP,
-} from '../../lib/api-auth'
-
-// Design tokens
-const c = {
-  ink: '#0d1f24',
-  deep: '#13343b',
-  paper: '#f6f3ec',
-  soft: '#fbf9f4',
-  jade: '#37b59b',
-  jadeD: '#1f7d6b',
-  rose: '#c2675e',
-}
-const mono = "'Space Mono', monospace"
-const serif = "'Newsreader', serif"
-const sans = "'Space Grotesk', sans-serif"
-
-type LoginMode = 'phone' | 'email'
+import { loginWithPassword, requestLoginOTP, verifyLoginOTP } from '../../lib/api-auth'
 
 export default function LoginPage() {
   const router = useRouter()
 
-  // Check if already authenticated
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('pal_token')
-      if (token) {
-        markSignedIn()
-        router.push('/')
-      }
+    if (typeof window !== 'undefined' && localStorage.getItem('pal_token')) {
+      markSignedIn(); router.push('/')
     }
   }, [router])
 
-  // State
-  const [loginMode, setLoginMode] = useState<LoginMode>('phone')
+  const [mode, setMode] = useState<'phone' | 'email'>('phone')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // Phone OTP Login (PRIMARY)
   const [phone, setPhone] = useState('')
   const [otpSent, setOtpSent] = useState(false)
   const [otp, setOtp] = useState(['', '', '', '', '', ''])
-  const [resendCountdown, setResendCountdown] = useState(0)
+  const [resend, setResend] = useState(0)
+  const [foundEhr, setFoundEhr] = useState(false)
+  const otpRefs = Array.from({ length: 6 }, () => useRef<HTMLInputElement>(null))
 
-  const otpRefs = [
-    useRef<HTMLInputElement>(null),
-    useRef<HTMLInputElement>(null),
-    useRef<HTMLInputElement>(null),
-    useRef<HTMLInputElement>(null),
-    useRef<HTMLInputElement>(null),
-    useRef<HTMLInputElement>(null),
-  ]
-
-  // Email/Password Login (SECONDARY)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
 
-  // Countdown timer
   useEffect(() => {
-    if (resendCountdown <= 0) return
-    const timer = setTimeout(() => setResendCountdown(resendCountdown - 1), 1000)
-    return () => clearTimeout(timer)
-  }, [resendCountdown])
+    if (resend <= 0) return
+    const t = setTimeout(() => setResend(resend - 1), 1000)
+    return () => clearTimeout(t)
+  }, [resend])
 
-  // Phone OTP Request Handler
-  async function handleRequestOTP(e: React.FormEvent) {
-    e.preventDefault()
-
-    if (!phone || phone.replace(/\D/g, '').length < 10) {
-      setError('Please enter a valid 10-digit phone number')
-      return
-    }
-
-    setError('')
-    setLoading(true)
-
+  async function sendOtp() {
+    if (!phone || phone.replace(/\D/g, '').length < 10) { setError('Enter a valid 10-digit mobile number'); return }
+    setError(''); setLoading(true)
     try {
-      const response = await requestLoginOTP({ phone })
-
-      // Auto-fill OTP in dev mode
-      if (response.dev_otp) {
-        const otpDigits = response.dev_otp.split('')
-        setOtp(otpDigits)
-        // Auto-focus first OTP input
-        setTimeout(() => otpRefs[0].current?.focus(), 100)
-      }
-
-      setOtpSent(true)
-      setResendCountdown(60)
-    } catch (err: any) {
-      setError(err.message || 'Failed to send OTP. Please try again.')
-    } finally {
-      setLoading(false)
-    }
+      const r = await requestLoginOTP({ phone })
+      if (r.dev_otp) { setOtp(r.dev_otp.split('')); setTimeout(() => otpRefs[0].current?.focus(), 100) }
+      setFoundEhr(Boolean((r as Record<string, unknown>).has_ehr))
+      setOtpSent(true); setResend(24)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to send code') }
+    finally { setLoading(false) }
   }
 
-  // Phone OTP Verify Handler
-  async function handleVerifyOTP(e: React.FormEvent) {
-    e.preventDefault()
-
+  async function verify() {
     const code = otp.join('')
-    if (code.length < 6) {
-      setError('Please enter the complete 6-digit OTP')
-      return
-    }
-
-    setError('')
-    setLoading(true)
-
+    if (code.length < 6) { setError('Enter the complete 6-digit code'); return }
+    setError(''); setLoading(true)
     try {
-      const response = await verifyLoginOTP(phone, code)
-
-      // Subscription gate: send unsubscribed users to pricing (token is already
-      // saved, so the pricing page can start checkout).
-      if (response.has_subscription === false) {
-        console.log('Phone login successful - no subscription, redirecting to pricing')
-        router.push('/pricing')
-        return
-      }
-
-      // Check if user needs to complete patient profile
-      if (response.requires_onboarding || !response.user.patient_id) {
-        console.log('Phone login successful - redirecting to onboarding')
-        router.push('/onboarding')
-      } else {
-        // User already has patient profile - go to home
-        console.log('Phone login successful - user has profile')
-        router.push('/')
-      }
-    } catch (err: any) {
-      setError(err.message || 'Invalid OTP. Please try again.')
-      // Clear OTP on error
-      setOtp(['', '', '', '', '', ''])
-      otpRefs[0].current?.focus()
-    } finally {
-      setLoading(false)
-    }
+      const r = await verifyLoginOTP(phone, code)
+      if (r.has_subscription === false) { router.push('/pricing'); return }
+      if (r.requires_onboarding || !r.user.patient_id) { router.push('/onboarding'); return }
+      router.push('/')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Invalid code')
+      setOtp(['', '', '', '', '', '']); otpRefs[0].current?.focus()
+    } finally { setLoading(false) }
   }
 
-  function handleOtpChange(idx: number, val: string) {
-    const digit = val.replace(/\D/g, '').slice(-1)
-    const newOtp = [...otp]
-    newOtp[idx] = digit
-    setOtp(newOtp)
-
-    if (digit && idx < 5) {
-      otpRefs[idx + 1].current?.focus()
-    }
+  function onOtpChange(i: number, v: string) {
+    const d = v.replace(/\D/g, '').slice(-1)
+    setOtp(prev => prev.map((x, j) => j === i ? d : x))
+    if (d && i < 5) otpRefs[i + 1].current?.focus()
+  }
+  function onOtpKey(i: number, e: React.KeyboardEvent) {
+    if (e.key === 'Backspace' && !otp[i] && i > 0) otpRefs[i - 1].current?.focus()
   }
 
-  function handleOtpKeyDown(idx: number, e: React.KeyboardEvent) {
-    if (e.key === 'Backspace' && !otp[idx] && idx > 0) {
-      otpRefs[idx - 1].current?.focus()
-    }
-  }
-
-  async function handleResendOTP() {
-    if (resendCountdown > 0) return
-
-    setError('')
-    setLoading(true)
-
+  async function passwordLogin() {
+    if (!email || !password) { setError('Enter both email and password'); return }
+    setError(''); setLoading(true)
     try {
-      const response = await requestLoginOTP({ phone })
-
-      if (response.dev_otp) {
-        const otpDigits = response.dev_otp.split('')
-        setOtp(otpDigits)
-      }
-
-      setResendCountdown(60)
-    } catch (err: any) {
-      setError(err.message || 'Failed to resend OTP')
-    } finally {
-      setLoading(false)
-    }
+      await loginWithPassword(email, password)
+      await new Promise(r => setTimeout(r, 100))
+      router.push(localStorage.getItem('pal_patient_id') ? '/' : '/profile/create')
+    } catch (e) { setError(e instanceof Error ? e.message : 'Invalid email or password') }
+    finally { setLoading(false) }
   }
 
-  // Email/Password Login Handler
-  async function handlePasswordLogin(e: React.FormEvent) {
-    e.preventDefault()
-
-    if (!email || !password) {
-      setError('Please enter both email and password')
-      return
-    }
-
-    setError('')
-    setLoading(true)
-
-    try {
-      const response = await loginWithPassword(email, password)
-
-      console.log('Email login successful')
-      await new Promise(resolve => setTimeout(resolve, 100))
-
-      const patientId = localStorage.getItem('pal_patient_id')
-
-      if (!patientId) {
-        router.push('/profile/create')
-      } else {
-        router.push('/')
-      }
-    } catch (err: any) {
-      console.error('Login error:', err)
-      setError(err.message || 'Invalid email or password')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const BrandSide = (
+    <div className="brandside">
+      <button className="logo" onClick={() => router.push('/')} style={{ padding: 0 }} aria-label="PAL home">
+        <PalEmblem width="5.6em" color="var(--jade)" />
+      </button>
+      <h2>Five elements of care. Anchored by your doctor.</h2>
+      <ul>
+        <li><Icon name="check" />Your reports and prescriptions in one place</li>
+        <li><Icon name="check" />Ask questions by voice, in your language</li>
+        <li><Icon name="check" />Look after your family&apos;s health together</li>
+      </ul>
+      <p className="foot">PAL by LocumPro Health, Mumbai</p>
+    </div>
+  )
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: 'radial-gradient(120% 80% at 50% -10%, #18454e 0%, #13343b 38%, #0c2429 100%)',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '20px 16px',
-      }}
-    >
-      {/* Brand lockup, as on palcare.life: jade emblem, PAL, doctor-anchored care */}
-      <PalEmblem width={760} color={c.jade} style={{ position: 'fixed', top: 40, right: -300, opacity: 0.07, pointerEvents: 'none' }} />
-      <div role="img" aria-label="PAL — doctor-anchored care" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 22, position: 'relative' }}>
-        <PalEmblem width={230} color={c.jade} />
-        <div style={{ fontFamily: sans, fontWeight: 700, fontSize: '1.9rem', letterSpacing: '.03em', color: c.paper, marginTop: 10 }}>PAL</div>
-        <div style={{ fontFamily: mono, fontSize: '.78rem', letterSpacing: '.2em', textTransform: 'uppercase', color: '#dfe6e3', marginTop: 4 }}>doctor-anchored care</div>
-      </div>
-
-      <div
-        style={{
-          width: 420,
-          position: 'relative',
-          zIndex: 1,
-          maxWidth: '100%',
-          background: c.soft,
-          borderRadius: 24,
-          padding: '32px 28px',
-          boxShadow: '0 1px 2px rgba(13,31,36,.06), 0 30px 70px -22px rgba(0,0,0,.6)',
-        }}
-      >
-        <h1
-          style={{
-            fontFamily: serif,
-            fontWeight: 300,
-            fontSize: '1.8rem',
-            lineHeight: 1.2,
-            color: c.ink,
-            marginBottom: 8,
-          }}
-        >
-          Welcome back
-        </h1>
-        <p
-          style={{
-            fontFamily: mono,
-            fontSize: '0.8rem',
-            opacity: .85,
-            marginBottom: 28,
-            letterSpacing: '.04em',
-          }}
-        >
-          Login to access your health records
-        </p>
-
-        {/* Phone OTP Login Form (PRIMARY) */}
-        {loginMode === 'phone' && !otpSent && (
-          <form onSubmit={handleRequestOTP}>
-            <div style={{ marginBottom: 20 }}>
-              <label
-                style={{
-                  fontFamily: mono,
-                  fontSize: '0.8rem',
-                  letterSpacing: '.1em',
-                  textTransform: 'uppercase',
-                  color: c.ink,
-                  opacity: .85,
-                  marginBottom: 8,
-                  display: 'block',
-                }}
-              >
-                Phone Number
-              </label>
-              <div style={{ position: 'relative' }}>
-                <span
-                  style={{
-                    position: 'absolute',
-                    left: 14,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    fontFamily: sans,
-                    fontSize: '1rem',
-                    color: c.ink,
-                    opacity: .85,
-                  }}
-                >
-                  +91
-                </span>
-                <input
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="1234567890"
-                  autoComplete="tel"
-                  maxLength={10}
-                  style={{
-                    width: '100%',
-                    padding: '14px 14px 14px 50px',
-                    fontFamily: sans,
-                    fontSize: '1rem',
-                    color: c.ink,
-                    background: '#fff',
-                    border: `2px solid ${error ? c.rose : c.jade}`,
-                    borderRadius: 12,
-                    outline: 'none',
-                  }}
-                />
+    <div className="palui">
+      <div className="signin">
+        {BrandSide}
+        <div className="formside">
+          {mode === 'phone' && !otpSent && (
+            <>
+              <h1>Sign in</h1>
+              <p className="muted" style={{ marginTop: '.3em' }}>We&apos;ll send a 6-digit code to your phone.</p>
+              <label htmlFor="ph" style={{ fontWeight: 600, marginTop: '1.4em', display: 'block' }}>Mobile number</label>
+              <div className="phone">
+                <span>+91</span>
+                <input id="ph" inputMode="numeric" maxLength={10} value={phone}
+                  onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
+                  onKeyDown={e => { if (e.key === 'Enter') void sendOtp() }} placeholder="98765 43210" />
               </div>
-            </div>
+              {error && <p className="small" style={{ color: 'var(--rose-deep)', marginTop: '.6em' }}>{error}</p>}
+              <button className="btn pri big full" style={{ marginTop: '1em' }} disabled={loading} onClick={() => void sendOtp()}>{loading ? 'Sending…' : 'Send code'}</button>
+              <p className="alt">Prefer email? <a href="#" onClick={e => { e.preventDefault(); setMode('email'); setError('') }}>Sign in with email</a></p>
+            </>
+          )}
 
-            {error && (
-              <div
-                style={{
-                  fontFamily: mono,
-                  fontSize: '0.8rem',
-                  color: c.rose,
-                  marginBottom: 16,
-                  textAlign: 'center',
-                  padding: '8px 12px',
-                  background: 'rgba(194,103,94,.08)',
-                  borderRadius: 8,
-                }}
-              >
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading || !phone}
-              style={{
-                width: '100%',
-                padding: '14px',
-                fontFamily: sans,
-                fontSize: '1rem',
-                fontWeight: 600,
-                color: '#fff',
-                background: loading || !phone ? '#ccc' : c.jade,
-                border: 'none',
-                borderRadius: 12,
-                cursor: loading || !phone ? 'not-allowed' : 'pointer',
-                marginBottom: 20,
-              }}
-            >
-              {loading ? 'Sending OTP...' : 'Send OTP'}
-            </button>
-
-            {/* Switch to Email Login */}
-            <div style={{ textAlign: 'center', marginTop: 20 }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginMode('email')
-                  setError('')
-                }}
-                style={{
-                  fontFamily: mono,
-                  fontSize: '0.8rem',
-                  color: c.ink,
-                  opacity: .85,
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  textDecoration: 'underline',
-                }}
-              >
-                Use Email & Password instead
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* OTP Verification Form */}
-        {loginMode === 'phone' && otpSent && (
-          <form onSubmit={handleVerifyOTP}>
-            <div style={{ marginBottom: 20 }}>
-              <label
-                style={{
-                  fontFamily: mono,
-                  fontSize: '0.8rem',
-                  letterSpacing: '.1em',
-                  textTransform: 'uppercase',
-                  color: c.ink,
-                  opacity: .85,
-                  marginBottom: 8,
-                  display: 'block',
-                }}
-              >
-                Enter 6-Digit OTP
-              </label>
-              <p
-                style={{
-                  fontFamily: sans,
-                  fontSize: '0.95rem',
-                  color: c.ink,
-                  opacity: .85,
-                  marginBottom: 16,
-                }}
-              >
-                Sent to +91 {phone}
-              </p>
-
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 8,
-                  justifyContent: 'center',
-                  marginBottom: 16,
-                }}
-              >
-                {otp.map((digit, idx) => (
-                  <input
-                    key={idx}
-                    ref={otpRefs[idx]}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    value={digit}
-                    onChange={(e) => handleOtpChange(idx, e.target.value)}
-                    onKeyDown={(e) => handleOtpKeyDown(idx, e)}
-                    style={{
-                      width: 48,
-                      height: 56,
-                      fontFamily: mono,
-                      fontSize: '1.5rem',
-                      textAlign: 'center',
-                      color: c.ink,
-                      background: '#fff',
-                      border: `2px solid ${digit ? c.jade : 'rgba(13,31,36,.16)'}`,
-                      borderRadius: 12,
-                      outline: 'none',
-                    }}
-                  />
+          {mode === 'phone' && otpSent && (
+            <>
+              <button className="btn ghost" style={{ padding: 0, alignSelf: 'flex-start' }} onClick={() => { setOtpSent(false); setOtp(['', '', '', '', '', '']); setError('') }}><Icon name="left" /> Change number</button>
+              <h1 style={{ marginTop: '.3em' }}>Enter your code</h1>
+              <p className="muted" style={{ marginTop: '.3em' }}>We sent a 6-digit code by SMS to <b style={{ color: 'var(--jade-deep)' }}>+91 {phone}</b>.</p>
+              <div className="otp" role="group" aria-label="6-digit code">
+                {otp.map((d, i) => (
+                  <input key={i} ref={otpRefs[i]} className={d ? 'f' : ''} inputMode="numeric" maxLength={1} value={d}
+                    aria-label={`Digit ${i + 1}`} onChange={e => onOtpChange(i, e.target.value)} onKeyDown={e => onOtpKey(i, e)} />
                 ))}
               </div>
-            </div>
+              {error && <p className="small" style={{ color: 'var(--rose-deep)', marginTop: '.6em' }}>{error}</p>}
+              <button className="btn pri big full" style={{ marginTop: '1em' }} disabled={loading} onClick={() => void verify()}>{loading ? 'Verifying…' : 'Sign in'}</button>
+              <p className="alt">{resend > 0 ? `Didn't get it? Send again in 0:${String(resend).padStart(2, '0')}` : <a href="#" onClick={e => { e.preventDefault(); void sendOtp() }}>Resend code</a>}</p>
+              {foundEhr && <div className="found"><Icon name="check" /><div><b>Health record found</b><div className="small muted">Your clinic records will be ready once you sign in.</div></div></div>}
+            </>
+          )}
 
-            {error && (
-              <div
-                style={{
-                  fontFamily: mono,
-                  fontSize: '0.8rem',
-                  color: c.rose,
-                  marginBottom: 16,
-                  textAlign: 'center',
-                  padding: '8px 12px',
-                  background: 'rgba(194,103,94,.08)',
-                  borderRadius: 8,
-                }}
-              >
-                {error}
-              </div>
-            )}
+          {mode === 'email' && (
+            <>
+              <button className="btn ghost" style={{ padding: 0, alignSelf: 'flex-start' }} onClick={() => { setMode('phone'); setError('') }}><Icon name="left" /> Back to phone</button>
+              <h1 style={{ marginTop: '.3em' }}>Sign in with email</h1>
+              <label style={{ fontWeight: 600, marginTop: '1.2em', display: 'block' }}>Email</label>
+              <input className="field-input" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com"
+                style={{ width: '100%', font: 'inherit', border: '1.5px solid var(--line-2)', borderRadius: '.8em', padding: '.7em .9em', marginTop: '.3em' }} />
+              <label style={{ fontWeight: 600, marginTop: '1em', display: 'block' }}>Password</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Your password"
+                onKeyDown={e => { if (e.key === 'Enter') void passwordLogin() }}
+                style={{ width: '100%', font: 'inherit', border: '1.5px solid var(--line-2)', borderRadius: '.8em', padding: '.7em .9em', marginTop: '.3em' }} />
+              {error && <p className="small" style={{ color: 'var(--rose-deep)', marginTop: '.6em' }}>{error}</p>}
+              <button className="btn pri big full" style={{ marginTop: '1em' }} disabled={loading} onClick={() => void passwordLogin()}>{loading ? 'Signing in…' : 'Sign in'}</button>
+            </>
+          )}
 
-            <button
-              type="submit"
-              disabled={loading || otp.join('').length < 6}
-              style={{
-                width: '100%',
-                padding: '14px',
-                fontFamily: sans,
-                fontSize: '1rem',
-                fontWeight: 600,
-                color: '#fff',
-                background: loading || otp.join('').length < 6 ? '#ccc' : c.jade,
-                border: 'none',
-                borderRadius: 12,
-                cursor: loading || otp.join('').length < 6 ? 'not-allowed' : 'pointer',
-                marginBottom: 16,
-              }}
-            >
-              {loading ? 'Verifying...' : 'Verify & Login'}
-            </button>
-
-            {/* Resend OTP */}
-            <div style={{ textAlign: 'center' }}>
-              {resendCountdown > 0 ? (
-                <p
-                  style={{
-                    fontFamily: mono,
-                    fontSize: '0.8rem',
-                    color: c.ink,
-                    opacity: .85,
-                  }}
-                >
-                  Resend OTP in {resendCountdown}s
-                </p>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleResendOTP}
-                  disabled={loading}
-                  style={{
-                    fontFamily: mono,
-                    fontSize: '0.8rem',
-                    color: c.jade,
-                    background: 'none',
-                    border: 'none',
-                    cursor: loading ? 'not-allowed' : 'pointer',
-                    textDecoration: 'underline',
-                  }}
-                >
-                  Resend OTP
-                </button>
-              )}
-            </div>
-
-            {/* Change Phone Number */}
-            <div style={{ textAlign: 'center', marginTop: 12 }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setOtpSent(false)
-                  setOtp(['', '', '', '', '', ''])
-                  setError('')
-                }}
-                style={{
-                  fontFamily: mono,
-                  fontSize: '0.8rem',
-                  color: c.ink,
-                  opacity: .85,
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  textDecoration: 'underline',
-                }}
-              >
-                Change phone number
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* Email/Password Login Form (SECONDARY) */}
-        {loginMode === 'email' && (
-          <form onSubmit={handlePasswordLogin}>
-            <div style={{ marginBottom: 16 }}>
-              <label
-                style={{
-                  fontFamily: mono,
-                  fontSize: '0.8rem',
-                  letterSpacing: '.1em',
-                  textTransform: 'uppercase',
-                  color: c.ink,
-                  opacity: .85,
-                  marginBottom: 6,
-                  display: 'block',
-                }}
-              >
-                Email
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@example.com"
-                autoComplete="email"
-                style={{
-                  width: '100%',
-                  padding: '12px 14px',
-                  fontFamily: sans,
-                  fontSize: '1rem',
-                  color: c.ink,
-                  background: '#fff',
-                  border: `1px solid ${error ? c.rose : 'rgba(13,31,36,.16)'}`,
-                  borderRadius: 11,
-                  outline: 'none',
-                }}
-              />
-            </div>
-
-            <div style={{ marginBottom: 16 }}>
-              <label
-                style={{
-                  fontFamily: mono,
-                  fontSize: '0.8rem',
-                  letterSpacing: '.1em',
-                  textTransform: 'uppercase',
-                  color: c.ink,
-                  opacity: .85,
-                  marginBottom: 6,
-                  display: 'block',
-                }}
-              >
-                Password
-              </label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
-                  autoComplete="current-password"
-                  style={{
-                    width: '100%',
-                    padding: '12px 14px',
-                    paddingRight: '45px',
-                    fontFamily: sans,
-                    fontSize: '1rem',
-                    color: c.ink,
-                    background: '#fff',
-                    border: `1px solid ${error ? c.rose : 'rgba(13,31,36,.16)'}`,
-                    borderRadius: 11,
-                    outline: 'none',
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  style={{
-                    position: 'absolute',
-                    right: 12,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontFamily: mono,
-                    fontSize: '0.8rem',
-                    color: c.ink,
-                    opacity: .85,
-                  }}
-                >
-                  {showPassword ? 'hide' : 'show'}
-                </button>
-              </div>
-            </div>
-
-            {error && (
-              <div
-                style={{
-                  fontFamily: mono,
-                  fontSize: '0.8rem',
-                  color: c.rose,
-                  marginBottom: 12,
-                  textAlign: 'center',
-                }}
-              >
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading || !email || !password}
-              style={{
-                width: '100%',
-                padding: '14px',
-                fontFamily: sans,
-                fontSize: '1rem',
-                fontWeight: 600,
-                color: '#fff',
-                background: loading || !email || !password ? '#ccc' : c.jadeD,
-                border: 'none',
-                borderRadius: 12,
-                cursor: loading || !email || !password ? 'not-allowed' : 'pointer',
-                marginBottom: 20,
-              }}
-            >
-              {loading ? 'Logging in...' : 'Login with Email'}
-            </button>
-
-            {/* Switch to Phone Login */}
-            <div style={{ textAlign: 'center' }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginMode('phone')
-                  setError('')
-                }}
-                style={{
-                  fontFamily: mono,
-                  fontSize: '0.8rem',
-                  color: c.jade,
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  textDecoration: 'underline',
-                  fontWeight: 600,
-                }}
-              >
-                ← Back to Phone Login
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* Sign Up Link */}
-        <div
-          style={{
-            textAlign: 'center',
-            marginTop: 24,
-            paddingTop: 20,
-            borderTop: '1px solid rgba(13,31,36,.08)',
-          }}
-        >
-          <p
-            style={{
-              fontFamily: sans,
-              fontSize: '0.95rem',
-              color: c.ink,
-              opacity: .85,
-            }}
-          >
-            Don't have an account?{' '}
-            <Link
-              href="/signup"
-              style={{
-                color: c.jade,
-                textDecoration: 'none',
-                fontWeight: 600,
-              }}
-            >
-              Sign up
-            </Link>
-          </p>
+          <div className="langpick" role="group" aria-label="Language">
+            <button aria-pressed>English</button><button aria-pressed={false}>हिंदी</button><button aria-pressed={false}>मराठी</button>
+          </div>
         </div>
       </div>
     </div>
