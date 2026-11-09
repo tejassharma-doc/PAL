@@ -150,7 +150,7 @@ function AskInner() {
               <div key={m.id} className="pal-msg">
                 <div className="who2"><PalVoice size={28} /> PAL{m.secondLook && <span className="tag info" style={{ marginLeft: 'auto' }}><Icon name="eye" /> Second look</span>}</div>
                 {m.thinking && !m.text
-                  ? <p className="ans muted">Searching the medical literature…</p>
+                  ? <p className="ans muted">Thinking…</p>
                   : <div className="ans" style={{ whiteSpace: m.error ? 'pre-wrap' : undefined }}>{m.error ? m.text : <Markdown text={m.text} />}</div>}
                 {!m.thinking && !m.error && (
                   <div className="ansbar">
