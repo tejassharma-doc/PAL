@@ -169,7 +169,7 @@ export default function MedicationsPage() {
   const border = 'rgba(13,31,36,0.12)';
   const muted = 'rgba(13,31,36,0.58)';
 
-  const label = { fontSize: 14, color: muted, marginBottom: 5, display: 'block', fontWeight: 600 } as const;
+  const label = { fontSize: 12.5, color: muted, marginBottom: 5, display: 'block', fontWeight: 600 } as const;
   const input = {
     width: '100%',
     boxSizing: 'border-box' as const,
@@ -178,7 +178,7 @@ export default function MedicationsPage() {
     border: `1px solid ${border}`,
     background: '#fff',
     color: ink,
-    fontSize: 16,
+    fontSize: 14,
     outline: 'none',
   } as const;
   const card = {
@@ -208,7 +208,7 @@ export default function MedicationsPage() {
         <h2 style={{ fontSize: 20, margin: '6px 0 2px', color: ink, fontWeight: 700 }}>
           Medication reminders
         </h2>
-        <div style={{ fontSize: 14, color: muted, marginBottom: 14 }}>
+        <div style={{ fontSize: 12.5, color: muted, marginBottom: 14 }}>
           {schedules.length > 0
             ? `${schedules.filter((s) => s.active).length} active · ${schedules.length} total`
             : 'Add medicines to get reminders at the right time'}
@@ -225,7 +225,7 @@ export default function MedicationsPage() {
           <div style={card}>
             <div style={{
               fontFamily: "'Space Mono', monospace",
-              fontSize: 12,
+              fontSize: '0.58rem',
               letterSpacing: '0.12em',
               textTransform: 'uppercase',
               color: jadeD,
@@ -257,7 +257,7 @@ export default function MedicationsPage() {
             ))}
             <button onClick={addTimeRow}
                     style={{ background: 'transparent', border: 'none', color: jadeD,
-                             fontSize: 15, fontWeight: 600, cursor: 'pointer', padding: '2px 0' }}>
+                             fontSize: 13, fontWeight: 600, cursor: 'pointer', padding: '2px 0' }}>
               + add another time
             </button>
 
@@ -275,7 +275,7 @@ export default function MedicationsPage() {
                             border: on ? 'none' : `1px solid ${border}`,
                             background: on ? jade : '#fff',
                             color: on ? '#06201a' : ink,
-                            fontSize: 15,
+                            fontSize: 13,
                             fontWeight: 600,
                             cursor: 'pointer',
                           }}>
@@ -312,7 +312,7 @@ export default function MedicationsPage() {
               // ── inline editor ──
               <div key={s.id} style={{ ...card, borderLeft: `3px solid ${jade}` }}>
                 <div style={{
-                  fontFamily: "'Space Mono', monospace", fontSize: 12,
+                  fontFamily: "'Space Mono', monospace", fontSize: '0.58rem',
                   letterSpacing: '0.12em', textTransform: 'uppercase', color: jadeD, marginBottom: 12,
                 }}>
                   ✎ edit reminder
@@ -340,7 +340,7 @@ export default function MedicationsPage() {
                 ))}
                 <button onClick={addEditTime}
                         style={{ background: 'transparent', border: 'none', color: jadeD,
-                                 fontSize: 15, fontWeight: 600, cursor: 'pointer', padding: '2px 0' }}>
+                                 fontSize: 13, fontWeight: 600, cursor: 'pointer', padding: '2px 0' }}>
                   + add another time
                 </button>
 
@@ -356,7 +356,7 @@ export default function MedicationsPage() {
                                 border: on ? 'none' : `1px solid ${border}`,
                                 background: on ? jade : '#fff',
                                 color: on ? '#06201a' : ink,
-                                fontSize: 15, fontWeight: 600, cursor: 'pointer',
+                                fontSize: 13, fontWeight: 600, cursor: 'pointer',
                               }}>
                         {DOW_SHORT[i]}
                       </button>
@@ -368,14 +368,14 @@ export default function MedicationsPage() {
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={() => void saveEdit(s)} disabled={editSaving || !editMed.trim()}
                           style={{ flex: 1, padding: '11px', borderRadius: 10, border: 'none',
-                                   background: jade, color: '#06201a', fontWeight: 700, fontSize: 16,
+                                   background: jade, color: '#06201a', fontWeight: 700, fontSize: 14,
                                    cursor: editSaving ? 'default' : 'pointer',
                                    opacity: editSaving || !editMed.trim() ? 0.6 : 1 }}>
                     {editSaving ? 'Saving…' : 'Save changes'}
                   </button>
                   <button onClick={cancelEdit}
                           style={{ padding: '11px 16px', borderRadius: 10, border: `1px solid ${border}`,
-                                   background: '#fff', color: ink, fontWeight: 600, fontSize: 16, cursor: 'pointer' }}>
+                                   background: '#fff', color: ink, fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
                     Cancel
                   </button>
                 </div>
@@ -392,32 +392,32 @@ export default function MedicationsPage() {
                     <div style={{ fontSize: 16, fontWeight: 700, color: ink, wordBreak: 'break-word' }}>
                       {s.medicine_name}
                     </div>
-                    {s.dosage && <div style={{ fontSize: 15, color: muted, marginTop: 2 }}>{s.dosage}</div>}
+                    {s.dosage && <div style={{ fontSize: 13, color: muted, marginTop: 2 }}>{s.dosage}</div>}
                     <div style={{
                       display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8,
                       background: 'rgba(55,181,155,.12)', color: jadeD,
-                      borderRadius: 8, padding: '4px 9px', fontSize: 14, fontWeight: 600,
+                      borderRadius: 8, padding: '4px 9px', fontSize: 12.5, fontWeight: 600,
                     }}>
                       ⏰ {scheduleSummary(s)}
                     </div>
                     {!s.active && (
-                      <div style={{ fontSize: 13, color: muted, marginTop: 6, fontStyle: 'italic' }}>Paused</div>
+                      <div style={{ fontSize: 11.5, color: muted, marginTop: 6, fontStyle: 'italic' }}>Paused</div>
                     )}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
                     <button onClick={() => startEdit(s)}
-                            style={{ fontSize: 14, fontWeight: 600, padding: '7px 12px', borderRadius: 8,
+                            style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 8,
                                      border: 'none', background: jade, color: '#06201a', cursor: 'pointer' }}>
                       Edit
                     </button>
                     <button onClick={() => void toggleActive(s)}
-                            style={{ fontSize: 14, fontWeight: 600, padding: '7px 12px', borderRadius: 8,
+                            style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 8,
                                      border: `1px solid ${border}`, background: '#fff',
                                      color: ink, cursor: 'pointer' }}>
                       {s.active ? 'Pause' : 'Resume'}
                     </button>
                     <button onClick={() => void remove(s)}
-                            style={{ fontSize: 14, fontWeight: 600, padding: '7px 12px', borderRadius: 8,
+                            style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 8,
                                      border: `1px solid rgba(180,67,58,.35)`, background: '#fff',
                                      color: rose, cursor: 'pointer' }}>
                       Delete
@@ -432,8 +432,8 @@ export default function MedicationsPage() {
         {!loading && patientId && schedules.length === 0 && (
           <div style={{ textAlign: 'center', marginTop: 32, color: muted }}>
             <div style={{ fontSize: '1.6rem', marginBottom: 8 }}>💊</div>
-            <div style={{ fontSize: 16, color: ink, fontWeight: 600 }}>No medication reminders yet</div>
-            <div style={{ fontSize: 14, marginTop: 4 }}>Add one above, or upload a prescription.</div>
+            <div style={{ fontSize: 14, color: ink, fontWeight: 600 }}>No medication reminders yet</div>
+            <div style={{ fontSize: 12.5, marginTop: 4 }}>Add one above, or upload a prescription.</div>
           </div>
         )}
       </div>

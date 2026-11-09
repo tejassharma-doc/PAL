@@ -135,15 +135,16 @@ export default function NotificationsPage() {
 
   const sectionLabel = {
     fontFamily: "'Space Mono', monospace",
-    fontSize: 12,
+    fontSize: '0.6rem',
     textTransform: 'uppercase' as const,
+    opacity: 0.5,
     margin: '14px 2px 10px',
-    color: '#4a5a5f',
+    color: '#0d1f24',
   };
 
   const cardBase = {
     background: '#fff',
-    border: '1px solid rgba(13,31,36,.14)',
+    border: '1px solid rgba(13,31,36,.10)',
     borderRadius: 14,
     padding: 13,
     marginBottom: 10,
@@ -160,7 +161,7 @@ export default function NotificationsPage() {
     color: '#33607a',
     display: 'grid',
     placeItems: 'center' as const,
-    fontSize: 16,
+    fontSize: '0.9rem',
     flexShrink: 0,
   };
 
@@ -191,7 +192,7 @@ export default function NotificationsPage() {
         )}
 
         {loading && patientId && (
-          <div style={{  color: '#4a5a5f', marginTop: 16 }}>Loading…</div>
+          <div style={{ opacity: 0.6, color: '#0d1f24', marginTop: 16 }}>Loading…</div>
         )}
 
         {/* Awaiting acknowledgement — the "did you take it?" prompts */}
@@ -202,14 +203,15 @@ export default function NotificationsPage() {
               <div key={d.id} style={{ ...cardBase, borderColor: 'rgba(55,181,155,.5)' }}>
                 <div style={{ ...iconBox, background: 'rgba(55,181,155,.14)', color: '#1f7d6b' }}>💊</div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 15, color: '#0d1f24' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#0d1f24' }}>
                     Did you take your medicine?
                   </div>
                   <div style={{
                     fontFamily: "'Space Mono', monospace",
-                    fontSize: 12,
+                    fontSize: '0.56rem',
+                    opacity: 0.45,
                     marginTop: 6,
-                    color: '#4a5a5f',
+                    color: '#0d1f24',
                   }}>
                     {d.scheduled_time?.slice(0, 5)} · {d.scheduled_date}
                   </div>
@@ -227,7 +229,7 @@ export default function NotificationsPage() {
                             : '1px solid rgba(13,31,36,.16)',
                           borderRadius: 8,
                           padding: '7px 13px',
-                          fontSize: 13,
+                          fontSize: '0.72rem',
                           fontWeight: 600,
                           cursor: busy === d.id ? 'default' : 'pointer',
                           opacity: busy === d.id ? 0.6 : 1,
@@ -251,19 +253,20 @@ export default function NotificationsPage() {
               <div key={d.key} style={cardBase}>
                 <div style={iconBox}>💊</div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 15, color: '#0d1f24' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#0d1f24' }}>
                     {d.medicine}
                   </div>
                   {d.dosage && (
-                    <div style={{ fontSize: 14,  marginTop: 3, color: '#4a5a5f' }}>
+                    <div style={{ fontSize: '0.76rem', opacity: 0.72, marginTop: 3, color: '#0d1f24' }}>
                       {d.dosage}
                     </div>
                   )}
                   <div style={{
                     fontFamily: "'Space Mono', monospace",
-                    fontSize: 12,
+                    fontSize: '0.56rem',
+                    opacity: 0.45,
                     marginTop: 6,
-                    color: '#4a5a5f',
+                    color: '#0d1f24',
                   }}>
                     {d.time}
                   </div>
@@ -280,7 +283,7 @@ export default function NotificationsPage() {
             <div style={{ fontFamily: "'Newsreader', serif", fontSize: '1rem', marginBottom: 6 }}>
               No reminders right now
             </div>
-            <div style={{ fontSize: 14, color: '#4a5a5f', marginBottom: 16 }}>
+            <div style={{ fontSize: '0.76rem', opacity: 0.6, marginBottom: 16 }}>
               Medicine reminders will appear here at their scheduled times.
             </div>
             <button
@@ -291,7 +294,7 @@ export default function NotificationsPage() {
                 border: 'none',
                 borderRadius: 8,
                 padding: '9px 16px',
-                fontSize: 14,
+                fontSize: '0.78rem',
                 fontWeight: 600,
                 cursor: 'pointer',
               }}
@@ -311,7 +314,7 @@ export default function NotificationsPage() {
                 border: '1px solid rgba(13,31,36,.16)',
                 borderRadius: 8,
                 padding: '8px 14px',
-                fontSize: 13,
+                fontSize: '0.74rem',
                 fontWeight: 600,
                 color: '#0d1f24',
                 cursor: 'pointer',

@@ -20,13 +20,7 @@ import { SUPPORTED_LANGUAGES } from '../lib/languages';
 import FamilyHubButton from '../components/family/FamilyHubButton';
 import PrevisitSlider from '../components/PrevisitSlider';
 import Markdown, { CopyAnswerButton } from '../components/Markdown';
-import { PalEmblem, PalRosette, PalVoice } from '../components/PalEmblem';
 import { markSignedOut } from '../lib/sessionCookie';
-import {
-  ArrowUp, Bell, CalendarDays, ChevronLeft, FileText, History as HistoryIcon, MessageCircle,
-  Mic, Paperclip, Search, Settings, SquarePen, Upload,
-  Stethoscope, ClipboardList, FolderHeart,
-} from 'lucide-react';
 import {
   listMedicationSchedules, pendingDoses, respondToDose,
   type MedicationSchedule, type PendingDose, type DoseResponse,
@@ -40,11 +34,6 @@ const c = {
   rose: '#c2675e', blue: '#5a8fa8', blueD: '#33607a', mist: '#dfe6e3',
 };
 const mono = "'Space Mono', monospace";
-const MUTED = '#4a5a5f';   // secondary text (replaces faded opacity)
-const ICON = '#2f3b40';    // default icon colour
-const TABBAR_H = 76;
-const COMPOSER_MAX_H = 24 * 5 + 12;  // 5 lines of 24px + vertical padding
-const topBtn: React.CSSProperties = { width: 40, height: 40, borderRadius: 12, border: '1px solid rgba(13,31,36,.14)', display: 'grid', placeItems: 'center', background: '#fff', cursor: 'pointer', padding: 0, flexShrink: 0 };
 const serif = "'Newsreader', serif";
 const sans = "'Space Grotesk', sans-serif";
 
@@ -214,18 +203,6 @@ const MEALS = [
   { mt:'Dinner', mc:'~430 kcal', mn:'Grilled fish, sautéed greens', why:[{b:'Why: '},{t:'omega-3s support heart health. '},{b:'Avoid grapefruit'},{t:' — clashes with your statin.'}] },
 ];
 
-// ─── Section ↔ URL mapping ──────────────────────────────────────────────────────
-// Each in-app section has its own browser URL (e.g. /ask, /records) so the address
-// bar reflects where you are, links are shareable, and reload lands on the same
-// section. The matching route files (app/ask/page.tsx, …) all render this component.
-type TabId = 'ask'|'history'|'record'|'visits'|'reminders'|'profile';
-const TAB_PATHS: Record<TabId, string> = {
-  ask: '/ask', history: '/history', record: '/records',
-  visits: '/visits', reminders: '/reminders', profile: '/profile',
-};
-const PATH_TABS: Record<string, TabId> = Object.entries(TAB_PATHS)
-  .reduce((acc, [id, path]) => { acc[path] = id as TabId; return acc; }, {} as Record<string, TabId>);
-
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function PAL() {
   const router = useRouter();
@@ -241,15 +218,7 @@ export default function PAL() {
     }
     return '';
   });  // Real user name from DB
-  const [tab, setTabRaw] = useState<TabId>(() => {
-    // Initialise from the URL so a direct load / reload of /records, /visits, … opens
-    // the right section without a flash of the Ask tab.
-    if (typeof window !== 'undefined') {
-      const m = PATH_TABS[window.location.pathname];
-      if (m) return m;
-    }
-    return 'ask';
-  });
+  const [tab, setTabRaw] = useState<'ask'|'history'|'record'|'visits'|'reminders'|'profile'>('ask');
   const [view, setView] = useState<string|null>(null);
   const [ask, setAsk] = useState<'idle'|'consent'|'thinking'|'answer'>('idle');
   const [curId, setCurId] = useState<string|null>(null);
@@ -316,21 +285,6 @@ export default function PAL() {
   const [visits, setVisits] = useState<{ upcoming: any[]; past: any[] } | null>(null);
   const [visitsLoading, setVisitsLoading] = useState(false);
   const [expandedVisitId, setExpandedVisitId] = useState<string | null>(null);
-  // Pre-visit interviews marked done this session (optimistic + persisted).
-  const [previsitDone, setPrevisitDone] = useState<Record<string, boolean>>({});
-
-  async function completePrevisit(appointmentId: string) {
-    setPrevisitDone(prev => ({ ...prev, [appointmentId]: true }));
-    try {
-      const token = localStorage.getItem('pal_token');
-      await fetch(`/api/visits/${appointmentId}/previsit-complete`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    } catch {
-      // optimistic UI already updated; ignore network errors
-    }
-  }
 
   // Hermes A2A call overlay
   const [activeCallSession, setActiveCallSession] = useState<CallSessionType | null>(null);
@@ -353,17 +307,6 @@ export default function PAL() {
   >>([]);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
-  // Composer: auto-grow the textarea up to ~5 lines, then scroll inside it.
-  const composerRef = useRef<HTMLTextAreaElement | null>(null);
-  useEffect(() => {
-    const el = composerRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    const h = Math.min(el.scrollHeight, COMPOSER_MAX_H);
-    el.style.height = `${h}px`;
-    el.style.overflowY = el.scrollHeight > COMPOSER_MAX_H ? 'auto' : 'hidden';
-  });
-
   // Settings sheet
   const [settingsOpen, setSettingsOpen]               = useState(false);
   const [settingsName, setSettingsName]               = useState('');
@@ -373,10 +316,6 @@ export default function PAL() {
   const [settingsAnalytics, setSettingsAnalytics]     = useState(false);
   const [settingsSaving, setSettingsSaving]           = useState(false);
   const [settingsSaved, setSettingsSaved]             = useState(false);
-  // Subscription (Razorpay) — shown in Settings when gating is enabled
-  type SubInfo = { active: boolean; subscription_enabled: boolean; status: string | null; plan: string | null; current_end: string | null; subscription_id: string | null; pricing_url?: string };
-  const [subInfo, setSubInfo]                         = useState<SubInfo | null>(null);
-  const [subBusy, setSubBusy]                         = useState(false);
   const [signOutConfirmOpen, setSignOutConfirmOpen]   = useState(false);
   const [signOutReason, setSignOutReason]             = useState('');
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
@@ -395,7 +334,7 @@ export default function PAL() {
     const patientId = localStorage.getItem('pal_patient_id');
 
     if (!token) {
-      // No token - redirect to login (and drop the stale signed-in flag so "/" shows the landing page next time)
+      // No token - redirect to login (drop the stale signed-in flag so "/" shows the landing page next time)
       markSignedOut();
       window.location.replace('/login');
     } else if (!patientId) {
@@ -405,19 +344,6 @@ export default function PAL() {
   }, []);
 
   useEffect(() => () => clearTimers(), []);
-
-  // Keep the section tab in sync with the browser URL (deep links, reload, back/forward).
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (!localStorage.getItem('pal_token')) return;  // auth effect handles the redirect
-    // Normalise the bare app root to /ask so the address bar always names the section.
-    if (window.location.pathname === '/') {
-      window.history.replaceState({ tab: 'ask' }, '', '/ask');
-    }
-    const onPop = () => setTabRaw(PATH_TABS[window.location.pathname] || 'ask');
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
-  }, []);
 
   // Load real conversations when History tab opens.
   useEffect(() => {
@@ -600,36 +526,6 @@ export default function PAL() {
     setTimeout(() => setSettingsSaved(false), 2000);
   }
 
-  // Subscription — load current state when the settings sheet opens
-  const loadSubscription = useCallback(async () => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('pal_token') : null;
-    if (!token) return;
-    try {
-      const r = await fetch('/api/subscription/status', { headers: { Authorization: `Bearer ${token}` } });
-      if (r.ok) setSubInfo(await r.json());
-    } catch { /* ignore */ }
-  }, []);
-
-  useEffect(() => {
-    if (settingsOpen) loadSubscription();
-  }, [settingsOpen, loadSubscription]);
-
-  async function subAction(path: string, confirmMsg?: string) {
-    if (confirmMsg && !window.confirm(confirmMsg)) return;
-    const token = localStorage.getItem('pal_token');
-    if (!token) return;
-    setSubBusy(true);
-    try {
-      const r = await fetch(`/api/subscription/${path}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || 'Action failed'); }
-      await loadSubscription();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Something went wrong');
-    } finally {
-      setSubBusy(false);
-    }
-  }
-
   function handleSignOut() {
     clearAuth();
     window.location.replace('/login');
@@ -657,23 +553,21 @@ export default function PAL() {
     const activeConvId = opts.convId ?? conversationId;
 
     try {
-      // Stream the answer from Gemma (resolves retrieval tools first, then streams).
-      const { askHermesStream } = await import('../lib/hermes-api');
-      let acc = '';
-      await askHermesStream(
-        text, patientId || '', activeConvId || undefined,
-        (delta) => {
-          acc += delta;
-          setChatMessages(prev => prev.map(m =>
-            m.id === `t-${msgId}` ? { ...m, text: acc, isThinking: false } : m
-          ));
-          if (acc.length < 400) setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 10);
-        },
-        (convId) => { if (convId) setConversationId(convId); },
-      );
-      // Finalise the message id once streaming completes.
+      // Call Hermes AI with MCP + Vertex AI
+      const { askHermes } = await import('../lib/hermes-api');
+      const result = await askHermes(text, patientId || '', activeConvId || undefined);
+
+      if (result.conversation_id) setConversationId(result.conversation_id);
+
       setChatMessages(prev => prev.map(m =>
-        m.id === `t-${msgId}` ? { ...m, id: `a-${msgId}`, isThinking: false } : m
+        m.id === `t-${msgId}`
+          ? {
+              id: `a-${msgId}`,
+              role: 'assistant' as const,
+              text: result.answer,
+              isThinking: false
+            }
+          : m
       ));
     } catch (err) {
       setChatMessages(prev => prev.map(m =>
@@ -929,11 +823,6 @@ export default function PAL() {
     setView(null);
     setHistoryView(null);
     if (ask === 'thinking') setAsk('idle');
-    // Reflect the section in the browser URL (e.g. /ask, /records) without a reload.
-    const path = TAB_PATHS[t];
-    if (path && typeof window !== 'undefined' && window.location.pathname !== path) {
-      window.history.pushState({ tab: t }, '', path);
-    }
   }
 
   function startThinking() {
@@ -1025,11 +914,12 @@ export default function PAL() {
   else { appTitle = userName || person.name; appSub = 'your health assistant'; }
 
   const TABS = [
-    { id:'ask' as const, Icon: MessageCircle, label: t('tab_ask') },
-    { id:'history' as const, Icon: HistoryIcon, label: t('tab_history') },
-    { id:'record' as const, Icon: FileText, label: t('tab_record') === 'Record' ? 'Records' : t('tab_record') },
-    { id:'upload' as const, Icon: Upload, label: 'Upload' },
-    { id:'visits' as const, Icon: CalendarDays, label: t('tab_visits') },
+    { id:'ask' as const, icon:'⌕', label: t('tab_ask') },
+    { id:'history' as const, icon:'◴', label: t('tab_history') },
+    { id:'record' as const, icon:'⛁', label: t('tab_record') },
+    { id:'upload' as const, icon:'⇪', label: 'Upload' },
+    { id:'family_chat' as const, icon:'👨‍👩‍👧', label: 'FamilyChat' },
+    { id:'visits' as const, icon:'◷', label: t('tab_visits') },
   ];
 
   const rec = RECORDS[personKey] || RECORDS.anil;
@@ -1123,17 +1013,17 @@ export default function PAL() {
   ];
 
   const chips = [
-    { icon:<Stethoscope size={20} strokeWidth={2} color="#2f3b40" />, text:'What is type 2 diabetes?', sub:'general · no record', id:'diabetes', kind:'general' as const },
-    { icon:<ClipboardList size={20} strokeWidth={2} color="#2f3b40" />, text:'Do my meds interact?', sub:'about you · consent', id:'meds', kind:'about' as const },
-    { icon:<CalendarDays size={20} strokeWidth={2} color="#2f3b40" />, text:'Book a follow-up', sub:'action · you confirm', id:'book', kind:'action' as const },
-    { icon:<FolderHeart size={20} strokeWidth={2} color="#2f3b40" />, text:'A recipe for tonight', sub:'nutrition', id:'recipe', kind:'about' as const },
+    { icon:'⚛', text:'What is type 2 diabetes?', sub:'general · no record', id:'diabetes', kind:'general' as const },
+    { icon:'℞', text:'Do my meds interact?', sub:'about you · consent', id:'meds', kind:'about' as const },
+    { icon:'◷', text:'Book a follow-up', sub:'action · you confirm', id:'book', kind:'action' as const },
+    { icon:'☘', text:'A recipe for tonight', sub:'nutrition', id:'recipe', kind:'about' as const },
   ];
   const suggestions = [
-    { icon:<FolderHeart size={18} strokeWidth={2} color="#1f7d6b" />, text:'Your cholesterol meal plan', sub:'nutrition · uses your record', id:'cholesterol', kind:'about' as const },
+    { icon:'☘', text:'Your cholesterol meal plan', sub:'nutrition · uses your record', id:'cholesterol', kind:'about' as const },
   ];
 
   // ─── Styles helpers ───────────────────────────────────────────────────────
-  const slab = (s: string): React.CSSProperties => ({ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase',  margin: '16px 2px 10px', color: '#4a5a5f' } as React.CSSProperties);
+  const slab = (s: string): React.CSSProperties => ({ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '16px 2px 10px', color: c.ink } as React.CSSProperties);
 
   // ─── RENDER ───────────────────────────────────────────────────────────────
   const isAsk = tab === 'ask' && !view;
@@ -1147,7 +1037,7 @@ export default function PAL() {
   const isNutrition = view === 'nutrition';
 
   return (
-    <div className="pal-home-page" style={{ minHeight: '100vh', background: 'radial-gradient(120% 80% at 50% -10%, #18454e 0%, #13343b 38%, #0c2429 100%)', padding: '20px 16px 48px', display: 'flex', flexDirection: 'column', alignItems: 'center', color: c.mist, fontFamily: sans }}>
+    <div style={{ minHeight: '100vh', background: 'radial-gradient(120% 80% at 50% -10%, #18454e 0%, #13343b 38%, #0c2429 100%)', padding: '20px 16px 48px', display: 'flex', flexDirection: 'column', alignItems: 'center', color: c.mist, fontFamily: sans }}>
       <style>{`
         @keyframes ring-pulse {
           0%   { transform: scale(1);   opacity: .55; }
@@ -1173,44 +1063,30 @@ export default function PAL() {
           0% { transform: scale(0); } 60% { transform: scale(1.25); } 100% { transform: scale(1); }
         }
       `}</style>
-      <style>{`
-        .pal-phone { width: 400px; height: min(920px, calc(100dvh - 40px)); min-height: 600px; padding: 11px; border-radius: 40px; }
-        .pal-phone-screen { border-radius: 30px; }
-        .pal-md a:focus-visible, .pal-copy:focus-visible { outline: 2px solid #1f7d6b; outline-offset: 2px; }
-        .pal-composer-input::placeholder { color: #4a5a5f; opacity: 1; }
-        @media (max-width: 599px) {
-          .pal-home-page { padding: 0 !important; min-height: 100dvh !important; }
-          .pal-home-chrome { display: none !important; }
-          .pal-phone { width: 100vw; height: 100dvh; min-height: 0; padding: 0; border-radius: 0; box-shadow: none !important; }
-          .pal-phone-screen { border-radius: 0; }
-          .pal-phone-notch { display: none; }
-          .pal-phone-screen > div[style*="border-radius: 29px"] { border-radius: 0 !important; }
-        }
-      `}</style>
 
       {/* Header */}
-      <div className="pal-home-chrome" style={{ maxWidth: 560, textAlign: 'center', marginBottom: 13 }}>
-        <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.2em', textTransform: 'uppercase', color: c.jade, marginBottom: 6 }}>PAL · interactive prototype</div>
+      <div style={{ maxWidth: 560, textAlign: 'center', marginBottom: 13 }}>
+        <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.2em', textTransform: 'uppercase', color: c.jade, marginBottom: 6 }}>PAL · interactive prototype</div>
         <h1 style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.35rem', color: c.paper, letterSpacing: '-.02em', lineHeight: 1.2 }}>A working PAL — tap through it.</h1>
       </div>
 
       {/* Reveal selector */}
-      <div className="pal-home-chrome" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginBottom: 14 }}>
-        <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', opacity: .8 }}>Compare · how it reveals its reasoning</div>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginBottom: 14 }}>
+        <div style={{ fontFamily: mono, fontSize: '.58rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .55 }}>Compare · how it reveals its reasoning</div>
         <div style={{ display: 'flex', gap: 5, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(223,230,227,.14)', borderRadius: 12, padding: 4 }}>
           {(['roster','stream','quiet'] as const).map(r => {
             const on = reveal === r;
-            return <button key={r} onClick={() => setReveal(r)} style={{ fontFamily: sans, fontWeight: 600, fontSize: 14, padding: '8px 16px', borderRadius: 9, border: 'none', cursor: 'pointer', background: on ? c.paper : 'transparent', color: on ? c.deep2 : c.mist, transition: 'all .18s' }}>{r.charAt(0).toUpperCase()+r.slice(1)}</button>;
+            return <button key={r} onClick={() => setReveal(r)} style={{ fontFamily: sans, fontWeight: 600, fontSize: '.78rem', padding: '8px 16px', borderRadius: 9, border: 'none', cursor: 'pointer', background: on ? c.paper : 'transparent', color: on ? c.deep2 : c.mist, transition: 'all .18s' }}>{r.charAt(0).toUpperCase()+r.slice(1)}</button>;
           })}
         </div>
-        <div style={{ fontFamily: mono, fontSize: 12, opacity: .75 }}>Roster — specialists resolve · Stream — one reasoning line · Quiet — minimal</div>
+        <div style={{ fontFamily: mono, fontSize: '.56rem', opacity: .4 }}>Roster — specialists resolve · Stream — one reasoning line · Quiet — minimal</div>
       </div>
 
       {/* PHONE */}
-      <div className="pal-phone" style={{ background: c.paper, boxShadow: '0 1px 2px rgba(13,31,36,.06),0 30px 70px -22px rgba(0,0,0,.6),0 0 0 2px rgba(255,255,255,.06)', position: 'relative', flexShrink: 0 }}>
-        <div className="pal-phone-screen" style={{ width: '100%', height: '100%', background: c.soft, overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column', color: c.ink }}>
+      <div style={{ width: 344, height: 728, background: c.paper, borderRadius: 40, padding: 11, boxShadow: '0 1px 2px rgba(13,31,36,.06),0 30px 70px -22px rgba(0,0,0,.6),0 0 0 2px rgba(255,255,255,.06)', position: 'relative', flexShrink: 0 }}>
+        <div style={{ width: '100%', height: '100%', background: c.soft, borderRadius: 30, overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column', color: c.ink }}>
           {/* Notch */}
-          <div className="pal-phone-notch" style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 122, height: 24, background: c.paper, borderRadius: '0 0 16px 16px', zIndex: 30 }} />
+          <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 122, height: 24, background: c.paper, borderRadius: '0 0 16px 16px', zIndex: 30 }} />
 
 
           {/* DELETE SHEET */}
@@ -1219,16 +1095,16 @@ export default function PAL() {
               <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: c.soft, borderRadius: '20px 20px 0 0', padding: '20px 18px 28px' }}>
                 <div style={{ width: 36, height: 4, borderRadius: 3, background: 'rgba(13,31,36,.16)', margin: '0 auto 16px' }} />
                 <div style={{ fontFamily: serif, fontWeight: 400, fontSize: '1.1rem', marginBottom: 6 }}>Delete this conversation?</div>
-                <p style={{ fontSize: 14, color: '#4a5a5f', lineHeight: 1.5, marginBottom: 10 }}>This permanently removes the thread and everything PAL derived from it. It can&apos;t be undone.</p>
+                <p style={{ fontSize: '.8rem', opacity: .72, lineHeight: 1.5, marginBottom: 10 }}>This permanently removes the thread and everything PAL derived from it. It can&apos;t be undone.</p>
                 <div style={{ background: 'rgba(194,103,94,.06)', border: '1px solid rgba(194,103,94,.3)', borderRadius: 11, padding: '11px 12px', marginBottom: 16 }}>
                   {['The messages in this conversation','Any record details PAL pulled in','What PAL remembered from it'].map((item, i) => (
-                    <div key={i} style={{ fontSize: 13, color: '#4a5a5f', padding: '3px 0', display: 'flex', gap: 7, alignItems: 'center' }}>
-                      <span style={{ color: c.rose, fontSize: 13 }}>✓</span>{item}
+                    <div key={i} style={{ fontSize: '.74rem', opacity: .8, padding: '3px 0', display: 'flex', gap: 7, alignItems: 'center' }}>
+                      <span style={{ color: c.rose, fontSize: '.7rem' }}>✓</span>{item}
                     </div>
                   ))}
                 </div>
-                <button onClick={() => setHistoryView(null)} style={{ width: '100%', background: c.rose, color: '#fff', border: 'none', fontFamily: sans, fontWeight: 600, fontSize: 16, padding: 13, borderRadius: 12, cursor: 'pointer', marginBottom: 8 }}>Delete permanently</button>
-                <button onClick={() => setHistoryView(null)} style={{ width: '100%', background: 'transparent', border: '1px solid rgba(13,31,36,.16)', color: c.ink, fontFamily: sans, fontWeight: 500, fontSize: 15, padding: 11, borderRadius: 12, cursor: 'pointer' }}>Keep it</button>
+                <button onClick={() => setHistoryView(null)} style={{ width: '100%', background: c.rose, color: '#fff', border: 'none', fontFamily: sans, fontWeight: 600, fontSize: '.88rem', padding: 13, borderRadius: 12, cursor: 'pointer', marginBottom: 8 }}>Delete permanently</button>
+                <button onClick={() => setHistoryView(null)} style={{ width: '100%', background: 'transparent', border: '1px solid rgba(13,31,36,.16)', color: c.ink, fontFamily: sans, fontWeight: 500, fontSize: '.84rem', padding: 11, borderRadius: 12, cursor: 'pointer' }}>Keep it</button>
               </div>
             </div>
           )}
@@ -1241,7 +1117,7 @@ export default function PAL() {
                 <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.25rem', marginBottom: 16 }}>{t('settings_title')}</div>
 
                 {/* Profile */}
-                <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.12em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 10 }}>{t('settings_profile')}</div>
+                <div style={{ fontFamily: mono, fontSize: '.55rem', letterSpacing: '.12em', textTransform: 'uppercase', opacity: .45, marginBottom: 10 }}>{t('settings_profile')}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
                   <button
                     onClick={() => avatarInputRef.current?.click()}
@@ -1255,40 +1131,36 @@ export default function PAL() {
                   <input ref={avatarInputRef} type="file" accept="image/*" style={{ display: 'none' }}
                     onChange={e => { const f = e.target.files?.[0]; if (f) handleAvatarFile(f); e.target.value = ''; }} />
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', marginBottom: 5 }}>{t('settings_name_label')}</div>
+                    <div style={{ fontFamily: mono, fontSize: '.58rem', opacity: .5, marginBottom: 5 }}>{t('settings_name_label')}</div>
                     <input
                       value={settingsName}
                       onChange={e => setSettingsName(e.target.value)}
                       placeholder="Full name"
-                      style={{ width: '100%', border: '1px solid rgba(13,31,36,.16)', borderRadius: 10, padding: '7px 10px', fontFamily: sans, fontSize: 16, background: '#fff', color: c.ink, boxSizing: 'border-box', outline: 'none' }}
+                      style={{ width: '100%', border: '1px solid rgba(13,31,36,.16)', borderRadius: 10, padding: '7px 10px', fontFamily: sans, fontSize: '.88rem', background: '#fff', color: c.ink, boxSizing: 'border-box', outline: 'none' }}
                     />
-                    <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', marginTop: 5 }}>{t('settings_phone_label')} · {localStorage.getItem('pal_phone') || '+91 ···'}</div>
+                    <div style={{ fontFamily: mono, fontSize: '.55rem', opacity: .38, marginTop: 5 }}>{t('settings_phone_label')} · {localStorage.getItem('pal_phone') || '+91 ···'}</div>
                   </div>
                 </div>
 
                 {/* Language */}
-                <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.12em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 10 }}>{t('settings_language')}</div>
-                <div style={{ position: 'relative', marginBottom: 16 }}>
-                  <select
-                    value={settingsLang}
-                    onChange={e => setSettingsLang(e.target.value)}
-                    aria-label={t('settings_language')}
-                    style={{ width: '100%', appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none', border: '1px solid rgba(13,31,36,.16)', borderRadius: 10, padding: '11px 36px 11px 12px', fontFamily: sans, fontSize: 16, background: '#fff', color: c.ink, boxSizing: 'border-box', outline: 'none', cursor: 'pointer' }}
-                  >
-                    {SUPPORTED_LANGUAGES.map(lang => (
-                      <option key={lang.code} value={lang.code}>{lang.native} · {lang.name}</option>
-                    ))}
-                  </select>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c.ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                    style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', opacity: .6 }}>
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
+                <div style={{ fontFamily: mono, fontSize: '.55rem', letterSpacing: '.12em', textTransform: 'uppercase', opacity: .45, marginBottom: 10 }}>{t('settings_language')}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 16 }}>
+                  {SUPPORTED_LANGUAGES.map(lang => {
+                    const sel = settingsLang === lang.code;
+                    return (
+                      <button key={lang.code} onClick={() => setSettingsLang(lang.code)}
+                        style={{ padding: '7px 4px', borderRadius: 10, border: sel ? `1.5px solid ${c.jade}` : '1px solid rgba(13,31,36,.12)', background: sel ? 'rgba(55,181,155,.1)' : '#fff', cursor: 'pointer', textAlign: 'center' }}>
+                        <div style={{ fontFamily: sans, fontWeight: sel ? 700 : 400, fontSize: '.72rem', color: sel ? c.jadeD : c.ink }}>{lang.native}</div>
+                        <div style={{ fontFamily: mono, fontSize: '.5rem', opacity: .45, marginTop: 1 }}>{lang.name}</div>
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* Privacy */}
-                <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.12em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 10 }}>{t('settings_privacy')}</div>
+                <div style={{ fontFamily: mono, fontSize: '.55rem', letterSpacing: '.12em', textTransform: 'uppercase', opacity: .45, marginBottom: 10 }}>{t('settings_privacy')}</div>
                 {/* Always personalise */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', borderRadius: 11, padding: '10px 12px', marginBottom: 7, border: '1px solid rgba(13,31,36,.14)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', borderRadius: 11, padding: '10px 12px', marginBottom: 7, border: '1px solid rgba(13,31,36,.08)' }}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={c.ink} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                     <circle cx="12" cy="9" r="2.5"/>
                     <path d="M8 17a4 4 0 0 1 8 0"/>
@@ -1297,7 +1169,7 @@ export default function PAL() {
                     <path d="M2 10.5l1.5 2 2-1.5"/>
                     <path d="M22 13.5l-1.5-2-2 1.5"/>
                   </svg>
-                  <div style={{ flex: 1, fontFamily: sans, fontSize: 15 }}>{t('settings_always_personalise')}</div>
+                  <div style={{ flex: 1, fontFamily: sans, fontSize: '.82rem' }}>{t('settings_always_personalise')}</div>
                   <button role="switch" aria-checked={settingsStanding} onClick={() => setSettingsStanding(!settingsStanding)}
                     style={{ width: 38, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer', background: settingsStanding ? c.jade : 'rgba(13,31,36,.15)', transition: 'background .2s', flexShrink: 0, position: 'relative', padding: 0 }}>
                     <span style={{ position: 'absolute', top: 3, left: settingsStanding ? 19 : 3, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .2s', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />
@@ -1305,7 +1177,7 @@ export default function PAL() {
                 </div>
 
                 {/* Usage analytics */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', borderRadius: 11, padding: '10px 12px', marginBottom: 7, border: '1px solid rgba(13,31,36,.14)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', borderRadius: 11, padding: '10px 12px', marginBottom: 7, border: '1px solid rgba(13,31,36,.08)' }}>
                   <svg width="20" height="20" viewBox="0 0 26 22" fill="none" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                     <polyline points="2,18 9,8 15,13 23,3" stroke={c.ink} strokeWidth="2.2" fill="none"/>
                     <circle cx="2"  cy="18" r="2.8" fill={c.ink}/>
@@ -1313,7 +1185,7 @@ export default function PAL() {
                     <circle cx="15" cy="13" r="2.8" fill={c.ink}/>
                     <circle cx="23" cy="3"  r="2.8" fill={c.ink}/>
                   </svg>
-                  <div style={{ flex: 1, fontFamily: sans, fontSize: 15 }}>{t('settings_analytics')}</div>
+                  <div style={{ flex: 1, fontFamily: sans, fontSize: '.82rem' }}>{t('settings_analytics')}</div>
                   <button role="switch" aria-checked={settingsAnalytics} onClick={() => setSettingsAnalytics(!settingsAnalytics)}
                     style={{ width: 38, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer', background: settingsAnalytics ? c.jade : 'rgba(13,31,36,.15)', transition: 'background .2s', flexShrink: 0, position: 'relative', padding: 0 }}>
                     <span style={{ position: 'absolute', top: 3, left: settingsAnalytics ? 19 : 3, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .2s', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />
@@ -1324,63 +1196,15 @@ export default function PAL() {
                 <button
                   onClick={handleSettingsSave}
                   disabled={settingsSaving}
-                  style={{ width: '100%', background: settingsSaved ? c.jadeD : c.jade, color: settingsSaved ? '#fff' : c.deep2, border: 'none', fontFamily: sans, fontWeight: 700, fontSize: 16, padding: 13, borderRadius: 12, cursor: settingsSaving ? 'wait' : 'pointer', marginTop: 4, marginBottom: 10, transition: 'background .2s' }}>
+                  style={{ width: '100%', background: settingsSaved ? c.jadeD : c.jade, color: settingsSaved ? '#fff' : c.deep2, border: 'none', fontFamily: sans, fontWeight: 700, fontSize: '.88rem', padding: 13, borderRadius: 12, cursor: settingsSaving ? 'wait' : 'pointer', marginTop: 4, marginBottom: 10, transition: 'background .2s' }}>
                   {settingsSaved ? t('settings_saved') : settingsSaving ? '…' : t('settings_save')}
                 </button>
 
-                {/* Subscription */}
-                {subInfo?.subscription_enabled && (
-                  <>
-                    <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.12em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 8 }}>Subscription</div>
-                    {subInfo.active || subInfo.status === 'paused' ? (
-                      <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 11, padding: '12px 13px', marginBottom: 14 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                          <span style={{ fontFamily: sans, fontWeight: 700, fontSize: 15, color: c.ink, textTransform: 'capitalize' }}>
-                            {subInfo.plan ? `${subInfo.plan} plan` : 'PAL membership'}
-                          </span>
-                          <span style={{ fontFamily: mono, fontSize: 11, padding: '2px 8px', borderRadius: 20, textTransform: 'capitalize',
-                            background: subInfo.status === 'paused' ? 'rgba(216,162,74,.15)' : 'rgba(55,181,155,.14)',
-                            color: subInfo.status === 'paused' ? c.amberD : c.jadeD }}>
-                            {subInfo.status === 'paused' ? 'Paused' : (subInfo.status || 'Active')}
-                          </span>
-                        </div>
-                        {subInfo.current_end && (
-                          <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', marginBottom: 11 }}>
-                            Renews {new Date(subInfo.current_end).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', gap: 8 }}>
-                          {subInfo.status === 'paused' ? (
-                            <button onClick={() => subAction('resume')} disabled={subBusy}
-                              style={{ flex: 1, background: c.jade, color: c.deep2, border: 'none', fontFamily: sans, fontWeight: 600, fontSize: 14, padding: '10px 0', borderRadius: 10, cursor: subBusy ? 'wait' : 'pointer' }}>
-                              Resume
-                            </button>
-                          ) : (
-                            <button onClick={() => subAction('pause', 'Pause your subscription? Billing stops until you resume.')} disabled={subBusy}
-                              style={{ flex: 1, background: 'rgba(216,162,74,.08)', color: c.amberD, border: '1px solid rgba(216,162,74,.35)', fontFamily: sans, fontWeight: 600, fontSize: 14, padding: '10px 0', borderRadius: 10, cursor: subBusy ? 'wait' : 'pointer' }}>
-                              Pause
-                            </button>
-                          )}
-                          <button onClick={() => subAction('cancel', 'Cancel your subscription? This stops future billing and ends your membership.')} disabled={subBusy}
-                            style={{ flex: 1, background: 'rgba(194,103,94,.08)', color: '#a04a41', border: '1px solid rgba(194,103,94,.35)', fontFamily: sans, fontWeight: 600, fontSize: 14, padding: '10px 0', borderRadius: 10, cursor: subBusy ? 'wait' : 'pointer' }}>
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button onClick={() => { window.location.href = subInfo.pricing_url || '/pricing'; }}
-                        style={{ width: '100%', background: c.jade, color: c.deep2, border: 'none', fontFamily: sans, fontWeight: 700, fontSize: 15, padding: 12, borderRadius: 11, cursor: 'pointer', marginBottom: 14 }}>
-                        {subInfo.status === 'cancelled' ? 'Renew subscription' : 'Subscribe'}
-                      </button>
-                    )}
-                  </>
-                )}
-
                 {/* Account */}
-                <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.12em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 8 }}>{t('settings_account')}</div>
+                <div style={{ fontFamily: mono, fontSize: '.55rem', letterSpacing: '.12em', textTransform: 'uppercase', opacity: .45, marginBottom: 8 }}>{t('settings_account')}</div>
                 <button
                   onClick={() => setSignOutConfirmOpen(true)}
-                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(216,162,74,.08)', border: '1px solid rgba(216,162,74,.35)', borderRadius: 11, padding: '11px 13px', cursor: 'pointer', color: c.amberD, fontFamily: sans, fontWeight: 600, fontSize: 15, marginBottom: 14 }}>
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(216,162,74,.08)', border: '1px solid rgba(216,162,74,.35)', borderRadius: 11, padding: '11px 13px', cursor: 'pointer', color: c.amberD, fontFamily: sans, fontWeight: 600, fontSize: '.84rem', marginBottom: 14 }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={c.amberD} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                     <path d="M10 3H5a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h5"/>
                     <polyline points="17 8 21 12 17 16"/>
@@ -1389,7 +1213,7 @@ export default function PAL() {
                   {t('settings_sign_out')}
                 </button>
 
-                <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', textAlign: 'center', lineHeight: 1.6 }}>
+                <div style={{ fontFamily: mono, fontSize: '.52rem', opacity: .3, textAlign: 'center', lineHeight: 1.6 }}>
                   PAL v0.1.0 · Not a medical device · For informational use only
                 </div>
               </div>
@@ -1401,16 +1225,16 @@ export default function PAL() {
             <div style={{ position: 'absolute', inset: 0, background: 'rgba(13,31,36,.6)', zIndex: 50, borderRadius: 29, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 24px' }}>
               <div style={{ background: c.soft, borderRadius: 20, padding: '24px 20px', width: '100%' }}>
                 <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.1rem', marginBottom: 3 }}>Before you go…</div>
-                <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', marginBottom: 16, letterSpacing: '.04em' }}>Help us improve PAL</div>
+                <div style={{ fontFamily: mono, fontSize: '.6rem', opacity: .5, marginBottom: 16, letterSpacing: '.04em' }}>Help us improve PAL</div>
                 <textarea
                   value={signOutReason}
                   onChange={e => setSignOutReason(e.target.value)}
                   placeholder="Why are you signing out? (optional)"
-                  style={{ width: '100%', border: '1px solid rgba(13,31,36,.16)', borderRadius: 11, padding: '10px 12px', fontFamily: sans, fontSize: 15, background: '#fff', color: c.ink, resize: 'none', height: 86, boxSizing: 'border-box', outline: 'none', lineHeight: 1.5 }}
+                  style={{ width: '100%', border: '1px solid rgba(13,31,36,.16)', borderRadius: 11, padding: '10px 12px', fontFamily: sans, fontSize: '.82rem', background: '#fff', color: c.ink, resize: 'none', height: 86, boxSizing: 'border-box', outline: 'none', lineHeight: 1.5 }}
                 />
                 <button
                   onClick={() => { handleSignOut(); }}
-                  style={{ width: '100%', background: c.amber, color: c.deep2, border: 'none', fontFamily: sans, fontWeight: 700, fontSize: 16, padding: 12, borderRadius: 12, cursor: 'pointer', marginTop: 12, marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  style={{ width: '100%', background: c.amber, color: c.deep2, border: 'none', fontFamily: sans, fontWeight: 700, fontSize: '.88rem', padding: 12, borderRadius: 12, cursor: 'pointer', marginTop: 12, marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c.deep2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M10 3H5a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h5"/>
                     <polyline points="17 8 21 12 17 16"/>
@@ -1420,7 +1244,7 @@ export default function PAL() {
                 </button>
                 <button
                   onClick={() => { setSignOutConfirmOpen(false); setSignOutReason(''); }}
-                  style={{ width: '100%', background: 'transparent', border: '1px solid rgba(13,31,36,.16)', color: c.ink, fontFamily: sans, fontSize: 15, padding: 10, borderRadius: 12, cursor: 'pointer' }}>
+                  style={{ width: '100%', background: 'transparent', border: '1px solid rgba(13,31,36,.16)', color: c.ink, fontFamily: sans, fontSize: '.82rem', padding: 10, borderRadius: 12, cursor: 'pointer' }}>
                   Stay signed in
                 </button>
               </div>
@@ -1428,41 +1252,41 @@ export default function PAL() {
           )}
 
           {/* APPBAR */}
-          <div style={{ padding: '30px 16px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexShrink: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <div style={{ padding: '30px 18px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
               {showBack && (
-                <button onClick={() => { if (historyView === 'thread') setHistoryView(null); else setView(null); }} aria-label="Back"
-                  style={{ border: 'none', background: 'none', color: '#2f3b40', cursor: 'pointer', padding: 0, width: 32, height: 40, display: 'grid', placeItems: 'center', flexShrink: 0 }}><ChevronLeft size={24} strokeWidth={2} /></button>
+                <button onClick={() => { if (historyView === 'thread') setHistoryView(null); else setView(null); }}
+                  style={{ border: 'none', background: 'none', fontSize: '1.3rem', color: c.ink, cursor: 'pointer', padding: '0 4px 0 0', lineHeight: 1 }}>‹</button>
               )}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                 <button
                   onClick={() => setTab('profile')}
-                  style={{ width: 38, height: 38, borderRadius: 12, display: 'grid', placeItems: 'center', flexShrink: 0, border: 'none', background: person.grad, cursor: 'pointer', padding: 0, overflow: 'hidden' }}
+                  style={{ width: 34, height: 34, borderRadius: 11, display: 'grid', placeItems: 'center', flexShrink: 0, border: 'none', background: person.grad, cursor: 'pointer', padding: 0, overflow: 'hidden' }}
                   aria-label="View Profile"
                 >
                   {settingsAvatar ? (
                     <img src={settingsAvatar} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (
-                    <span style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>
+                    <span style={{ color: '#fff', fontWeight: 700, fontSize: '.9rem' }}>
                       {userName ? userName.charAt(0).toUpperCase() : person.initial}
                     </span>
                   )}
                 </button>
-                <div style={{ textAlign: 'left', minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 16, color: c.ink, lineHeight: 1.25, letterSpacing: '-.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{appTitle}</div>
-                  <div style={{ fontSize: 12, color: MUTED, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{appSub}</div>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontWeight: 600, fontSize: '.92rem', letterSpacing: '-.01em' }}>{appTitle}</div>
+                  <div style={{ fontFamily: mono, fontSize: '.6rem', opacity: .5 }}>{appSub}</div>
                 </div>
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-              <FamilyHubButton size={40} />
-              <button onClick={() => setSettingsOpen(true)} aria-label="Settings" title="Settings" style={topBtn}><Settings size={20} strokeWidth={2} color={ICON} /></button>
-              <button onClick={() => setNotifOpen(o => !o)} aria-label="Notifications" title="Notifications" style={{ ...topBtn, position: 'relative' }}>
-                <span style={{ display: 'grid', placeItems: 'center', transformOrigin: '50% 3px', animation: notifCount > 0 ? 'bell-shake 2.6s ease-in-out infinite' : 'none' }}>
-                  <Bell size={20} strokeWidth={2} color={ICON} />
-                </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <FamilyHubButton />
+              <button onClick={() => setSettingsOpen(true)} aria-label="Settings" style={{ width: 34, height: 34, borderRadius: 11, border: '1px solid rgba(13,31,36,.10)', display: 'grid', placeItems: 'center', fontSize: '.85rem', color: c.ink, background: '#fff', cursor: 'pointer' }}>⚙</button>
+              <button onClick={() => setNotifOpen(o => !o)} aria-label="Notifications" style={{ width: 34, height: 34, borderRadius: 11, border: '1px solid rgba(13,31,36,.10)', display: 'grid', placeItems: 'center', background: '#fff', position: 'relative', cursor: 'pointer', flexShrink: 0 }}>
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" style={{ transformOrigin: '50% 3px', animation: notifCount > 0 ? 'bell-shake 2.6s ease-in-out infinite' : 'none' }}>
+                  <path d="M8.5 17.5h3M10 3C7 3 4.5 5.5 4.5 8.5V13l-1.5 2.5h14L15.5 13V8.5C15.5 5.5 13 3 10 3z" stroke="#0d1f24" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
                 {notifCount > 0 && (
-                  <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 18, height: 18, padding: '0 4px', boxSizing: 'border-box', borderRadius: 9, background: c.rose, color: '#fff', fontFamily: sans, fontSize: 12, lineHeight: 1, display: 'grid', placeItems: 'center', fontWeight: 700, animation: 'badge-pop .3s ease' }}>{notifCount > 9 ? '9+' : notifCount}</span>
+                  <span style={{ position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, padding: '0 3px', boxSizing: 'border-box', borderRadius: 8, background: c.rose, color: '#fff', fontFamily: mono, fontSize: '.54rem', display: 'grid', placeItems: 'center', fontWeight: 700, animation: 'badge-pop .3s ease' }}>{notifCount > 9 ? '9+' : notifCount}</span>
                 )}
               </button>
             </div>
@@ -1475,21 +1299,21 @@ export default function PAL() {
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 45, background: c.soft, borderBottomLeftRadius: 22, borderBottomRightRadius: 22, boxShadow: '0 18px 40px -18px rgba(0,0,0,.45)', padding: '14px 14px 16px', maxHeight: '78%', overflowY: 'auto', transform: notifOpen ? 'translateY(0)' : 'translateY(-105%)', transition: 'transform .32s cubic-bezier(.22,1,.36,1)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <div>
-                <div style={{ fontWeight: 600, fontSize: 16 }}>Notifications</div>
-                <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f' }}>{notifCount === 0 ? 'all caught up' : `${notifCount} to review`}</div>
+                <div style={{ fontWeight: 600, fontSize: '.92rem' }}>Notifications</div>
+                <div style={{ fontFamily: mono, fontSize: '.58rem', opacity: .5 }}>{notifCount === 0 ? 'all caught up' : `${notifCount} to review`}</div>
               </div>
               <button onClick={() => setNotifOpen(false)} aria-label="Close" style={{ border: 'none', background: 'rgba(13,31,36,.06)', width: 28, height: 28, borderRadius: 9, cursor: 'pointer', color: c.ink, fontSize: '1rem', lineHeight: 1 }}>×</button>
             </div>
 
             {medError && (
-              <div style={{ background: '#fff', borderRadius: 12, padding: 11, marginBottom: 10, color: c.rose, fontSize: 14, borderLeft: `3px solid ${c.rose}` }}>{medError}</div>
+              <div style={{ background: '#fff', borderRadius: 12, padding: 11, marginBottom: 10, color: c.rose, fontSize: '.78rem', borderLeft: `3px solid ${c.rose}` }}>{medError}</div>
             )}
 
             {notifItems.length === 0 && (
               <div style={{ textAlign: 'center', padding: '22px 0 10px' }}>
                 <div style={{ fontSize: '1.5rem', marginBottom: 6 }}>🔔</div>
-                <div style={{ fontSize: 15, fontWeight: 600 }}>No reminders right now</div>
-                <div style={{ fontSize: 13, color: '#4a5a5f', marginTop: 3 }}>Medicine reminders appear here at their scheduled times.</div>
+                <div style={{ fontSize: '.84rem', fontWeight: 600 }}>No reminders right now</div>
+                <div style={{ fontSize: '.72rem', opacity: .55, marginTop: 3 }}>Medicine reminders appear here at their scheduled times.</div>
               </div>
             )}
 
@@ -1498,15 +1322,15 @@ export default function PAL() {
               const isAck = d.status === 'awaiting_ack';
               return (
                 <div key={d.id} style={{ background: '#fff', border: `1px solid ${isAck ? 'rgba(55,181,155,.5)' : 'rgba(13,31,36,.10)'}`, borderRadius: 13, padding: 12, marginBottom: 9, display: 'flex', gap: 11, alignItems: 'flex-start', animation: 'fade-in .22s ease' }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(55,181,155,.14)', color: c.jadeD, display: 'grid', placeItems: 'center', fontSize: 16, flexShrink: 0 }}>💊</div>
+                  <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(55,181,155,.14)', color: c.jadeD, display: 'grid', placeItems: 'center', fontSize: '.9rem', flexShrink: 0 }}>💊</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 15 }}>
+                    <div style={{ fontWeight: 600, fontSize: '.84rem' }}>
                       {isAck ? 'Did you take your medicine?' : 'Time to take your medicine'}
                     </div>
-                    <div style={{ fontSize: 14, color: '#4a5a5f', marginTop: 2 }}>
+                    <div style={{ fontSize: '.76rem', opacity: .75, marginTop: 2 }}>
                       {sch?.medicine_name || 'Medicine'}{sch?.dosage ? ` · ${sch.dosage}` : ''}
                     </div>
-                    <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', marginTop: 5 }}>
+                    <div style={{ fontFamily: mono, fontSize: '.54rem', opacity: .45, marginTop: 5 }}>
                       {d.scheduled_time?.slice(0, 5)} · {d.scheduled_date}
                     </div>
                     <div style={{ display: 'flex', gap: 7, marginTop: 9, flexWrap: 'wrap' }}>
@@ -1514,7 +1338,7 @@ export default function PAL() {
                         const primary = opt.value === 'yes' || opt.value === 'take_now';
                         return (
                           <button key={opt.value} disabled={medBusy === d.id} onClick={() => answerDose(d.id, opt.value)}
-                            style={{ fontFamily: sans, fontWeight: 600, fontSize: 13, padding: '6px 11px', borderRadius: 8, border: primary ? 'none' : '1px solid rgba(13,31,36,.16)', background: primary ? c.jade : 'transparent', color: primary ? c.deep2 : c.ink, cursor: medBusy === d.id ? 'default' : 'pointer', opacity: medBusy === d.id ? .6 : 1 }}>
+                            style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '6px 11px', borderRadius: 8, border: primary ? 'none' : '1px solid rgba(13,31,36,.16)', background: primary ? c.jade : 'transparent', color: primary ? c.deep2 : c.ink, cursor: medBusy === d.id ? 'default' : 'pointer', opacity: medBusy === d.id ? .6 : 1 }}>
                             {opt.label}
                           </button>
                         );
@@ -1526,44 +1350,44 @@ export default function PAL() {
             })}
 
             <button onClick={() => { setNotifOpen(false); router.push('/medications'); }}
-              style={{ width: '100%', marginTop: 4, background: 'transparent', border: '1px solid rgba(13,31,36,.16)', borderRadius: 10, padding: '9px 0', fontFamily: sans, fontWeight: 600, fontSize: 14, color: c.ink, cursor: 'pointer' }}>
+              style={{ width: '100%', marginTop: 4, background: 'transparent', border: '1px solid rgba(13,31,36,.16)', borderRadius: 10, padding: '9px 0', fontFamily: sans, fontWeight: 600, fontSize: '.78rem', color: c.ink, cursor: 'pointer' }}>
               Manage medication reminders
             </button>
           </div>
 
           {/* BODY */}
-          <div className="scr" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: isAsk ? '0 16px 16px' : `6px 18px ${TABBAR_H + 24}px` }}>
+          <div className="scr" style={{ flex: 1, overflowY: 'auto', padding: isAsk ? '6px 18px 148px' : '6px 18px 92px' }}>
 
             {/* ===== ASK ===== */}
             {isAsk && <div>
               {/* EMPTY STATE — greeting + chips */}
               {chatMessages.length === 0 && <>
-                <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.7rem', letterSpacing: '-.01em', margin: '18px 0 4px', lineHeight: 1.15 }}>
+                <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.7rem', letterSpacing: '-.01em', margin: '12px 0 4px', lineHeight: 1.15 }}>
                   {t(greetKey)}, {userName || person.name}.<br /><em style={{ fontStyle: 'italic', color: c.jadeD }}>{t('mind_question')}</em>
                 </div>
-                <div style={{ fontSize: 15, color: '#4a5a5f', marginBottom: 14 }}>{t('ask_subtitle')}</div>
-                <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.04em', color: '#4a5a5f', margin: '2px 2px 18px', textAlign: 'center' }}>{t('tap_hint')}</div>
+                <div style={{ fontSize: '.85rem', opacity: .6, marginBottom: 14 }}>{t('ask_subtitle')}</div>
+                <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.04em', opacity: .45, margin: '2px 2px 18px', textAlign: 'center' }}>{t('tap_hint')}</div>
 
-                <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a5a5f', margin: '16px 2px 10px' }}>{t('section_continue')}</div>
+                <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '16px 2px 10px' }}>{t('section_continue')}</div>
                 {suggestions.map((g, i) => (
                   <button key={i} onClick={() => runQuery(g.id, g.kind)}
-                    style={{ width: '100%', textAlign: 'left', background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 13, padding: '13px 14px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', marginBottom: 9 }}>
-                    <span style={{ width: 30, height: 30, borderRadius: 9, display: 'grid', placeItems: 'center', fontSize: 15, flexShrink: 0, background: 'rgba(55,181,155,.14)', color: c.jadeD }}>{g.icon}</span>
+                    style={{ width: '100%', textAlign: 'left', background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 13, padding: '13px 14px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', marginBottom: 9 }}>
+                    <span style={{ width: 30, height: 30, borderRadius: 9, display: 'grid', placeItems: 'center', fontSize: '.85rem', flexShrink: 0, background: 'rgba(55,181,155,.14)', color: c.jadeD }}>{g.icon}</span>
                     <span>
-                      <span style={{ fontSize: 15, fontWeight: 500, lineHeight: 1.3, display: 'block' }}>{g.text}</span>
-                      <span style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f' }}>{g.sub}</span>
+                      <span style={{ fontSize: '.86rem', fontWeight: 500, lineHeight: 1.3, display: 'block' }}>{g.text}</span>
+                      <span style={{ fontFamily: mono, fontSize: '.58rem', opacity: .5 }}>{g.sub}</span>
                     </span>
                   </button>
                 ))}
 
-                <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', color: c.jadeD, margin: '18px 2px 11px', display: 'flex', alignItems: 'center', gap: 8 }}><PalRosette size={16} color={c.jadeD} />{t('section_try_asking')}</div>
+                <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '18px 2px 11px' }}>{t('section_try_asking')}</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}>
                   {chips.map((c2, i) => (
                     <button key={i} onClick={() => runQuery(c2.id, c2.kind)}
-                      style={{ textAlign: 'left', background: 'linear-gradient(180deg,#fff,#fbf9f4)', border: '1px solid rgba(13,31,36,.14)', borderRadius: 13, padding: 13, display: 'flex', flexDirection: 'column', gap: 6, cursor: 'pointer' }}>
+                      style={{ textAlign: 'left', background: 'linear-gradient(180deg,#fff,#fbf9f4)', border: '1px solid rgba(13,31,36,.10)', borderRadius: 13, padding: 13, display: 'flex', flexDirection: 'column', gap: 6, cursor: 'pointer' }}>
                       <span style={{ fontSize: '1.05rem' }}>{c2.icon}</span>
-                      <span style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.25 }}>{c2.text}</span>
-                      <span style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f' }}>{c2.sub}</span>
+                      <span style={{ fontSize: '.8rem', fontWeight: 600, lineHeight: 1.25 }}>{c2.text}</span>
+                      <span style={{ fontFamily: mono, fontSize: '.55rem', opacity: .5 }}>{c2.sub}</span>
                     </button>
                   ))}
                 </div>
@@ -1573,25 +1397,13 @@ export default function PAL() {
               {chatMessages.length > 0 && (() => {
                 let lastUserText = '';
                 return (
-                  <>
-                  {/* NEW CHAT BAR — sticky at the top of the conversation */}
-                  <div style={{ position: 'sticky', top: 0, zIndex: 5, background: c.soft, margin: '0 -16px', padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, borderBottom: '1px solid rgba(13,31,36,.14)' }}>
-                    <div style={{ fontFamily: sans, fontSize: 14, fontWeight: 600, color: c.ink }}>Conversation</div>
-                    <button
-                      onClick={() => { setChatMessages([]); setConversationId(null); setQueryText(''); setSttDraft(null); setIsSecondOpinionMode(false); }}
-                      title="New chat" aria-label="New chat"
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: sans, fontSize: 14, fontWeight: 600, color: c.jadeD, background: '#fff', border: '1px solid rgba(31,125,107,.35)', borderRadius: 10, padding: '6px 12px', minHeight: 36, cursor: 'pointer' }}>
-                      <SquarePen size={18} strokeWidth={2} aria-hidden="true" />
-                      New chat
-                    </button>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 12 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 6 }}>
                     {chatMessages.map(msg => {
                       if (msg.role === 'user') {
                         lastUserText = msg.text;
                         return (
                           <div key={msg.id} style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                            <div style={{ background: c.deep, color: c.paper, borderRadius: '14px 14px 4px 14px', padding: '10px 14px', fontFamily: sans, fontSize: 16, lineHeight: 1.5, maxWidth: '82%', whiteSpace: 'pre-wrap', wordBreak: 'break-word', userSelect: 'text' }}>
+                            <div style={{ background: c.deep, color: c.paper, borderRadius: '14px 14px 4px 14px', padding: '10px 14px', fontFamily: serif, fontSize: '.93rem', lineHeight: 1.5, maxWidth: '80%' }}>
                               {msg.text}
                             </div>
                           </div>
@@ -1603,11 +1415,11 @@ export default function PAL() {
                         return (
                           <div key={msg.id} style={{ display: 'flex', justifyContent: 'flex-start' }}>
                             <div style={{ border: '1px solid rgba(194,103,94,.4)', background: 'rgba(194,103,94,.06)', borderRadius: '4px 14px 14px 14px', padding: '12px 14px', maxWidth: '92%' }}>
-                              <div style={{ fontSize: 15, fontWeight: 600, color: c.rose, display: 'flex', gap: 7, alignItems: 'center', marginBottom: 5 }}>◆ {t('consent_title')}</div>
-                              <div style={{ fontSize: 14, color: '#4a5a5f', lineHeight: 1.5, marginBottom: 12 }}>{t('consent_body')}</div>
+                              <div style={{ fontSize: '.82rem', fontWeight: 600, color: c.rose, display: 'flex', gap: 7, alignItems: 'center', marginBottom: 5 }}>◆ {t('consent_title')}</div>
+                              <div style={{ fontSize: '.78rem', opacity: .75, lineHeight: 1.5, marginBottom: 12 }}>{t('consent_body')}</div>
                               <div style={{ display: 'flex', gap: 8 }}>
-                                <button onClick={() => giveConsent(true, cmId, dmId)} style={{ flex: 1, fontFamily: sans, fontWeight: 600, fontSize: 13, padding: 10, borderRadius: 9, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer' }}>{t('consent_use')}</button>
-                                <button onClick={() => giveConsent(false, cmId, dmId)} style={{ flex: 1, fontFamily: sans, fontWeight: 600, fontSize: 13, padding: 10, borderRadius: 9, border: '1px solid rgba(13,31,36,.16)', background: 'transparent', color: c.ink, cursor: 'pointer' }}>{t('consent_general')}</button>
+                                <button onClick={() => giveConsent(true, cmId, dmId)} style={{ flex: 1, fontFamily: sans, fontWeight: 600, fontSize: '.74rem', padding: 10, borderRadius: 9, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer' }}>{t('consent_use')}</button>
+                                <button onClick={() => giveConsent(false, cmId, dmId)} style={{ flex: 1, fontFamily: sans, fontWeight: 600, fontSize: '.74rem', padding: 10, borderRadius: 9, border: '1px solid rgba(13,31,36,.16)', background: 'transparent', color: c.ink, cursor: 'pointer' }}>{t('consent_general')}</button>
                               </div>
                             </div>
                           </div>
@@ -1615,11 +1427,10 @@ export default function PAL() {
                       }
                       if (msg.role === 'assistant' && msg.isThinking) {
                         return (
-                          <div key={msg.id} style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'flex-start', gap: 9 }}>
-                            <PalVoice />
-                            <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: '4px 14px 14px 14px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 9 }}>
+                          <div key={msg.id} style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                            <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: '4px 14px 14px 14px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 9 }}>
                               <span style={{ width: 7, height: 7, borderRadius: '50%', background: c.jade, display: 'inline-block', animation: 'palbreath 1s infinite' }} />
-                              <span style={{ fontFamily: mono, fontSize: 12, color: c.jadeD, letterSpacing: '.08em' }}>thinking…</span>
+                              <span style={{ fontFamily: mono, fontSize: '.6rem', color: c.jadeD, letterSpacing: '.08em' }}>thinking…</span>
                             </div>
                           </div>
                         );
@@ -1627,20 +1438,19 @@ export default function PAL() {
                       if (msg.role === 'assistant') {
                         const capturedUserText = lastUserText;
                         return (
-                          <div key={msg.id} style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'flex-start', gap: 9, width: '100%' }}>
-                            <PalVoice />
-                            <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: '4px 14px 14px 14px', padding: '14px 14px 10px', flex: 1, minWidth: 0, userSelect: 'text', WebkitUserSelect: 'text' }}>
+                          <div key={msg.id} style={{ display: 'flex', justifyContent: 'flex-start', width: '100%' }}>
+                            <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: '4px 14px 14px 14px', padding: '12px 14px', maxWidth: '92%', width: '92%' }}>
                               <Markdown text={msg.text} />
                               {(msg.pendingActions || []).length > 0 && (
                                 <div style={{ marginTop: 8 }}>
                                   {(msg.pendingActions || []).map((action, i) => (
                                     <div key={i} style={{ background: 'linear-gradient(160deg,#13343b,#0c2429)', borderRadius: 12, padding: 14, color: c.paper, marginBottom: 8 }}>
-                                      <div style={{ fontFamily: mono, fontSize: 12, color: c.jade, letterSpacing: '.1em', marginBottom: 7 }}>◷ your confirmation needed</div>
-                                      <div style={{ fontFamily: serif, fontSize: 16, lineHeight: 1.45, marginBottom: 11 }}>{action.description}</div>
+                                      <div style={{ fontFamily: mono, fontSize: '.56rem', color: c.jade, letterSpacing: '.1em', marginBottom: 7 }}>◷ your confirmation needed</div>
+                                      <div style={{ fontFamily: serif, fontSize: '.9rem', lineHeight: 1.45, marginBottom: 11 }}>{action.description}</div>
                                       {action.confirm_token_required && (
                                         <div style={{ display: 'flex', gap: 8 }}>
-                                          <button onClick={() => handleConfirmAction(action)} style={{ flex: 1, fontFamily: sans, fontWeight: 600, fontSize: 13, padding: 10, borderRadius: 9, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer' }}>Confirm</button>
-                                          <button onClick={() => setChatMessages(prev => prev.map(m => m.id === msg.id && m.role === 'assistant' ? { ...m, pendingActions: (m.pendingActions || []).filter((_: unknown, j: number) => j !== i) } : m))} style={{ fontFamily: sans, fontWeight: 600, fontSize: 13, padding: '10px 14px', borderRadius: 9, border: 'none', background: 'rgba(255,255,255,.1)', color: c.paper, cursor: 'pointer' }}>Dismiss</button>
+                                          <button onClick={() => handleConfirmAction(action)} style={{ flex: 1, fontFamily: sans, fontWeight: 600, fontSize: '.74rem', padding: 10, borderRadius: 9, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer' }}>Confirm</button>
+                                          <button onClick={() => setChatMessages(prev => prev.map(m => m.id === msg.id && m.role === 'assistant' ? { ...m, pendingActions: (m.pendingActions || []).filter((_: unknown, j: number) => j !== i) } : m))} style={{ fontFamily: sans, fontWeight: 600, fontSize: '.74rem', padding: '10px 14px', borderRadius: 9, border: 'none', background: 'rgba(255,255,255,.1)', color: c.paper, cursor: 'pointer' }}>Dismiss</button>
                                         </div>
                                       )}
                                     </div>
@@ -1651,7 +1461,7 @@ export default function PAL() {
                                 <CopyAnswerButton text={msg.text} />
                                 {!isSecondOpinionMode && (
                                   <button onClick={() => handleSecondOpinion(capturedUserText)}
-                                    style={{ background: 'none', border: 'none', fontFamily: sans, fontSize: 13, fontWeight: 500, color: c.blueD, cursor: 'pointer', padding: '6px 0', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 3, textAlign: 'left' }}>
+                                    style={{ background: 'none', border: 'none', fontFamily: mono, fontSize: '.58rem', color: c.blueD, opacity: .6, cursor: 'pointer', padding: '4px 0', textDecoration: 'underline', textDecorationStyle: 'dotted', display: 'block' }}>
                                     Doesn&apos;t seem right — get a second look
                                   </button>
                                 )}
@@ -1664,19 +1474,18 @@ export default function PAL() {
                     })}
                     {sttDraft && (
                       <div style={{ background: 'rgba(55,181,155,.09)', border: '1px solid rgba(55,181,155,.25)', borderRadius: 14, padding: '12px 14px' }}>
-                        <div style={{ fontFamily: mono, fontSize: 12, color: c.jadeD, marginBottom: 6, letterSpacing: '.06em' }}>{t('stt_heard')}</div>
-                        <div style={{ fontSize: 16, color: c.ink, marginBottom: 10 }}>&ldquo;{sttDraft}&rdquo;</div>
+                        <div style={{ fontFamily: mono, fontSize: '.52rem', color: c.jadeD, marginBottom: 6, letterSpacing: '.06em' }}>{t('stt_heard')}</div>
+                        <div style={{ fontSize: '.88rem', color: c.ink, marginBottom: 10 }}>&ldquo;{sttDraft}&rdquo;</div>
                         <div style={{ display: 'flex', gap: 8 }}>
                           <button onClick={() => { handleTextQuery(sttDraft); setSttDraft(null); }}
-                            style={{ flex: 1, fontFamily: mono, fontSize: 12, padding: '7px 0', borderRadius: 10, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer', fontWeight: 700 }}>{t('stt_confirm')}</button>
+                            style={{ flex: 1, fontFamily: mono, fontSize: '.56rem', padding: '7px 0', borderRadius: 10, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer', fontWeight: 700 }}>{t('stt_confirm')}</button>
                           <button onClick={() => { setSttDraft(null); handleMicClick(); }}
-                            style={{ fontFamily: mono, fontSize: 12, padding: '7px 12px', borderRadius: 10, border: '1px solid rgba(13,31,36,.16)', background: 'transparent', color: '#4a5a5f', cursor: 'pointer' }}>{t('stt_retry')}</button>
+                            style={{ fontFamily: mono, fontSize: '.56rem', padding: '7px 12px', borderRadius: 10, border: '1px solid rgba(13,31,36,.16)', background: 'transparent', color: c.ink, cursor: 'pointer', opacity: .7 }}>{t('stt_retry')}</button>
                         </div>
                       </div>
                     )}
                     <div ref={chatEndRef} />
                   </div>
-                  </>
                 );
               })()}
             </div>}
@@ -1684,11 +1493,11 @@ export default function PAL() {
             {/* ===== RECORD ===== */}
             {isRecord && <div>
               <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.5rem', margin: '12px 0 3px' }}>Medical Records</div>
-              <div style={{ fontSize: 14, color: '#4a5a5f', marginBottom: 18 }}>Complete medical history</div>
+              <div style={{ fontSize: '.8rem', opacity: .6, marginBottom: 18 }}>Complete medical history</div>
 
               {recordsLoading && (
                 <div style={{ textAlign: 'center', padding: 40 }}>
-                  <div style={{ fontSize: 16, color: '#4a5a5f' }}>Loading records...</div>
+                  <div style={{ fontSize: '.9rem', opacity: .6 }}>Loading records...</div>
                 </div>
               )}
 
@@ -1697,7 +1506,7 @@ export default function PAL() {
                   {/* Appointments Section */}
                   {records.appointments && records.appointments.length > 0 && (
                     <div style={{ marginBottom: 24 }}>
-                      <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 12 }}>Consultations & Visits</div>
+                      <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Consultations & Visits</div>
 
                       {records.appointments.map((appt: any) => (
                         <div key={appt.id} style={{ marginBottom: 10 }}>
@@ -1705,7 +1514,7 @@ export default function PAL() {
                             onClick={() => setExpandedRecordId(expandedRecordId === appt.id ? null : appt.id)}
                             style={{
                               background: '#fff',
-                              border: '1px solid rgba(13,31,36,.14)',
+                              border: '1px solid rgba(13,31,36,.10)',
                               borderRadius: 13,
                               padding: 14,
                               cursor: 'pointer',
@@ -1715,10 +1524,10 @@ export default function PAL() {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                               {/* LEFT: Chief Complaint */}
                               <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 600, fontSize: 16, color: c.ink, marginBottom: 4 }}>
+                                <div style={{ fontWeight: 600, fontSize: '.9rem', color: c.ink, marginBottom: 4 }}>
                                   {appt.chief_complaint || 'General Consultation'}
                                 </div>
-                                <div style={{ fontSize: 14, color: '#4a5a5f' }}>
+                                <div style={{ fontSize: '.75rem', opacity: .6 }}>
                                   {appt.doctor_name && appt.clinic_name
                                     ? `${appt.doctor_name} • ${appt.clinic_name}`
                                     : appt.doctor_name || appt.clinic_name || 'No provider info'}
@@ -1727,10 +1536,10 @@ export default function PAL() {
 
                               {/* RIGHT: Date */}
                               <div style={{ textAlign: 'right', marginLeft: 16 }}>
-                                <div style={{ fontFamily: mono, fontSize: 12, color: c.jadeD, whiteSpace: 'nowrap' }}>
+                                <div style={{ fontFamily: mono, fontSize: '.7rem', color: c.jadeD, whiteSpace: 'nowrap' }}>
                                   📅 {appt.date}
                                 </div>
-                                <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', marginTop: 2 }}>
+                                <div style={{ fontFamily: mono, fontSize: '.6rem', opacity: .5, marginTop: 2 }}>
                                   {appt.status}
                                 </div>
                               </div>
@@ -1738,33 +1547,43 @@ export default function PAL() {
 
                             {/* Expanded Details */}
                             {expandedRecordId === appt.id && (
-                              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(13,31,36,.14)' }}>
+                              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(13,31,36,.10)' }}>
                                 {appt.patient_summary && (
                                   <div style={{ marginBottom: 12, padding: 12, background: 'rgba(55,181,155,.08)', borderRadius: 10 }}>
-                                    <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: c.jadeD, marginBottom: 4 }}>Summary</div>
-                                    <div style={{ fontSize: 15, lineHeight: 1.5 }}>{appt.patient_summary}</div>
+                                    <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.1em', textTransform: 'uppercase', color: c.jadeD, marginBottom: 4 }}>Summary</div>
+                                    <div style={{ fontSize: '.85rem', lineHeight: 1.5 }}>{appt.patient_summary}</div>
                                   </div>
                                 )}
 
-                                {/* Clinical Notes (SOAP) intentionally hidden in the Records
-                                   section — only the prescription is shown to the patient. */}
+                                {appt.soap_note && (
+                                  <div style={{ marginBottom: 12 }}>
+                                    <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.1em', textTransform: 'uppercase', opacity: .5, marginBottom: 6 }}>Clinical Notes (SOAP)</div>
+                                    <div style={{ fontSize: '.75rem', lineHeight: 1.6, whiteSpace: 'pre-wrap', opacity: .8, padding: 10, background: '#f9fafb', borderRadius: 10 }}>
+                                      {appt.soap_note}
+                                    </div>
+                                  </div>
+                                )}
 
                                 {appt.management_plan && (
                                   <div style={{ marginBottom: 12, padding: 12, background: 'rgba(90,143,168,.08)', borderRadius: 10 }}>
-                                    <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: c.blueD, marginBottom: 4 }}>Management Plan</div>
-                                    <div style={{ fontSize: 15, lineHeight: 1.5 }}>{appt.management_plan}</div>
+                                    <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.1em', textTransform: 'uppercase', color: c.blueD, marginBottom: 4 }}>Management Plan</div>
+                                    <div style={{ fontSize: '.85rem', lineHeight: 1.5 }}>{appt.management_plan}</div>
                                   </div>
                                 )}
 
                                 {appt.diagnosis && (
                                   <div style={{ marginBottom: 12 }}>
-                                    <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 4 }}>Diagnosis</div>
-                                    <div style={{ fontSize: 15, lineHeight: 1.5 }}>{appt.diagnosis}</div>
+                                    <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.1em', textTransform: 'uppercase', opacity: .5, marginBottom: 4 }}>Diagnosis</div>
+                                    <div style={{ fontSize: '.85rem', lineHeight: 1.5 }}>{appt.diagnosis}</div>
                                   </div>
                                 )}
 
-                                {/* Doctor's Notes also hidden — clinical notes are not
-                                   shown to the patient in the Records section. */}
+                                {appt.notes && (
+                                  <div style={{ marginBottom: 12 }}>
+                                    <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.1em', textTransform: 'uppercase', opacity: .5, marginBottom: 4 }}>Doctor's Notes</div>
+                                    <div style={{ fontSize: '.85rem', lineHeight: 1.5, opacity: .8 }}>{appt.notes}</div>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1773,12 +1592,12 @@ export default function PAL() {
                     </div>
                   )}
 
-                  {/* Lab Tests Section — exclude prescription-type reports (shown under Prescriptions) */}
-                  {records.lab_tests && records.lab_tests.filter((t: any) => !String(t.test_name || '').toLowerCase().startsWith('prescription')).length > 0 && (
+                  {/* Lab Tests Section */}
+                  {records.lab_tests && records.lab_tests.length > 0 && (
                     <div style={{ marginBottom: 24 }}>
-                      <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 12 }}>Lab Tests & Results</div>
+                      <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Lab Tests & Results</div>
 
-                      {records.lab_tests.filter((test: any) => !String(test.test_name || '').toLowerCase().startsWith('prescription')).map((test: any) => (
+                      {records.lab_tests.map((test: any) => (
                         <div key={test.id} style={{ marginBottom: 10 }}>
                           <div
                             onClick={() => setExpandedRecordId(expandedRecordId === test.id ? null : test.id)}
@@ -1793,22 +1612,22 @@ export default function PAL() {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                               {/* LEFT: Test Name */}
                               <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 600, fontSize: 16, color: c.ink, marginBottom: 4 }}>
+                                <div style={{ fontWeight: 600, fontSize: '.9rem', color: c.ink, marginBottom: 4 }}>
                                   {test.test_name}
                                   {test.abnormal_flag && (
-                                    <span style={{ marginLeft: 8, fontFamily: mono, fontSize: 12, background: 'rgba(194,103,94,.14)', color: c.rose, padding: '2px 8px', borderRadius: 10 }}>
+                                    <span style={{ marginLeft: 8, fontFamily: mono, fontSize: '.6rem', background: 'rgba(194,103,94,.14)', color: c.rose, padding: '2px 8px', borderRadius: 10 }}>
                                       ⚠️ Abnormal
                                     </span>
                                   )}
                                 </div>
-                                <div style={{ fontSize: 14, color: '#4a5a5f' }}>
+                                <div style={{ fontSize: '.75rem', opacity: .6 }}>
                                   {test.lab_name || 'Lab test'} • {test.status}
                                 </div>
                               </div>
 
                               {/* RIGHT: Date */}
                               <div style={{ textAlign: 'right', marginLeft: 16 }}>
-                                <div style={{ fontFamily: mono, fontSize: 12, color: c.jadeD, whiteSpace: 'nowrap' }}>
+                                <div style={{ fontFamily: mono, fontSize: '.7rem', color: c.jadeD, whiteSpace: 'nowrap' }}>
                                   📅 {test.result_date || test.ordered_date}
                                 </div>
                               </div>
@@ -1816,22 +1635,22 @@ export default function PAL() {
 
                             {/* Expanded Details */}
                             {expandedRecordId === test.id && test.results && (
-                              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(13,31,36,.14)' }}>
-                                <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 8 }}>Results</div>
+                              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(13,31,36,.10)' }}>
+                                <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.1em', textTransform: 'uppercase', opacity: .5, marginBottom: 8 }}>Results</div>
                                 {(Array.isArray(test.results) ? test.results : Object.values(test.results || {})).map((value: any, idx: number) => {
                                   const name = value?.name || value?.display || `Item ${idx + 1}`;
                                   const amount = [value?.value, value?.unit].filter(Boolean).join(' ');
                                   const extra = [value?.dosage, value?.frequency, value?.duration]
                                     .filter(Boolean).join(' · ');
                                   return (
-                                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '6px 0', borderBottom: '1px solid rgba(13,31,36,.14)' }}>
-                                      <span style={{ fontSize: 14, minWidth: 0 }}>
+                                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '6px 0', borderBottom: '1px solid rgba(13,31,36,.05)' }}>
+                                      <span style={{ fontSize: '.8rem', minWidth: 0 }}>
                                         {name}
-                                        {extra && <span style={{ display: 'block', fontSize: 12.5, color: '#4a5a5f' }}>{extra}</span>}
+                                        {extra && <span style={{ display: 'block', fontSize: '.68rem', opacity: .55 }}>{extra}</span>}
                                       </span>
-                                      <span style={{ fontSize: 14, fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap', color: value?.abnormal ? c.rose : c.ink }}>
+                                      <span style={{ fontSize: '.8rem', fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap', color: value?.abnormal ? c.rose : c.ink }}>
                                         {amount}
-                                        {value?.range && <span style={{ fontSize: 13, color: '#4a5a5f', marginLeft: 6 }}>({value.range})</span>}
+                                        {value?.range && <span style={{ fontSize: '.7rem', opacity: .5, marginLeft: 6 }}>({value.range})</span>}
                                       </span>
                                     </div>
                                   );
@@ -1839,8 +1658,8 @@ export default function PAL() {
 
                                 {test.interpretation && (
                                   <div style={{ marginTop: 12, padding: 12, background: 'rgba(55,181,155,.08)', borderRadius: 10 }}>
-                                    <div style={{ fontFamily: mono, fontSize: 12, color: c.jadeD, marginBottom: 4 }}>Interpretation</div>
-                                    <div style={{ fontSize: 14, lineHeight: 1.5 }}>{test.interpretation}</div>
+                                    <div style={{ fontFamily: mono, fontSize: '.6rem', color: c.jadeD, marginBottom: 4 }}>Interpretation</div>
+                                    <div style={{ fontSize: '.8rem', lineHeight: 1.5 }}>{test.interpretation}</div>
                                   </div>
                                 )}
                               </div>
@@ -1851,69 +1670,124 @@ export default function PAL() {
                     </div>
                   )}
 
-                  {/* Prescriptions Section — prescription-type reports (moved out of Lab Tests) */}
-                  {records.lab_tests && records.lab_tests.filter((t: any) => String(t.test_name || '').toLowerCase().startsWith('prescription')).length > 0 && (
+                  {/* Prescriptions Section */}
+                  {records.prescriptions && records.prescriptions.length > 0 && (
                     <div style={{ marginBottom: 24 }}>
-                      <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 12 }}>Prescriptions</div>
+                      <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Prescriptions</div>
 
-                      {records.lab_tests.filter((t: any) => String(t.test_name || '').toLowerCase().startsWith('prescription')).map((rx: any) => {
-                        const meds = Array.isArray(rx.results) ? rx.results : [];
-                        const open = expandedRecordId === rx.id;
-                        return (
-                          <div key={rx.id} style={{ marginBottom: 10 }}>
-                            <div
-                              onClick={() => setExpandedRecordId(open ? null : rx.id)}
-                              style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 13, padding: 14, cursor: 'pointer' }}
-                            >
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                <div style={{ flex: 1 }}>
-                                  <div style={{ fontWeight: 600, fontSize: 16, color: c.ink, marginBottom: 4 }}>
-                                    {rx.test_name || 'Prescription'}
-                                  </div>
-                                  <div style={{ fontSize: 13, color: '#4a5a5f' }}>
-                                    {meds.length > 0 ? `${meds.length} medicine${meds.length > 1 ? 's' : ''}` : 'Prescription'}
-                                  </div>
+                      {records.prescriptions.map((rx: any) => (
+                        <div key={rx.id} style={{ marginBottom: 10 }}>
+                          <div
+                            onClick={() => setExpandedRecordId(expandedRecordId === rx.id ? null : rx.id)}
+                            style={{
+                              background: '#fff',
+                              border: '1px solid rgba(13,31,36,.10)',
+                              borderRadius: 13,
+                              padding: 14,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              {/* LEFT: Medication Count */}
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 600, fontSize: '.9rem', color: c.ink, marginBottom: 4 }}>
+                                  {rx.medications && rx.medications.length > 0
+                                    ? `${rx.medications.length} Medication${rx.medications.length > 1 ? 's' : ''}`
+                                    : 'Prescription'}
                                 </div>
-                                <div style={{ textAlign: 'right', marginLeft: 16 }}>
-                                  <div style={{ fontFamily: mono, fontSize: 12, color: c.jadeD, whiteSpace: 'nowrap' }}>
-                                    📅 {rx.result_date || rx.ordered_date}
+                                {rx.pdf_url && (
+                                  <div style={{ fontSize: '.75rem', color: c.jadeD, cursor: 'pointer' }}>
+                                    📄 View PDF
                                   </div>
-                                </div>
+                                )}
                               </div>
 
-                              {open && meds.length > 0 && (
-                                <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(13,31,36,.14)' }}>
-                                  <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 8 }}>Medicines</div>
-                                  {meds.map((med: any, idx: number) => {
-                                    const mname = med.name || med.display || 'Medicine';
-                                    const detail = [med.value, med.unit, med.dosage, med.dose, med.strength, med.frequency, med.timing, med.duration, med.instructions].filter(Boolean).join(' · ');
-                                    return (
-                                      <div key={idx} style={{ marginBottom: 8, padding: 10, background: '#fbf9f4', borderRadius: 10 }}>
-                                        <div style={{ fontWeight: 600, fontSize: 15, color: c.ink }}>💊 {mname}</div>
-                                        {detail && <div style={{ fontSize: 13, color: '#4a5a5f', marginTop: 3 }}>{detail}</div>}
-                                      </div>
-                                    );
-                                  })}
+                              {/* RIGHT: Date */}
+                              <div style={{ textAlign: 'right', marginLeft: 16 }}>
+                                <div style={{ fontFamily: mono, fontSize: '.7rem', color: c.jadeD, whiteSpace: 'nowrap' }}>
+                                  📅 {rx.date}
                                 </div>
-                              )}
+                              </div>
                             </div>
+
+                            {/* Expanded Details */}
+                            {expandedRecordId === rx.id && rx.medications && rx.medications.length > 0 && (
+                              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(13,31,36,.10)' }}>
+                                <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.1em', textTransform: 'uppercase', opacity: .5, marginBottom: 8 }}>Medications</div>
+                                {rx.medications.map((med: any, idx: number) => (
+                                  <div key={idx} style={{ marginBottom: 12, padding: 12, background: '#fff', border: '1px solid rgba(13,31,36,.08)', borderRadius: 10 }}>
+                                    <div style={{ fontWeight: 600, fontSize: '.9rem', color: c.ink, marginBottom: 6 }}>
+                                      💊 {med.name || med.medication || 'Medication'}
+                                    </div>
+                                    {med.generic_name && (
+                                      <div style={{ fontSize: '.75rem', opacity: .6, marginBottom: 6 }}>
+                                        {med.generic_name}
+                                      </div>
+                                    )}
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: '.75rem', marginBottom: 8 }}>
+                                      {(med.dosage || med.dose) && (
+                                        <div>
+                                          <span style={{ opacity: .6 }}>Dosage:</span>{' '}
+                                          <span style={{ fontWeight: 600 }}>{med.dosage || med.dose}</span>
+                                        </div>
+                                      )}
+                                      {med.frequency && (
+                                        <div>
+                                          <span style={{ opacity: .6 }}>Frequency:</span>{' '}
+                                          <span style={{ fontWeight: 600 }}>{med.frequency || med.timing}</span>
+                                        </div>
+                                      )}
+                                      {med.duration && (
+                                        <div>
+                                          <span style={{ opacity: .6 }}>Duration:</span>{' '}
+                                          <span style={{ fontWeight: 600 }}>{med.duration}</span>
+                                        </div>
+                                      )}
+                                      {med.quantity && (
+                                        <div>
+                                          <span style={{ opacity: .6 }}>Quantity:</span>{' '}
+                                          <span style={{ fontWeight: 600 }}>{med.quantity}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                    {med.instructions && (
+                                      <div style={{ fontSize: '.75rem', padding: 8, background: 'rgba(216,162,74,.08)', borderRadius: 8, marginBottom: 6 }}>
+                                        <span style={{ fontWeight: 600, color: c.amberD }}>📋 Instructions: </span>
+                                        {med.instructions}
+                                      </div>
+                                    )}
+                                    {med.reason && (
+                                      <div style={{ fontSize: '.75rem', padding: 8, background: 'rgba(55,181,155,.08)', borderRadius: 8 }}>
+                                        <span style={{ fontWeight: 600, color: c.jadeD }}>ℹ️ Reason: </span>
+                                        {med.reason}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                                {rx.refillable && (
+                                  <div style={{ fontSize: '.75rem', padding: 8, background: 'rgba(90,143,168,.08)', borderRadius: 8, marginTop: 8 }}>
+                                    <span style={{ fontWeight: 600 }}>Refills remaining:</span> {rx.refills_remaining || 0}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
-                        );
-                      })}
+                        </div>
+                      ))}
                     </div>
                   )}
 
                   {/* Documents Section */}
                   {records.documents && records.documents.length > 0 && (
                     <div style={{ marginBottom: 24 }}>
-                      <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 12 }}>Documents & Reports</div>
+                      <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Documents & Reports</div>
 
                       {records.documents.map((doc: any) => (
                         <div
                           key={doc.id}
                           style={{
                             background: '#fff',
-                            border: '1px solid rgba(13,31,36,.14)',
+                            border: '1px solid rgba(13,31,36,.10)',
                             borderRadius: 13,
                             padding: 14,
                             marginBottom: 10,
@@ -1923,16 +1797,16 @@ export default function PAL() {
                           }}
                         >
                           <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 600, fontSize: 16, color: c.ink, marginBottom: 4 }}>
+                            <div style={{ fontWeight: 600, fontSize: '.9rem', color: c.ink, marginBottom: 4 }}>
                               📄 {doc.title}
                             </div>
-                            <div style={{ fontSize: 14, color: '#4a5a5f' }}>
+                            <div style={{ fontSize: '.75rem', opacity: .6 }}>
                               {doc.kind} • {(doc.size_bytes / 1024).toFixed(0)} KB
                             </div>
                           </div>
 
                           <div style={{ textAlign: 'right', marginLeft: 16 }}>
-                            <div style={{ fontFamily: mono, fontSize: 12, color: c.jadeD, whiteSpace: 'nowrap' }}>
+                            <div style={{ fontFamily: mono, fontSize: '.7rem', color: c.jadeD, whiteSpace: 'nowrap' }}>
                               📅 {doc.date}
                             </div>
                           </div>
@@ -1949,7 +1823,7 @@ export default function PAL() {
                     <div style={{ textAlign: 'center', padding: 40 }}>
                       <div style={{ fontSize: '3rem', marginBottom: 12 }}>📋</div>
                       <div style={{ fontFamily: serif, fontSize: '1.2rem', fontWeight: 300, marginBottom: 8 }}>No Records Yet</div>
-                      <div style={{ fontSize: 14, color: '#4a5a5f' }}>Your medical records will appear here</div>
+                      <div style={{ fontSize: '.8rem', opacity: .6 }}>Your medical records will appear here</div>
                     </div>
                   )}
                 </div>
@@ -1960,10 +1834,10 @@ export default function PAL() {
             {/* ===== HISTORY ===== */}
             {isHistory && <div>
               <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.5rem', margin: '12px 0 3px' }}>Your conversations</div>
-              <div style={{ fontSize: 14, color: '#4a5a5f', marginBottom: 13 }}>Saved so you can continue. Yours to delete.</div>
+              <div style={{ fontSize: '.8rem', opacity: .6, marginBottom: 13 }}>Saved so you can continue. Yours to delete.</div>
               <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 12, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 9, marginBottom: 16 }}>
-                <span style={{ color: ICON, display: 'grid', placeItems: 'center', flexShrink: 0 }} aria-hidden="true"><Search size={20} strokeWidth={2} /></span>
-                <input placeholder="Search your history…" className="pal-composer-input" style={{ border: 'none', outline: 'none', background: 'none', fontSize: 16, width: '100%', color: c.ink, fontFamily: sans }} />
+                <span style={{ color: c.jadeD, fontSize: '.9rem', opacity: .7 }}>⌕</span>
+                <input placeholder="Search your history…" style={{ border: 'none', outline: 'none', background: 'none', fontSize: '.85rem', width: '100%', color: c.ink, fontFamily: sans }} />
               </div>
 
               {/* Real threads from API */}
@@ -1978,18 +1852,18 @@ export default function PAL() {
                         setHistoryView('thread');
                         setRealTurns(null);
                         try { setRealTurns(await getConversationTurns(t.id)); } catch {}
-                      }} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 13, padding: 13, marginBottom: 9, position: 'relative', overflow: 'hidden', cursor: 'pointer' }}>
+                      }} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 13, padding: 13, marginBottom: 9, position: 'relative', overflow: 'hidden', cursor: 'pointer' }}>
                         <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: isP ? c.jade : c.mist }} />
-                        <div style={{ paddingLeft: 8, paddingRight: 22, fontFamily: serif, fontSize: 16, lineHeight: 1.35 }}>{t.title || 'Conversation'}</div>
+                        <div style={{ paddingLeft: 8, paddingRight: 22, fontFamily: serif, fontSize: '.94rem', lineHeight: 1.35 }}>{t.title || 'Conversation'}</div>
                         <div style={{ paddingLeft: 8, display: 'flex', alignItems: 'center', gap: 8, marginTop: 7 }}>
-                          <span style={{ fontFamily: mono, fontSize: 12, padding: '3px 8px', borderRadius: 10, display: 'inline-flex', alignItems: 'center', gap: 5, ...(isP ? {background:'rgba(55,181,155,.12)',color:c.jadeD} : {background:'rgba(13,31,36,.06)',color: '#4a5a5f'}) }}>
+                          <span style={{ fontFamily: mono, fontSize: '.55rem', padding: '3px 8px', borderRadius: 10, display: 'inline-flex', alignItems: 'center', gap: 5, ...(isP ? {background:'rgba(55,181,155,.12)',color:c.jadeD} : {background:'rgba(13,31,36,.06)',color:'rgba(13,31,36,.6)'}) }}>
                             <span style={{ width: 5, height: 5, borderRadius: '50%', flexShrink: 0, background: isP ? c.jade : c.mist, display: 'inline-block' }} />
                             {isP ? 'used your record' : 'general'}
                           </span>
-                          <span style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', marginLeft: 'auto' }}>{date}</span>
+                          <span style={{ fontFamily: mono, fontSize: '.55rem', opacity: .4, marginLeft: 'auto' }}>{date}</span>
                         </div>
                         <button onClick={async e => { e.stopPropagation(); await deleteConversation(t.id); setRealThreads(prev => prev ? prev.filter(x => x.id !== t.id) : null); }}
-                          style={{ position: 'absolute', top: 10, right: 10, border: 'none', background: 'none', fontSize: '.95rem', color: '#4a5a5f', cursor: 'pointer', padding: '2px 4px', lineHeight: 1 }}>⋯</button>
+                          style={{ position: 'absolute', top: 10, right: 10, border: 'none', background: 'none', fontSize: '.95rem', opacity: .28, cursor: 'pointer', padding: '2px 4px', lineHeight: 1 }}>⋯</button>
                       </div>
                     );
                   })}
@@ -1998,32 +1872,32 @@ export default function PAL() {
                 /* Fallback: demo threads */
                 tgOrder.map(grp => (
                   <div key={grp}>
-                    <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.12em', textTransform: 'uppercase', color: '#4a5a5f', margin: '14px 2px 9px' }}>{grp}</div>
+                    <div style={{ fontFamily: mono, fontSize: '.58rem', letterSpacing: '.12em', textTransform: 'uppercase', opacity: .45, margin: '14px 2px 9px' }}>{grp}</div>
                     {tgMap[grp].map((t, idx) => {
                       const threadIdx = THREADS.indexOf(t);
                       const isP = t.kind === 'personal';
                       return (
                         <div key={idx} onClick={() => { setActiveThread(threadIdx); setHistoryView('thread'); }}
-                          style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 13, padding: 13, marginBottom: 9, position: 'relative', overflow: 'hidden', cursor: 'pointer' }}>
+                          style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 13, padding: 13, marginBottom: 9, position: 'relative', overflow: 'hidden', cursor: 'pointer' }}>
                           <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: isP ? c.jade : c.mist }} />
-                          <div style={{ paddingLeft: 8, paddingRight: 22, fontFamily: serif, fontSize: 16, lineHeight: 1.35 }}>{t.title}</div>
+                          <div style={{ paddingLeft: 8, paddingRight: 22, fontFamily: serif, fontSize: '.94rem', lineHeight: 1.35 }}>{t.title}</div>
                           <div style={{ paddingLeft: 8, display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, flexWrap: 'wrap' }}>
-                            <span style={{ fontFamily: mono, fontSize: 12, padding: '3px 8px', borderRadius: 10, display: 'inline-flex', alignItems: 'center', gap: 5, ...(isP ? {background:'rgba(55,181,155,.12)',color:c.jadeD} : {background:'rgba(13,31,36,.06)',color: '#4a5a5f'}) }}>
+                            <span style={{ fontFamily: mono, fontSize: '.55rem', padding: '3px 8px', borderRadius: 10, display: 'inline-flex', alignItems: 'center', gap: 5, ...(isP ? {background:'rgba(55,181,155,.12)',color:c.jadeD} : {background:'rgba(13,31,36,.06)',color:'rgba(13,31,36,.6)'}) }}>
                               <span style={{ width: 5, height: 5, borderRadius: '50%', flexShrink: 0, background: isP ? c.jade : c.mist, display: 'inline-block' }} />
                               {isP ? 'used your record' : 'general'}
                             </span>
-                            {t.agents && <span style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f' }}>{t.agents}</span>}
-                            <span style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', marginLeft: 'auto' }}>{t.when}</span>
+                            {t.agents && <span style={{ fontFamily: mono, fontSize: '.55rem', opacity: .45 }}>{t.agents}</span>}
+                            <span style={{ fontFamily: mono, fontSize: '.55rem', opacity: .4, marginLeft: 'auto' }}>{t.when}</span>
                           </div>
                           <button onClick={e => { e.stopPropagation(); setActiveThread(threadIdx); setHistoryView('delete'); }}
-                            style={{ position: 'absolute', top: 10, right: 10, border: 'none', background: 'none', fontSize: '.95rem', color: '#4a5a5f', cursor: 'pointer', padding: '2px 4px', lineHeight: 1 }}>⋯</button>
+                            style={{ position: 'absolute', top: 10, right: 10, border: 'none', background: 'none', fontSize: '.95rem', opacity: .28, cursor: 'pointer', padding: '2px 4px', lineHeight: 1 }}>⋯</button>
                         </div>
                       );
                     })}
                   </div>
                 ))
               )}
-              <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', textAlign: 'center', margin: '8px 0 4px' }}>swipe a card left to delete · tap ⋯ for options</div>
+              <div style={{ fontFamily: mono, fontSize: '.54rem', opacity: .36, textAlign: 'center', margin: '8px 0 4px' }}>swipe a card left to delete · tap ⋯ for options</div>
             </div>}
 
             {/* ===== HISTORY THREAD ===== */}
@@ -2032,19 +1906,19 @@ export default function PAL() {
               const isRealThread = !!realConv;
               const threadIsPersonal = isRealThread ? realConv.scope_tag === 'personal' : isTPersonal;
               return <div>
-                <div style={{ fontFamily: mono, fontSize: 12, padding: '4px 9px', borderRadius: 9, display: 'inline-flex', alignItems: 'center', gap: 5, margin: '6px 0 12px', ...(threadIsPersonal ? {background:'rgba(55,181,155,.1)',color:c.jadeD} : {background:'rgba(13,31,36,.05)',color: '#4a5a5f'}) }}>
+                <div style={{ fontFamily: mono, fontSize: '.55rem', padding: '4px 9px', borderRadius: 9, display: 'inline-flex', alignItems: 'center', gap: 5, margin: '6px 0 12px', ...(threadIsPersonal ? {background:'rgba(55,181,155,.1)',color:c.jadeD} : {background:'rgba(13,31,36,.05)',color:'rgba(13,31,36,.55)'}) }}>
                   <span style={{ width: 5, height: 5, borderRadius: '50%', flexShrink: 0, background: threadIsPersonal ? c.jade : c.mist, display: 'inline-block' }} />
                   {threadIsPersonal ? 'used your record · consent active' : 'general · record not used'}
                 </div>
-                <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', textAlign: 'center', margin: '8px 0 10px' }}>— conversation —</div>
+                <div style={{ fontFamily: mono, fontSize: '.52rem', opacity: .38, textAlign: 'center', margin: '8px 0 10px' }}>— conversation —</div>
 
                 {/* Real turns from API */}
                 {isRealThread && realTurns ? (
                   realTurns.length === 0
-                    ? <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', textAlign: 'center', padding: '24px 0' }}>No messages yet</div>
+                    ? <div style={{ fontFamily: mono, fontSize: '.7rem', opacity: .5, textAlign: 'center', padding: '24px 0' }}>No messages yet</div>
                     : realTurns.map((turn, i) => turn.role === 'user'
-                        ? <div key={i} style={{ background: c.deep, color: c.paper, borderRadius: '14px 14px 4px 14px', padding: '10px 13px', fontSize: 16, maxWidth: '80%', marginLeft: 'auto', marginBottom: 9, fontFamily: serif }}>{turn.content}</div>
-                        : <div key={i} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: '14px 14px 14px 4px', padding: '12px 14px', maxWidth: '92%', marginBottom: 9, userSelect: 'text' }}><Markdown text={turn.content} /></div>
+                        ? <div key={i} style={{ background: c.deep, color: c.paper, borderRadius: '14px 14px 4px 14px', padding: '10px 13px', fontSize: '.88rem', maxWidth: '80%', marginLeft: 'auto', marginBottom: 9, fontFamily: serif }}>{turn.content}</div>
+                        : <div key={i} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: '14px 14px 14px 4px', padding: '11px 13px', fontSize: '.86rem', lineHeight: 1.55, maxWidth: '88%', marginBottom: 9 }}><Markdown text={turn.content} /></div>
                     )
                 ) : isRealThread && !realTurns ? (
                   <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0' }}>
@@ -2053,8 +1927,8 @@ export default function PAL() {
                 ) : (
                   /* Demo thread */
                   (activeT.msgs || []).map((msg: any, i: number) => msg.role === 'me'
-                    ? <div key={i} style={{ background: c.deep, color: c.paper, borderRadius: '14px 14px 4px 14px', padding: '10px 13px', fontSize: 16, maxWidth: '80%', marginLeft: 'auto', marginBottom: 9, fontFamily: serif }}>{msg.text}</div>
-                    : <div key={i} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: '14px 14px 14px 4px', padding: '11px 13px', fontSize: 15, lineHeight: 1.55, maxWidth: '88%', marginBottom: 9 }}>
+                    ? <div key={i} style={{ background: c.deep, color: c.paper, borderRadius: '14px 14px 4px 14px', padding: '10px 13px', fontSize: '.88rem', maxWidth: '80%', marginLeft: 'auto', marginBottom: 9, fontFamily: serif }}>{msg.text}</div>
+                    : <div key={i} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: '14px 14px 14px 4px', padding: '11px 13px', fontSize: '.86rem', lineHeight: 1.55, maxWidth: '88%', marginBottom: 9 }}>
                         {(msg.spans || []).map((sp: any, j: number) => <span key={j} style={sp.t==='self'?{color:c.jadeD,fontStyle:'italic'}:sp.t==='src'?{color:c.amberD,borderBottom:`1px dotted ${c.amber}`}:{}}>{sp.v}</span>)}
                       </div>
                   )
@@ -2064,26 +1938,26 @@ export default function PAL() {
                   <input value={continueText} onChange={e => setContinueText(e.target.value)}
                     placeholder="Continue this conversation…"
                     onKeyDown={e => { if (e.key === 'Enter' && continueText.trim()) { handleTextQuery(continueText.trim(), { convId: activeRealConvId || undefined }); setHistoryView(null); } }}
-                    style={{ border: 'none', outline: 'none', background: 'none', fontSize: 15, width: '100%', fontFamily: serif, color: c.ink }} />
-                  <div aria-hidden="true" style={{ width: 32, height: 32, borderRadius: 9, background: c.jadeD, color: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0 }}><Mic size={16} strokeWidth={2} /></div>
+                    style={{ border: 'none', outline: 'none', background: 'none', fontSize: '.86rem', width: '100%', fontFamily: serif, color: c.ink }} />
+                  <div style={{ width: 26, height: 26, borderRadius: 8, background: c.jade, color: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: '.78rem' }}>🎙</div>
                 </div>
-                <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', textAlign: 'center', marginTop: 9 }}>PAL remembers this thread&apos;s context — no need to re-explain.</div>
+                <div style={{ fontFamily: mono, fontSize: '.54rem', opacity: .38, textAlign: 'center', marginTop: 9 }}>PAL remembers this thread&apos;s context — no need to re-explain.</div>
               </div>;
             })()}
 
             {/* ===== VISITS ===== */}
             {isVisits && <div>
               <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.5rem', margin: '12px 0 3px' }}>Your visits</div>
-              <div style={{ fontSize: 14, color: '#4a5a5f', marginBottom: 16 }}>Every plan here comes from your care team.</div>
+              <div style={{ fontSize: '.8rem', opacity: .6, marginBottom: 16 }}>Every plan here comes from your care team.</div>
               {/* Booking / next-upcoming card (Hermes) */}
               <div style={{ background: 'linear-gradient(160deg,#13343b,#0c2429)', borderRadius: 14, padding: 15, color: c.paper, marginBottom: 14 }}>
-                <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.12em', textTransform: 'uppercase', color: c.jade, marginBottom: 9 }}>◷ upcoming{booked ? ' · confirmed ✓' : ''}</div>
+                <div style={{ fontFamily: mono, fontSize: '.58rem', letterSpacing: '.12em', textTransform: 'uppercase', color: c.jade, marginBottom: 9 }}>◷ upcoming{booked ? ' · confirmed ✓' : ''}</div>
                 {visits && visits.upcoming.length > 0 ? (
                   <>
                     <div style={{ fontFamily: serif, fontSize: '1.05rem' }}>
                       {visits.upcoming[0].reason} · {visits.upcoming[0].doctor_name || 'Doctor'}
                     </div>
-                    <div style={{ fontSize: 14, color: '#4a5a5f', marginTop: 3 }}>
+                    <div style={{ fontSize: '.76rem', opacity: .7, marginTop: 3 }}>
                       {[visits.upcoming[0].date, visits.upcoming[0].time, visits.upcoming[0].clinic_name].filter(Boolean).join(' · ')}
                     </div>
                   </>
@@ -2091,9 +1965,9 @@ export default function PAL() {
                   <div style={{ fontFamily: serif, fontSize: '1rem', opacity: .85 }}>No upcoming visits</div>
                 )}
                 <div style={{ display: 'flex', gap: 8, marginTop: 13 }}>
-                  <button style={{ flex: 1, fontFamily: sans, fontWeight: 600, fontSize: 13, padding: 9, borderRadius: 9, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer' }}>Prepare with PAL</button>
+                  <button style={{ flex: 1, fontFamily: sans, fontWeight: 600, fontSize: '.74rem', padding: 9, borderRadius: 9, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer' }}>Prepare with PAL</button>
                   <button onClick={() => setShowVoiceCall(true)}
-                    style={{ flex: 1, fontFamily: sans, fontWeight: 600, fontSize: 13, padding: 9, borderRadius: 9, border: 'none', background: 'rgba(55,181,155,.18)', color: c.jade, cursor: 'pointer' }}>
+                    style={{ flex: 1, fontFamily: sans, fontWeight: 600, fontSize: '.74rem', padding: 9, borderRadius: 9, border: 'none', background: 'rgba(55,181,155,.18)', color: c.jade, cursor: 'pointer' }}>
                     📞 Call Hermes AI
                   </button>
                 </div>
@@ -2101,39 +1975,39 @@ export default function PAL() {
                 {/* Voice booking proposal */}
                 {voiceBookingResult && !bookingConfirmed && (voiceBookingResult.available_slots.length > 0 || voiceBookingResult.proposed_actions.length > 0) && (
                   <div style={{ marginTop: 13 }}>
-                    <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.12em', textTransform: 'uppercase', color: c.jade, marginBottom: 8 }}>◷ available slots — confirm one</div>
+                    <div style={{ fontFamily: mono, fontSize: '.58rem', letterSpacing: '.12em', textTransform: 'uppercase', color: c.jade, marginBottom: 8 }}>◷ available slots — confirm one</div>
                     {voiceBookingResult.available_slots.slice(0, 3).map((slot, i) => {
                       const dt = new Date(slot.datetime);
                       const label = dt.toLocaleString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
                       return (
                         <div key={i} style={{ background: 'rgba(255,255,255,.08)', borderRadius: 10, padding: '10px 12px', marginBottom: 7, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <div>
-                            <div style={{ fontSize: 15, fontWeight: 600 }}>{slot.doctor_name}</div>
-                            <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', marginTop: 2 }}>{label} · {slot.clinic}</div>
+                            <div style={{ fontSize: '.82rem', fontWeight: 600 }}>{slot.doctor_name}</div>
+                            <div style={{ fontFamily: mono, fontSize: '.58rem', opacity: .7, marginTop: 2 }}>{label} · {slot.clinic}</div>
                           </div>
                           <button onClick={() => handleConfirmBooking(slot.slot_id)}
-                            style={{ fontFamily: sans, fontWeight: 600, fontSize: 13, padding: '7px 12px', borderRadius: 8, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer', flexShrink: 0 }}>
+                            style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 12px', borderRadius: 8, border: 'none', background: c.jade, color: c.deep2, cursor: 'pointer', flexShrink: 0 }}>
                             Confirm
                           </button>
                         </div>
                       );
                     })}
-                    <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', textAlign: 'center', marginTop: 6 }}>PAL never books without your explicit confirmation</div>
+                    <div style={{ fontFamily: mono, fontSize: '.54rem', opacity: .5, textAlign: 'center', marginTop: 6 }}>PAL never books without your explicit confirmation</div>
                   </div>
                 )}
                 {bookingConfirmed && (
-                  <div style={{ marginTop: 13, fontFamily: mono, fontSize: 12, color: c.jade }}>✓ Appointment requested — clinic will confirm</div>
+                  <div style={{ marginTop: 13, fontFamily: mono, fontSize: '.6rem', color: c.jade }}>✓ Appointment requested — clinic will confirm</div>
                 )}
               </div>
 
               {/* Real visits — tap a visit to see its prescription */}
-              {visitsLoading && <div style={{ color: '#4a5a5f', fontSize: 15, margin: '8px 2px' }}>Loading visits…</div>}
+              {visitsLoading && <div style={{ opacity: .6, fontSize: '.85rem', margin: '8px 2px' }}>Loading visits…</div>}
 
               {visits && [...visits.upcoming, ...visits.past].length === 0 && !visitsLoading && (
-                <div style={{ textAlign: 'center', marginTop: 28, color: '#4a5a5f' }}>
+                <div style={{ textAlign: 'center', marginTop: 28, opacity: .65 }}>
                   <div style={{ fontSize: '1.6rem', marginBottom: 8 }}>🗓️</div>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: c.ink }}>No visits yet</div>
-                  <div style={{ fontSize: 14, marginTop: 4 }}>Your booked appointments will appear here.</div>
+                  <div style={{ fontSize: '.9rem', fontWeight: 600, color: c.ink }}>No visits yet</div>
+                  <div style={{ fontSize: '.78rem', marginTop: 4 }}>Your booked appointments will appear here.</div>
                 </div>
               )}
 
@@ -2142,79 +2016,61 @@ export default function PAL() {
                 const all = [...visits.upcoming, ...visits.past];
                 return (
                   <>
-                    <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a5a5f', margin: '14px 2px 10px' }}>Your visits</div>
+                    <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '14px 2px 10px' }}>Your visits</div>
                     {all.map((v: any, idx: number) => {
                       const docName = v.doctor_name || 'Doctor';
                       const initial = docName.replace(/^Dr\.?\s*/i, '').charAt(0).toUpperCase() || 'D';
                       const open = expandedVisitId === v.id;
                       const meds: any[] = Array.isArray(v.medications) ? v.medications : [];
                       return (
-                        <div key={v.id} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 14, marginBottom: 11, overflow: 'hidden' }}>
+                        <div key={v.id} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, marginBottom: 11, overflow: 'hidden' }}>
                           <button onClick={() => setExpandedVisitId(open ? null : v.id)}
                             style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: 14, cursor: 'pointer' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-                              <div style={{ width: 38, height: 38, borderRadius: 11, display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 700, fontSize: 15, flexShrink: 0, background: DOCTOR_GRADS[idx % DOCTOR_GRADS.length] }}>{initial}</div>
+                              <div style={{ width: 38, height: 38, borderRadius: 11, display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 700, fontSize: '.85rem', flexShrink: 0, background: DOCTOR_GRADS[idx % DOCTOR_GRADS.length] }}>{initial}</div>
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontWeight: 600, fontSize: 16, color: c.ink }}>{docName}</div>
-                                <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', marginTop: 2 }}>
+                                <div style={{ fontWeight: 600, fontSize: '.9rem', color: c.ink }}>{docName}</div>
+                                <div style={{ fontFamily: mono, fontSize: '.58rem', opacity: .55, marginTop: 2 }}>
                                   {v.reason}{v.clinic_name ? ` · ${v.clinic_name}` : ''}
                                 </div>
                               </div>
                               <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                <div style={{ fontWeight: 600, fontSize: 14, color: c.ink }}>{v.date || '—'}</div>
-                                <div style={{ fontFamily: mono, fontSize: 12, color: c.jadeD }}>{open ? 'close ▲' : 'open ▾'}</div>
+                                <div style={{ fontWeight: 600, fontSize: '.78rem', color: c.ink }}>{v.date || '—'}</div>
+                                <div style={{ fontFamily: mono, fontSize: '.58rem', color: c.jadeD }}>{open ? 'close ▲' : 'open ▾'}</div>
                               </div>
                             </div>
                           </button>
 
                           {open && (
-                            <div style={{ borderTop: '1px solid rgba(13,31,36,.14)', padding: 14, background: 'rgba(13,31,36,.015)' }}>
-                              {/* Pre-visit interview */}
-                              {(() => {
-                                if (!v.previsit_url) return null;
-                                const isDone = v.previsit_status === 'completed' || previsitDone[v.id];
-                                if (isDone) {
-                                  return (
-                                    <div style={{ marginBottom: 14, background: 'rgba(55,181,155,.1)', border: '1px solid rgba(55,181,155,.35)', borderRadius: 11, padding: '11px 13px', color: c.jadeD, fontSize: 13, fontWeight: 600 }}>
-                                      ✓ Your pre-visit interview is done
-                                    </div>
-                                  );
-                                }
-                                // Window closes the day of the appointment — last day to submit is
-                                // the day before. Show only while the appointment is still in the future.
-                                const today = new Date(); today.setHours(0, 0, 0, 0);
-                                const appt = v.date ? new Date(v.date) : null;
-                                if (appt) appt.setHours(0, 0, 0, 0);
-                                const windowOpen = !!appt && !isNaN(appt.getTime()) && appt.getTime() > today.getTime();
-                                if (!windowOpen) return null;
-                                return (
-                                  <div style={{ marginBottom: 14 }}>
-                                    <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: c.jadeD, marginBottom: 8 }}>Pre-visit interview</div>
-                                    <PrevisitSlider url={v.previsit_url} onComplete={() => completePrevisit(v.id)} />
-                                    <div style={{ fontSize: 12.5, color: '#4a5a5f', marginTop: 6, textAlign: 'center' }}>Takes 3–5 minutes · helps the doctor prepare</div>
-                                  </div>
-                                );
-                              })()}
+                            <div style={{ borderTop: '1px solid rgba(13,31,36,.08)', padding: 14, background: 'rgba(13,31,36,.015)' }}>
+                              {/* Pre-visit interview — slide to open the public link */}
+                              {v.previsit_url && v.previsit_status !== 'completed' && (
+                                <div style={{ marginBottom: 14 }}>
+                                  <div style={{ fontFamily: mono, fontSize: '.56rem', letterSpacing: '.1em', textTransform: 'uppercase', color: c.jadeD, marginBottom: 8 }}>Pre-visit interview</div>
+                                  <PrevisitSlider url={v.previsit_url} />
+                                  <div style={{ fontSize: '.68rem', opacity: .55, marginTop: 6, textAlign: 'center' }}>Takes 3–5 minutes · helps the doctor prepare</div>
+                                </div>
+                              )}
                               {v.has_prescription ? (
                                 <>
                                   {(v.patient_summary || v.management_plan) && (
-                                    <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 11, padding: 12, marginBottom: 11 }}>
-                                      <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: c.jadeD, marginBottom: 6 }}>Care plan</div>
-                                      <div style={{ fontSize: 15, lineHeight: 1.5, color: c.ink }}>{v.patient_summary || v.management_plan}</div>
+                                    <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 11, padding: 12, marginBottom: 11 }}>
+                                      <div style={{ fontFamily: mono, fontSize: '.56rem', letterSpacing: '.1em', textTransform: 'uppercase', color: c.jadeD, marginBottom: 6 }}>Care plan</div>
+                                      <div style={{ fontSize: '.82rem', lineHeight: 1.5, color: c.ink }}>{v.patient_summary || v.management_plan}</div>
                                     </div>
                                   )}
                                   {meds.length > 0 && (
                                     <>
-                                      <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: '#4a5a5f', margin: '4px 2px 8px' }}>Prescription</div>
+                                      <div style={{ fontFamily: mono, fontSize: '.56rem', letterSpacing: '.1em', textTransform: 'uppercase', opacity: .5, margin: '4px 2px 8px' }}>Prescription</div>
                                       {meds.map((m: any, i: number) => {
                                         const name = m.name || m.drug_name || m.medication || m.medicine_name || 'Medicine';
-                                        const info = [m.strength, m.dose, m.dosage, m.form, m.frequency, m.timing, m.duration, m.instructions].filter(Boolean).join(' · ');
+                                        const info = [m.dosage, m.strength, m.frequency, m.duration, m.instructions].filter(Boolean).join(' · ');
                                         return (
-                                          <div key={i} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 11, padding: '10px 12px', marginBottom: 8, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                                            <span style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(55,181,155,.14)', color: c.jadeD, display: 'grid', placeItems: 'center', fontSize: 14, flexShrink: 0 }}>℞</span>
+                                          <div key={i} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 11, padding: '10px 12px', marginBottom: 8, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                                            <span style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(55,181,155,.14)', color: c.jadeD, display: 'grid', placeItems: 'center', fontSize: '.8rem', flexShrink: 0 }}>℞</span>
                                             <div style={{ flex: 1, minWidth: 0 }}>
-                                              <div style={{ fontSize: 15, fontWeight: 600, color: c.ink }}>{name}</div>
-                                              {info && <div style={{ fontSize: 13, color: '#4a5a5f', marginTop: 2 }}>{info}</div>}
+                                              <div style={{ fontSize: '.84rem', fontWeight: 600, color: c.ink }}>{name}</div>
+                                              {info && <div style={{ fontSize: '.74rem', opacity: .65, marginTop: 2 }}>{info}</div>}
                                             </div>
                                           </div>
                                         );
@@ -2222,7 +2078,7 @@ export default function PAL() {
                                     </>
                                   )}
                                   {v.lab_tests && v.lab_tests.length > 0 && (
-                                    <div style={{ marginTop: 8, fontSize: 13, color: '#4a5a5f' }}>
+                                    <div style={{ marginTop: 8, fontSize: '.74rem', opacity: .7 }}>
                                       🧪 {v.lab_tests.length} lab result{v.lab_tests.length > 1 ? 's' : ''} attached
                                     </div>
                                   )}
@@ -2230,8 +2086,8 @@ export default function PAL() {
                               ) : (
                                 <div style={{ textAlign: 'center', padding: '14px 0', color: c.ink }}>
                                   <div style={{ fontSize: '1.3rem', marginBottom: 6 }}>📋</div>
-                                  <div style={{ fontSize: 15, fontWeight: 600 }}>No prescription</div>
-                                  <div style={{ fontSize: 13, color: '#4a5a5f', marginTop: 3 }}>
+                                  <div style={{ fontSize: '.84rem', fontWeight: 600 }}>No prescription</div>
+                                  <div style={{ fontSize: '.74rem', opacity: .6, marginTop: 3 }}>
                                     {v.status && v.status.toLowerCase().includes('schedul')
                                       ? 'The consultation hasn’t happened yet.'
                                       : 'No prescription was recorded for this visit.'}
@@ -2247,20 +2103,20 @@ export default function PAL() {
                 );
               })()}
 
-              <div style={{ display: 'flex', gap: 11, alignItems: 'center', background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 14, padding: '12px 14px', marginTop: 8 }}>
-                <span style={{ fontFamily: mono, fontSize: 12, background: 'rgba(90,143,168,.14)', color: c.blueD, padding: '3px 8px', borderRadius: 10, whiteSpace: 'nowrap' }}>⛁ clinician-canonical</span>
-                <span style={{ fontSize: 13, color: '#4a5a5f' }}>Plans are your team&apos;s own words — never altered by AI.</span>
+              <div style={{ display: 'flex', gap: 11, alignItems: 'center', background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, padding: '12px 14px', marginTop: 8 }}>
+                <span style={{ fontFamily: mono, fontSize: '.55rem', background: 'rgba(90,143,168,.14)', color: c.blueD, padding: '3px 8px', borderRadius: 10, whiteSpace: 'nowrap' }}>⛁ clinician-canonical</span>
+                <span style={{ fontSize: '.74rem', opacity: .65 }}>Plans are your team&apos;s own words — never altered by AI.</span>
               </div>
             </div>}
 
             {/* ===== PROFILE ===== */}
             {isProfile && <div>
               <div style={{ fontFamily: serif, fontWeight: 300, fontSize: '1.5rem', margin: '12px 0 3px' }}>Your Profile</div>
-              <div style={{ fontSize: 14, color: '#4a5a5f', marginBottom: 16 }}>Manage your health information</div>
+              <div style={{ fontSize: '.8rem', opacity: .6, marginBottom: 16 }}>Manage your health information</div>
 
               {profileLoading && (
                 <div style={{ textAlign: 'center', padding: 40 }}>
-                  <div style={{ fontSize: 16, color: '#4a5a5f' }}>Loading profile...</div>
+                  <div style={{ fontSize: '.9rem', opacity: .6 }}>Loading profile...</div>
                 </div>
               )}
 
@@ -2268,10 +2124,10 @@ export default function PAL() {
                 <div style={{ background: 'linear-gradient(160deg,rgba(55,181,155,.12),rgba(55,181,155,.03))', border: '1px solid rgba(55,181,155,.3)', borderRadius: 14, padding: 20, marginBottom: 14, textAlign: 'center' }}>
                   <div style={{ fontSize: '3rem', marginBottom: 12 }}>👤</div>
                   <div style={{ fontFamily: serif, fontSize: '1.2rem', fontWeight: 300, marginBottom: 8 }}>Create Your Profile</div>
-                  <div style={{ fontSize: 14, color: '#4a5a5f', marginBottom: 16 }}>Add your health information to access all features</div>
+                  <div style={{ fontSize: '.8rem', opacity: .7, marginBottom: 16 }}>Add your health information to access all features</div>
                   <button
                     onClick={() => router.push('/profile/create')}
-                    style={{ fontFamily: sans, fontWeight: 600, fontSize: 15, padding: '12px 24px', borderRadius: 11, border: 'none', background: c.jade, color: '#fff', cursor: 'pointer' }}>
+                    style={{ fontFamily: sans, fontWeight: 600, fontSize: '.85rem', padding: '12px 24px', borderRadius: 11, border: 'none', background: c.jade, color: '#fff', cursor: 'pointer' }}>
                     Create Profile
                   </button>
                 </div>
@@ -2280,70 +2136,70 @@ export default function PAL() {
               {!profileLoading && patientProfile && (
                 <>
                   {/* Personal Information */}
-                  <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
-                    <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 12 }}>Personal Information</div>
+                  <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+                    <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Personal Information</div>
 
                     <div style={{ marginBottom: 10 }}>
-                      <div style={{ fontSize: 13, color: '#4a5a5f', marginBottom: 2 }}>Full Name</div>
-                      <div style={{ fontSize: 16, fontWeight: 500 }}>{patientProfile.full_name || 'Not set'}</div>
+                      <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Full Name</div>
+                      <div style={{ fontSize: '.9rem', fontWeight: 500 }}>{patientProfile.full_name || 'Not set'}</div>
                     </div>
 
                     {patientProfile.phone && (
                       <div style={{ marginBottom: 10 }}>
-                        <div style={{ fontSize: 13, color: '#4a5a5f', marginBottom: 2 }}>Phone</div>
-                        <div style={{ fontSize: 15 }}>{patientProfile.phone}</div>
+                        <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Phone</div>
+                        <div style={{ fontSize: '.85rem' }}>{patientProfile.phone}</div>
                       </div>
                     )}
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
                       <div>
-                        <div style={{ fontSize: 13, color: '#4a5a5f', marginBottom: 2 }}>Date of Birth</div>
-                        <div style={{ fontSize: 15 }}>{patientProfile.date_of_birth || 'Not set'}</div>
+                        <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Date of Birth</div>
+                        <div style={{ fontSize: '.85rem' }}>{patientProfile.date_of_birth || 'Not set'}</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 13, color: '#4a5a5f', marginBottom: 2 }}>Gender</div>
-                        <div style={{ fontSize: 15 }}>{patientProfile.gender || 'Not set'}</div>
+                        <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Gender</div>
+                        <div style={{ fontSize: '.85rem' }}>{patientProfile.gender || 'Not set'}</div>
                       </div>
                     </div>
 
                     {patientProfile.blood_group && (
                       <div style={{ marginBottom: 10 }}>
-                        <div style={{ fontSize: 13, color: '#4a5a5f', marginBottom: 2 }}>Blood Group</div>
-                        <div style={{ fontSize: 15 }}>{patientProfile.blood_group}</div>
+                        <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Blood Group</div>
+                        <div style={{ fontSize: '.85rem' }}>{patientProfile.blood_group}</div>
                       </div>
                     )}
 
                     {patientProfile.address && (
                       <div style={{ marginBottom: 10 }}>
-                        <div style={{ fontSize: 13, color: '#4a5a5f', marginBottom: 2 }}>Address</div>
-                        <div style={{ fontSize: 15 }}>{patientProfile.address}</div>
+                        <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Address</div>
+                        <div style={{ fontSize: '.85rem' }}>{patientProfile.address}</div>
                       </div>
                     )}
                   </div>
 
                   {/* Healthcare IDs */}
                   {(patientProfile.mrn || patientProfile.abha_id || patientProfile.abha_address) && (
-                    <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
-                      <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 12 }}>Healthcare IDs</div>
+                    <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+                      <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Healthcare IDs</div>
 
                       {patientProfile.mrn && (
                         <div style={{ marginBottom: 10 }}>
-                          <div style={{ fontSize: 13, color: '#4a5a5f', marginBottom: 2 }}>MRN</div>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>MRN</div>
                           <div style={{ fontSize: '.85rem', fontFamily: mono }}>{patientProfile.mrn}</div>
                         </div>
                       )}
 
                       {patientProfile.abha_id && (
                         <div style={{ marginBottom: 10 }}>
-                          <div style={{ fontSize: 13, color: '#4a5a5f', marginBottom: 2 }}>ABHA ID</div>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>ABHA ID</div>
                           <div style={{ fontSize: '.85rem', fontFamily: mono }}>{patientProfile.abha_id}</div>
                         </div>
                       )}
 
                       {patientProfile.abha_address && (
                         <div style={{ marginBottom: 10 }}>
-                          <div style={{ fontSize: 13, color: '#4a5a5f', marginBottom: 2 }}>ABHA Address</div>
-                          <div style={{ fontSize: 15 }}>{patientProfile.abha_address}</div>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>ABHA Address</div>
+                          <div style={{ fontSize: '.85rem' }}>{patientProfile.abha_address}</div>
                         </div>
                       )}
                     </div>
@@ -2351,27 +2207,27 @@ export default function PAL() {
 
                   {/* Medical Information */}
                   {(patientProfile.allergies || patientProfile.chronic_conditions || patientProfile.current_medications) && (
-                    <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
-                      <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 12 }}>Medical Information</div>
+                    <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+                      <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Medical Information</div>
 
                       {patientProfile.allergies && (
                         <div style={{ marginBottom: 10 }}>
-                          <div style={{ fontSize: 13, color: '#4a5a5f', marginBottom: 2 }}>Allergies</div>
-                          <div style={{ fontSize: 15, lineHeight: 1.4 }}>{patientProfile.allergies}</div>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Allergies</div>
+                          <div style={{ fontSize: '.85rem', lineHeight: 1.4 }}>{patientProfile.allergies}</div>
                         </div>
                       )}
 
                       {patientProfile.chronic_conditions && (
                         <div style={{ marginBottom: 10 }}>
-                          <div style={{ fontSize: 13, color: '#4a5a5f', marginBottom: 2 }}>Chronic Conditions</div>
-                          <div style={{ fontSize: 15, lineHeight: 1.4 }}>{patientProfile.chronic_conditions}</div>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Chronic Conditions</div>
+                          <div style={{ fontSize: '.85rem', lineHeight: 1.4 }}>{patientProfile.chronic_conditions}</div>
                         </div>
                       )}
 
                       {patientProfile.current_medications && (
                         <div style={{ marginBottom: 10 }}>
-                          <div style={{ fontSize: 13, color: '#4a5a5f', marginBottom: 2 }}>Current Medications</div>
-                          <div style={{ fontSize: 15, lineHeight: 1.4 }}>{patientProfile.current_medications}</div>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Current Medications</div>
+                          <div style={{ fontSize: '.85rem', lineHeight: 1.4 }}>{patientProfile.current_medications}</div>
                         </div>
                       )}
                     </div>
@@ -2379,27 +2235,27 @@ export default function PAL() {
 
                   {/* Emergency Contact */}
                   {patientProfile.emergency_contact && (
-                    <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
-                      <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 12 }}>Emergency Contact</div>
+                    <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+                      <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Emergency Contact</div>
 
                       {patientProfile.emergency_contact.name && (
                         <div style={{ marginBottom: 10 }}>
-                          <div style={{ fontSize: 13, color: '#4a5a5f', marginBottom: 2 }}>Name</div>
-                          <div style={{ fontSize: 15 }}>{patientProfile.emergency_contact.name}</div>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Name</div>
+                          <div style={{ fontSize: '.85rem' }}>{patientProfile.emergency_contact.name}</div>
                         </div>
                       )}
 
                       {patientProfile.emergency_contact.relationship && (
                         <div style={{ marginBottom: 10 }}>
-                          <div style={{ fontSize: 13, color: '#4a5a5f', marginBottom: 2 }}>Relationship</div>
-                          <div style={{ fontSize: 15 }}>{patientProfile.emergency_contact.relationship}</div>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Relationship</div>
+                          <div style={{ fontSize: '.85rem' }}>{patientProfile.emergency_contact.relationship}</div>
                         </div>
                       )}
 
                       {patientProfile.emergency_contact.phone && (
                         <div style={{ marginBottom: 10 }}>
-                          <div style={{ fontSize: 13, color: '#4a5a5f', marginBottom: 2 }}>Phone</div>
-                          <div style={{ fontSize: 15 }}>{patientProfile.emergency_contact.phone}</div>
+                          <div style={{ fontSize: '.72rem', opacity: .6, marginBottom: 2 }}>Phone</div>
+                          <div style={{ fontSize: '.85rem' }}>{patientProfile.emergency_contact.phone}</div>
                         </div>
                       )}
                     </div>
@@ -2408,23 +2264,23 @@ export default function PAL() {
                   {/* Edit Profile Button */}
                   <button
                     onClick={() => router.push('/profile/create')}
-                    style={{ width: '100%', fontFamily: sans, fontWeight: 600, fontSize: 14, padding: 10, borderRadius: 10, border: 'none', background: c.jade, color: '#fff', cursor: 'pointer', marginBottom: 14 }}>
+                    style={{ width: '100%', fontFamily: sans, fontWeight: 600, fontSize: '.78rem', padding: 10, borderRadius: 10, border: 'none', background: c.jade, color: '#fff', cursor: 'pointer', marginBottom: 14 }}>
                     Edit Profile
                   </button>
                 </>
               )}
 
               {/* Account Section */}
-              <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 14, padding: 16 }}>
-                <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a5a5f', marginBottom: 12 }}>Account</div>
+              <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 14, padding: 16 }}>
+                <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, marginBottom: 12 }}>Account</div>
                 <button
                   onClick={() => setSettingsOpen(true)}
-                  style={{ width: '100%', textAlign: 'left', fontFamily: sans, fontSize: 15, padding: 10, borderRadius: 10, border: '1px solid rgba(13,31,36,.14)', background: '#fff', cursor: 'pointer', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, color: c.ink }}>
-                  <Settings size={20} strokeWidth={2} color={ICON} aria-hidden="true" /> Settings
+                  style={{ width: '100%', textAlign: 'left', fontFamily: sans, fontSize: '.85rem', padding: 10, borderRadius: 10, border: '1px solid rgba(13,31,36,.10)', background: '#fff', cursor: 'pointer', marginBottom: 8 }}>
+                  ⚙️ Settings
                 </button>
                 <button
                   onClick={() => setSignOutConfirmOpen(true)}
-                  style={{ width: '100%', textAlign: 'left', fontFamily: sans, fontSize: 15, padding: 10, borderRadius: 10, border: '1px solid rgba(194,103,94,.3)', background: 'rgba(194,103,94,.05)', color: c.rose, cursor: 'pointer' }}>
+                  style={{ width: '100%', textAlign: 'left', fontFamily: sans, fontSize: '.85rem', padding: 10, borderRadius: 10, border: '1px solid rgba(194,103,94,.3)', background: 'rgba(194,103,94,.05)', color: c.rose, cursor: 'pointer' }}>
                   🚪 Sign Out
                 </button>
               </div>
@@ -2434,32 +2290,32 @@ export default function PAL() {
             {isCarePlan && <div>
               <div style={{ background: 'linear-gradient(160deg,rgba(90,143,168,.12),rgba(90,143,168,.03))', border: '1px solid rgba(90,143,168,.3)', borderRadius: 16, padding: 16, margin: '8px 0 14px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 8 }}>
-                  <div style={{ width: 34, height: 34, borderRadius: 11, display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 700, fontSize: 15, flexShrink: 0, background: 'linear-gradient(150deg,#5a8fa8,#33607a)' }}>R</div>
+                  <div style={{ width: 34, height: 34, borderRadius: 11, display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 700, fontSize: '.85rem', flexShrink: 0, background: 'linear-gradient(150deg,#5a8fa8,#33607a)' }}>R</div>
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: 16 }}>Dr. Rao</div>
-                    <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f' }}>Physician · City Clinic OPD</div>
+                    <div style={{ fontWeight: 600, fontSize: '.9rem' }}>Dr. Rao</div>
+                    <div style={{ fontFamily: mono, fontSize: '.58rem', opacity: .6 }}>Physician · City Clinic OPD</div>
                   </div>
                 </div>
                 <div style={{ fontFamily: serif, fontSize: '1.05rem', lineHeight: 1.4, marginTop: 6, color: c.ink }}>Lower LDL toward &lt;100 mg/dL over 12 weeks, keep BP in range.</div>
-                <div style={{ fontFamily: mono, fontSize: 12, color: c.blueD, marginTop: 10 }}>⛁ clinician-canonical · signed 12 May · review at next visit</div>
+                <div style={{ fontFamily: mono, fontSize: '.56rem', color: c.blueD, marginTop: 10 }}>⛁ clinician-canonical · signed 12 May · review at next visit</div>
               </div>
-              <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a5a5f', margin: '14px 2px 10px' }}>Your plan</div>
+              <div style={{ fontFamily: mono, fontSize: '.62rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '14px 2px 10px' }}>Your plan</div>
               {careItems.map((it, i) => (
-                <div key={i} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 13, padding: '13px 14px', marginBottom: 9, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                <div key={i} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 13, padding: '13px 14px', marginBottom: 9, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                   <div style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', fontSize: '.85rem', flexShrink: 0, ...(it.picType==='med'?{background:'rgba(55,181,155,.14)',color:c.jadeD}:it.picType==='tar'?{background:'rgba(90,143,168,.14)',color:c.blueD}:{background:'rgba(216,162,74,.16)',color:c.amberD}) }}>{it.pic}</div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 15 }}>{it.nm}</div>
-                    <div style={{ fontSize: 14, color: '#4a5a5f', marginTop: 3, lineHeight: 1.45 }}>{it.dt}</div>
-                    {it.tag && <div style={{ fontFamily: mono, fontSize: 12, marginTop: 7, color: '#4a5a5f' }}>{it.tag}</div>}
+                    <div style={{ fontWeight: 600, fontSize: '.85rem' }}>{it.nm}</div>
+                    <div style={{ fontSize: '.76rem', opacity: .72, marginTop: 3, lineHeight: 1.45 }}>{it.dt}</div>
+                    {it.tag && <div style={{ fontFamily: mono, fontSize: '.55rem', marginTop: 7, opacity: .6 }}>{it.tag}</div>}
                   </div>
-                  <span style={{ fontFamily: mono, fontSize: 12, color: c.jadeD, background: 'rgba(55,181,155,.12)', padding: '4px 8px', borderRadius: 8, whiteSpace: 'nowrap' }}>{it.track}</span>
+                  <span style={{ fontFamily: mono, fontSize: '.58rem', color: c.jadeD, background: 'rgba(55,181,155,.12)', padding: '4px 8px', borderRadius: 8, whiteSpace: 'nowrap' }}>{it.track}</span>
                 </div>
               ))}
               <div style={{ background: 'rgba(55,181,155,.06)', border: '1px solid rgba(55,181,155,.3)', borderRadius: 13, padding: '13px 14px', marginTop: 8, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                <div style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', fontSize: 15, flexShrink: 0, background: 'rgba(55,181,155,.14)', color: c.jadeD }}>✶</div>
+                <div style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', fontSize: '.85rem', flexShrink: 0, background: 'rgba(55,181,155,.14)', color: c.jadeD }}>✶</div>
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: 15 }}>PAL keeps this plan alive</div>
-                  <div style={{ fontSize: 14, color: '#4a5a5f', marginTop: 3, lineHeight: 1.45 }}>Gentle reminders for your medicine and walks, and a nudge before your recheck — all from this plan, never invented.</div>
+                  <div style={{ fontWeight: 600, fontSize: '.85rem' }}>PAL keeps this plan alive</div>
+                  <div style={{ fontSize: '.76rem', opacity: .72, marginTop: 3, lineHeight: 1.45 }}>Gentle reminders for your medicine and walks, and a nudge before your recheck — all from this plan, never invented.</div>
                 </div>
               </div>
             </div>}
@@ -2468,33 +2324,33 @@ export default function PAL() {
             {isNutrition && <div>
               <div style={{ background: 'linear-gradient(160deg,rgba(55,181,155,.12),rgba(55,181,155,.03))', border: '1px solid rgba(55,181,155,.3)', borderRadius: 16, padding: 16, margin: '8px 0 14px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 8 }}>
-                  <div style={{ width: 34, height: 34, borderRadius: 11, display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 700, fontSize: 15, flexShrink: 0, background: 'linear-gradient(150deg,#37b59b,#1f7d6b)' }}>S</div>
+                  <div style={{ width: 34, height: 34, borderRadius: 11, display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 700, fontSize: '.85rem', flexShrink: 0, background: 'linear-gradient(150deg,#37b59b,#1f7d6b)' }}>S</div>
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: 16 }}>Sneha</div>
-                    <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f' }}>Nutritionist · iNutriMon</div>
+                    <div style={{ fontWeight: 600, fontSize: '.9rem' }}>Sneha</div>
+                    <div style={{ fontFamily: mono, fontSize: '.58rem', opacity: .6 }}>Nutritionist · iNutriMon</div>
                   </div>
                 </div>
                 <div style={{ fontFamily: serif, fontSize: '1.05rem', lineHeight: 1.4, marginTop: 4 }}>Mediterranean-style, lower saturated fat — built around your LDL of 162.</div>
-                <div style={{ fontFamily: mono, fontSize: 12, color: c.jadeD, marginTop: 10 }}>⛁ clinician-canonical · aligned to Dr. Rao&apos;s plan</div>
+                <div style={{ fontFamily: mono, fontSize: '.56rem', color: c.jadeD, marginTop: 10 }}>⛁ clinician-canonical · aligned to Dr. Rao&apos;s plan</div>
               </div>
               <div style={{ display: 'flex', gap: 6, marginBottom: 13, overflowX: 'auto' }}>
                 {['M','T','W','T','F','S','S'].map((d, i) => (
-                  <div key={i} style={{ flexShrink: 0, width: 40, textAlign: 'center', padding: '8px 0', borderRadius: 10, fontFamily: mono, fontSize: 12, ...(i===0?{background:c.jadeD,color:'#fff'}:{background:'transparent',color: '#4a5a5f'}) }}>
-                    <span style={{ fontSize: 15, fontWeight: 700, display: 'block' }}>{d}</span>
+                  <div key={i} style={{ flexShrink: 0, width: 40, textAlign: 'center', padding: '8px 0', borderRadius: 10, fontFamily: mono, fontSize: '.6rem', ...(i===0?{background:c.jadeD,color:'#fff'}:{background:'transparent',color:'rgba(13,31,36,.4)'}) }}>
+                    <span style={{ fontSize: '.85rem', fontWeight: 700, display: 'block' }}>{d}</span>
                   </div>
                 ))}
               </div>
               {MEALS.map((m, i) => (
-                <div key={i} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.14)', borderRadius: 13, padding: 13, marginBottom: 9 }}>
+                <div key={i} style={{ background: '#fff', border: '1px solid rgba(13,31,36,.10)', borderRadius: 13, padding: 13, marginBottom: 9 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: c.jadeD }}>{m.mt}</span>
-                    <span style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f' }}>{m.mc}</span>
+                    <span style={{ fontFamily: mono, fontSize: '.58rem', letterSpacing: '.1em', textTransform: 'uppercase', color: c.jadeD }}>{m.mt}</span>
+                    <span style={{ fontFamily: mono, fontSize: '.58rem', opacity: .5 }}>{m.mc}</span>
                   </div>
                   <div style={{ fontFamily: serif, fontSize: '1rem' }}>{m.mn}</div>
-                  <div style={{ fontSize: 13, color: '#4a5a5f', marginTop: 5, lineHeight: 1.4 }}>
+                  <div style={{ fontSize: '.72rem', opacity: .7, marginTop: 5, lineHeight: 1.4 }}>
                     {m.why.map((w: any, j: number) => <span key={j} style={(w as any).b ? {color:c.jadeD,fontWeight:600} : {}}>{(w as any).b || (w as any).t}</span>)}
                   </div>
-                  <div style={{ fontFamily: mono, fontSize: 12, color: c.jadeD, marginTop: 9, display: 'inline-flex', gap: 6, alignItems: 'center' }}>◷ recipe &amp; method →</div>
+                  <div style={{ fontFamily: mono, fontSize: '.66rem', color: c.jadeD, marginTop: 9, display: 'inline-flex', gap: 6, alignItems: 'center' }}>◷ recipe &amp; method →</div>
                 </div>
               ))}
             </div>}
@@ -2502,28 +2358,28 @@ export default function PAL() {
             {/* ===== REMINDERS (real backend medication data) ===== */}
             {isReminders && <div>
               {medError && (
-                <div style={{ background: '#fff', borderRadius: 14, padding: 13, marginBottom: 10, color: c.rose, fontSize: 14, borderLeft: `3px solid ${c.rose}` }}>{medError}</div>
+                <div style={{ background: '#fff', borderRadius: 14, padding: 13, marginBottom: 10, color: c.rose, fontSize: '.8rem', borderLeft: `3px solid ${c.rose}` }}>{medError}</div>
               )}
 
               {medLoading && medSchedules.length === 0 && medPending.length === 0 && (
-                <div style={{ color: '#4a5a5f', fontSize: 15, margin: '16px 2px' }}>Loading…</div>
+                <div style={{ opacity: .6, fontSize: '.82rem', margin: '16px 2px' }}>Loading…</div>
               )}
 
               {/* Needs your answer — the "did you take it?" prompts */}
               {medAwaiting.length > 0 && <>
-                <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a5a5f', margin: '8px 2px 10px' }}>Needs your answer</div>
+                <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '8px 2px 10px' }}>Needs your answer</div>
                 {medAwaiting.map(d => (
                   <div key={d.id} style={{ background: '#fff', borderRadius: 14, padding: 13, marginBottom: 10, display: 'flex', gap: 12, alignItems: 'flex-start', borderLeft: `3px solid ${c.jade}` }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 10, display: 'grid', placeItems: 'center', fontSize: 16, flexShrink: 0, background: 'rgba(55,181,155,.14)', color: c.jadeD }}>💊</div>
+                    <div style={{ width: 34, height: 34, borderRadius: 10, display: 'grid', placeItems: 'center', fontSize: '.9rem', flexShrink: 0, background: 'rgba(55,181,155,.14)', color: c.jadeD }}>💊</div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: 15, lineHeight: 1.3 }}>Did you take your medicine?</div>
-                      <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', marginTop: 6 }}>{(d.scheduled_time || '').slice(0,5)} · {d.scheduled_date}</div>
+                      <div style={{ fontWeight: 600, fontSize: '.85rem', lineHeight: 1.3 }}>Did you take your medicine?</div>
+                      <div style={{ fontFamily: mono, fontSize: '.56rem', opacity: .45, marginTop: 6 }}>{(d.scheduled_time || '').slice(0,5)} · {d.scheduled_date}</div>
                       <div style={{ display: 'flex', gap: 7, marginTop: 10, flexWrap: 'wrap' }}>
                         {ACK_OPTIONS.map(opt => {
                           const primary = opt.value === 'yes' || opt.value === 'take_now';
                           return (
                             <button key={opt.value} disabled={medBusy === d.id} onClick={() => answerDose(d.id, opt.value)}
-                              style={{ fontFamily: sans, fontWeight: 600, fontSize: 13, padding: '7px 13px', borderRadius: 8, border: primary ? 'none' : '1px solid rgba(13,31,36,.16)', background: primary ? c.jade : 'transparent', color: primary ? c.deep2 : c.ink, cursor: medBusy === d.id ? 'default' : 'pointer', opacity: medBusy === d.id ? .6 : 1 }}>
+                              style={{ fontFamily: sans, fontWeight: 600, fontSize: '.72rem', padding: '7px 13px', borderRadius: 8, border: primary ? 'none' : '1px solid rgba(13,31,36,.16)', background: primary ? c.jade : 'transparent', color: primary ? c.deep2 : c.ink, cursor: medBusy === d.id ? 'default' : 'pointer', opacity: medBusy === d.id ? .6 : 1 }}>
                               {opt.label}
                             </button>
                           );
@@ -2536,14 +2392,14 @@ export default function PAL() {
 
               {/* Today's scheduled doses */}
               {medTodayDoses.length > 0 && <>
-                <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a5a5f', margin: '14px 2px 10px' }}>Today</div>
+                <div style={{ fontFamily: mono, fontSize: '.6rem', letterSpacing: '.14em', textTransform: 'uppercase', opacity: .5, margin: '14px 2px 10px' }}>Today</div>
                 {medTodayDoses.map(d => (
                   <div key={d.key} style={{ background: '#fff', borderRadius: 14, padding: 13, marginBottom: 10, display: 'flex', gap: 12, alignItems: 'flex-start', borderLeft: `3px solid ${c.jade}` }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 10, display: 'grid', placeItems: 'center', fontSize: 16, flexShrink: 0, background: 'rgba(55,181,155,.14)', color: c.jadeD }}>💊</div>
+                    <div style={{ width: 34, height: 34, borderRadius: 10, display: 'grid', placeItems: 'center', fontSize: '.9rem', flexShrink: 0, background: 'rgba(55,181,155,.14)', color: c.jadeD }}>💊</div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: 15, lineHeight: 1.3 }}>{d.medicine}</div>
-                      {d.dosage && <div style={{ fontSize: 14, color: '#4a5a5f', marginTop: 3, lineHeight: 1.45 }}>{d.dosage}</div>}
-                      <div style={{ fontFamily: mono, fontSize: 12, color: '#4a5a5f', marginTop: 6 }}>{d.time}</div>
+                      <div style={{ fontWeight: 600, fontSize: '.85rem', lineHeight: 1.3 }}>{d.medicine}</div>
+                      {d.dosage && <div style={{ fontSize: '.76rem', opacity: .72, marginTop: 3, lineHeight: 1.45 }}>{d.dosage}</div>}
+                      <div style={{ fontFamily: mono, fontSize: '.56rem', opacity: .45, marginTop: 6 }}>{d.time}</div>
                     </div>
                   </div>
                 ))}
@@ -2554,14 +2410,14 @@ export default function PAL() {
                 <div style={{ textAlign: 'center', marginTop: 40 }}>
                   <div style={{ fontSize: '1.6rem', marginBottom: 8 }}>🔔</div>
                   <div style={{ fontFamily: serif, fontSize: '1rem', marginBottom: 6 }}>No reminders right now</div>
-                  <div style={{ fontSize: 14, color: '#4a5a5f', marginBottom: 16 }}>Medicine reminders will appear here at their scheduled times.</div>
+                  <div style={{ fontSize: '.76rem', opacity: .6, marginBottom: 16 }}>Medicine reminders will appear here at their scheduled times.</div>
                 </div>
               )}
 
               {/* Manage schedules */}
               <div style={{ textAlign: 'center', marginTop: 18 }}>
                 <button onClick={() => router.push('/medications')}
-                  style={{ fontFamily: sans, fontWeight: 600, fontSize: 13, padding: '8px 14px', borderRadius: 8, border: '1px solid rgba(13,31,36,.16)', background: 'transparent', color: c.ink, cursor: 'pointer' }}>
+                  style={{ fontFamily: sans, fontWeight: 600, fontSize: '.74rem', padding: '8px 14px', borderRadius: 8, border: '1px solid rgba(13,31,36,.16)', background: 'transparent', color: c.ink, cursor: 'pointer' }}>
                   Manage medication reminders
                 </button>
               </div>
@@ -2705,69 +2561,62 @@ export default function PAL() {
             </div>
           )}
 
-          {/* CHAT INPUT — Ask tab only (sits above the tab bar; the message list shrinks as it grows) */}
+          {/* CHAT INPUT — Ask tab only */}
           {isAsk && (
-            <div style={{ position: 'relative', flexShrink: 0, marginBottom: TABBAR_H, padding: '8px 12px 10px', background: c.soft, borderTop: '1px solid rgba(13,31,36,.14)', zIndex: 14 }}>
-              <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.22)', borderRadius: 18, padding: '6px 6px 6px 12px', display: 'flex', alignItems: 'flex-end', gap: 6, boxShadow: '0 1px 2px rgba(13,31,36,.05),0 4px 14px -8px rgba(13,31,36,.14)' }}>
-                <span style={{ color: ICON, flexShrink: 0, height: 36, display: 'grid', placeItems: 'center' }} aria-hidden="true"><Search size={20} strokeWidth={2} /></span>
-                <textarea
-                  ref={composerRef}
-                  rows={1}
-                  className="pal-composer-input"
-                  aria-label="Ask PAL"
+            <div style={{ position: 'absolute', bottom: 72, left: 0, right: 0, padding: '8px 14px 10px', background: 'rgba(251,249,244,.95)', backdropFilter: 'blur(14px)', borderTop: '1px solid rgba(13,31,36,.08)', zIndex: 14 }}>
+              <div style={{ background: '#fff', border: '1px solid rgba(13,31,36,.16)', borderRadius: 16, padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 1px 2px rgba(13,31,36,.05),0 4px 14px -8px rgba(13,31,36,.14)' }}>
+                <span style={{ color: c.jadeD, fontSize: '1rem', opacity: .7, flexShrink: 0 }}>⌕</span>
+                <input
                   placeholder={chatMessages.length > 0 ? 'Ask a follow-up…' : t('ask_placeholder')}
                   value={queryText}
                   onChange={e => setQueryText(e.target.value)}
-                  style={{ border: 'none', outline: 'none', background: 'none', fontFamily: sans, fontSize: 16, lineHeight: '24px', padding: '6px 0', width: '100%', color: c.ink, minWidth: 0, resize: 'none', maxHeight: COMPOSER_MAX_H, overflowY: 'hidden', display: 'block' }}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                      e.preventDefault();
-                      if (queryText.trim()) handleTextQuery(queryText.trim());
-                    }
-                  }}
+                  style={{ border: 'none', outline: 'none', background: 'none', fontFamily: serif, fontSize: '.95rem', width: '100%', color: c.ink, minWidth: 0 }}
+                  onKeyDown={e => { if (e.key === 'Enter' && queryText.trim()) handleTextQuery(queryText.trim()); }}
                 />
+                {chatMessages.length > 0 && (
+                  <button onClick={() => { setChatMessages([]); setConversationId(null); setQueryText(''); setSttDraft(null); setIsSecondOpinionMode(false); }} title="New conversation"
+                    style={{ width: 26, height: 26, borderRadius: 8, background: 'rgba(13,31,36,.07)', color: c.ink, display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: '.65rem', border: 'none', cursor: 'pointer', opacity: .5 }}>✕</button>
+                )}
                 <input ref={uploadInputRef} type="file" accept=".pdf,.txt,.csv,.doc,.docx" style={{ display: 'none' }}
                   onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f); e.target.value = ''; }} />
-                <button onClick={() => uploadInputRef.current?.click()} aria-label="Upload document" title="Upload document"
-                  style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(13,31,36,.06)', color: ICON, display: 'grid', placeItems: 'center', flexShrink: 0, border: 'none', cursor: 'pointer', padding: 0 }}><Paperclip size={20} strokeWidth={2} /></button>
-                <button onClick={handleMicClick} aria-label={isRecording ? 'Stop recording' : 'Start recording'} title={isRecording ? 'Stop recording' : 'Speak'}
-                  style={{ width: 36, height: 36, borderRadius: 10, background: isRecording ? c.rose : c.jadeD, color: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0, border: 'none', cursor: 'pointer', padding: 0 }}><Mic size={20} strokeWidth={2} /></button>
+                <button onClick={() => uploadInputRef.current?.click()} aria-label="Upload document"
+                  style={{ width: 28, height: 28, borderRadius: 9, background: 'rgba(13,31,36,.06)', color: c.ink, display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: '.82rem', border: 'none', cursor: 'pointer', opacity: .7 }}>📎</button>
+                <button onClick={handleMicClick} aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+                  style={{ width: 28, height: 28, borderRadius: 9, background: isRecording ? c.rose : c.jade, color: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: '.82rem', border: 'none', cursor: 'pointer' }}>🎙</button>
                 {queryText.trim() && (
-                  <button onClick={() => handleTextQuery(queryText.trim())} aria-label="Send" title="Send"
-                    style={{ width: 36, height: 36, borderRadius: 10, background: c.jadeD, color: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0, border: 'none', cursor: 'pointer', padding: 0 }}><ArrowUp size={20} strokeWidth={2.25} /></button>
+                  <button onClick={() => handleTextQuery(queryText.trim())}
+                    style={{ width: 28, height: 28, borderRadius: 9, background: c.jade, color: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: '1rem', border: 'none', cursor: 'pointer', fontWeight: 700 }}>→</button>
                 )}
               </div>
             </div>
           )}
 
           {/* TAB BAR */}
-          <nav aria-label="Main" style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: TABBAR_H, background: c.soft, borderTop: '1px solid rgba(13,31,36,.14)', display: 'flex', alignItems: 'stretch', justifyContent: 'space-around', padding: '6px 4px 8px', zIndex: 15 }}>
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 72, background: 'rgba(251,249,244,.92)', backdropFilter: 'blur(12px)', borderTop: '1px solid rgba(13,31,36,.10)', display: 'flex', alignItems: 'center', justifyContent: 'space-around', paddingBottom: 8, zIndex: 15 }}>
             {TABS.map(t => {
               const on = tab === t.id && !view && historyView !== 'thread';
-              const TabIcon = t.Icon;
               return (
                 <button key={t.id} onClick={() => {
                   if (t.id === 'upload') {
                     router.push('/upload');
+                  } else if (t.id === 'family_chat') {
+                    router.push('/family');
                   } else {
                     setTab(t.id as any);
                   }
                 }}
-                  aria-current={on ? 'page' : undefined}
-                  style={{ flex: 1, minWidth: 48, minHeight: 48, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, fontFamily: sans, fontSize: 12, fontWeight: on ? 700 : 600, lineHeight: 1.2, background: 'none', border: 'none', cursor: 'pointer', color: on ? c.jadeD : ICON, padding: 0 }}>
-                  <span style={{ display: 'grid', placeItems: 'center', padding: '4px 14px', borderRadius: 14, background: on ? 'rgba(31,125,107,.12)' : 'transparent', lineHeight: 0 }}>
-                    <TabIcon size={24} strokeWidth={2} aria-hidden="true" />
-                  </span>
+                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, fontFamily: mono, fontSize: '.56rem', letterSpacing: '.06em', textTransform: 'uppercase', background: 'none', border: 'none', cursor: 'pointer', color: on ? c.jadeD : c.ink, opacity: on ? 1 : 0.42 }}>
+                  <span style={{ fontSize: '1.1rem' }}>{t.icon}</span>
                   {t.label}
                 </button>
               );
             })}
-          </nav>
+          </div>
 
         </div>
       </div>
 
-      <p className="pal-home-chrome" style={{ maxWidth: 560, margin: '26px auto 0', textAlign: 'center', fontFamily: mono, fontSize: 12, color: c.mist, opacity: .75, lineHeight: 1.7 }}>
+      <p style={{ maxWidth: 560, margin: '26px auto 0', textAlign: 'center', fontFamily: mono, fontSize: '.6rem', color: c.mist, opacity: .38, lineHeight: 1.7 }}>
         Illustrative interactive prototype. PAL provides health information and is not a substitute for professional medical advice, diagnosis, or treatment. All names and data shown are fictional.
       </p>
 

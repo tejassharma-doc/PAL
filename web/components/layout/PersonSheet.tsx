@@ -68,9 +68,10 @@ export default function PersonSheet({ onClose, onSelect }: PersonSheetProps) {
         </div>
         <div style={{
           fontFamily: "'Space Mono', monospace",
-          fontSize: 12,
+          fontSize: '0.58rem',
+          opacity: 0.5,
           marginBottom: 14,
-          color: '#4a5a5f',
+          color: '#0d1f24',
         }}>
           Each person, their own consent.
         </div>
@@ -82,7 +83,7 @@ export default function PersonSheet({ onClose, onSelect }: PersonSheetProps) {
             style={{
               width: '100%',
               background: '#fff',
-              border: '1px solid rgba(13,31,36,.14)',
+              border: '1px solid rgba(13,31,36,.10)',
               borderRadius: 12,
               padding: '11px 12px',
               marginBottom: 8,
@@ -102,20 +103,21 @@ export default function PersonSheet({ onClose, onSelect }: PersonSheetProps) {
               placeItems: 'center',
               color: '#fff',
               fontWeight: 700,
-              fontSize: 16,
+              fontSize: '0.88rem',
               flexShrink: 0,
             }}>
               {p.initial}
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 16, color: '#0d1f24' }}>
-                {p.name} <span style={{ fontWeight: 400, color: '#4a5a5f' }}>{p.role}</span>
+              <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0d1f24' }}>
+                {p.name} <span style={{ fontWeight: 400, opacity: 0.5 }}>{p.role}</span>
               </div>
               <div style={{
                 fontFamily: "'Space Mono', monospace",
-                fontSize: 12,
+                fontSize: '0.58rem',
+                opacity: 0.55,
                 marginTop: 2,
-                color: '#4a5a5f',
+                color: '#0d1f24',
               }}>
                 {p.note}
               </div>
@@ -123,7 +125,7 @@ export default function PersonSheet({ onClose, onSelect }: PersonSheetProps) {
             {p.active ? (
               <span style={{
                 fontFamily: "'Space Mono', monospace",
-                fontSize: 12,
+                fontSize: '0.54rem',
                 color: '#1f7d6b',
                 background: 'rgba(55,181,155,.12)',
                 padding: '3px 8px',
@@ -132,7 +134,7 @@ export default function PersonSheet({ onClose, onSelect }: PersonSheetProps) {
                 you
               </span>
             ) : (
-              <span style={{ fontSize: '1rem',  color: '#4a5a5f' }}>›</span>
+              <span style={{ fontSize: '1rem', opacity: 0.4, color: '#0d1f24' }}>›</span>
             )}
           </button>
         ))}
@@ -168,8 +170,8 @@ export default function PersonSheet({ onClose, onSelect }: PersonSheetProps) {
           </div>
           <span style={{
             fontFamily: "'Space Grotesk', sans-serif",
-            fontSize: 15,
-            color: '#4a5a5f',
+            fontSize: '0.82rem',
+            color: 'rgba(13,31,36,0.45)',
             fontWeight: 500,
           }}>
             Add family member
@@ -182,7 +184,7 @@ export default function PersonSheet({ onClose, onSelect }: PersonSheetProps) {
           style={{
             width: '100%',
             background: 'transparent',
-            border: '1.5px solid rgba(13,31,36,.14)',
+            border: '1.5px solid rgba(13,31,36,.12)',
             borderRadius: 12,
             padding: '10px 12px',
             marginBottom: 4,
@@ -206,7 +208,7 @@ export default function PersonSheet({ onClose, onSelect }: PersonSheetProps) {
           </div>
           <span style={{
             fontFamily: "'Space Grotesk', sans-serif",
-            fontSize: 15,
+            fontSize: '0.82rem',
             color: '#0d1f24',
             fontWeight: 500,
           }}>
@@ -218,13 +220,13 @@ export default function PersonSheet({ onClose, onSelect }: PersonSheetProps) {
         <button
           onClick={() => { onClose(); router.push('/history/settings'); }}
           style={{
-            width: '100%', background: 'none', border: 'none', borderTop: '1px solid rgba(13,31,36,.14)',
+            width: '100%', background: 'none', border: 'none', borderTop: '1px solid rgba(13,31,36,.08)',
             padding: '12px 0 0', marginTop: 4, cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           }}
         >
-          <span style={{ fontSize: 16, color: '#4a5a5f' }}>⚙</span>
-          <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 12,  color: '#4a5a5f' }}>
+          <span style={{ fontSize: '0.9rem', opacity: 0.45 }}>⚙</span>
+          <span style={{ fontFamily: "'Space Mono', monospace", fontSize: '0.58rem', opacity: 0.4, color: '#0d1f24' }}>
             Settings
           </span>
           <span style={{
