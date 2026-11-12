@@ -14,13 +14,20 @@ import { getPatientVisits, type Visit } from '@/lib/api-auth'
 
 function cal(dateStr: string) {
   const d = new Date(dateStr)
-  if (Number.isNaN(d.getTime())) return { dow: '', day: dateStr, mon: '', time: '' }
+  if (Number.isNaN(d.getTime())) return { dow: '', day: dateStr, mon: '' }
   return {
     dow: d.toLocaleDateString(undefined, { weekday: 'short' }),
     day: String(d.getDate()),
     mon: d.toLocaleDateString(undefined, { month: 'long' }),
-    time: d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }),
   }
+}
+/** Format the backend's "HH:MM" slot time as "9:00 am". */
+function fmtClock(t?: string): string {
+  if (!t) return ''
+  const [h, m] = t.split(':').map(Number)
+  if (Number.isNaN(h)) return t
+  const am = h < 12; const h12 = h % 12 === 0 ? 12 : h % 12
+  return `${h12}:${String(m || 0).padStart(2, '0')} ${am ? 'am' : 'pm'}`
 }
 const isRx = (name: string) => name.toLowerCase().startsWith('prescription')
 
@@ -79,7 +86,7 @@ export default function VisitsPage() {
                 <div className="k">Coming up</div>
                 <div className="datebig" style={{ marginTop: '.5em' }}>
                   <div className="cal"><small>{c.dow}</small><b>{c.day}</b><span>{c.mon}</span></div>
-                  <div><div className="t">{next.reason || 'Appointment'}</div><div className="m">{c.time}</div></div>
+                  <div><div className="t">{next.reason || 'Appointment'}</div><div className="m">{[fmtClock(next.time), next.clinic_name].filter(Boolean).join(', ') || 'Time to be confirmed'}</div></div>
                 </div>
                 <div className="acts">
                   <button className="btn pri" onClick={() => router.push(`/ask?q=${encodeURIComponent('Help me prepare for my upcoming visit')}`)}>Answer pre-visit questions</button>
@@ -100,7 +107,7 @@ export default function VisitsPage() {
                       style={v.id === selId ? { background: 'var(--jade-tint)' } : undefined}
                       onClick={() => setSelId(v.id)}>
                       <span className="ic"><Icon name="cal" /></span>
-                      <span className="tx"><b>{v.reason || 'Visit'}</b><span>{c.time ? `${c.day} ${c.mon}` : ''}</span></span>
+                      <span className="tx"><b>{v.reason || 'Visit'}</b><span>{[fmtClock(v.time), v.clinic_name].filter(Boolean).join(', ')}</span></span>
                       <span className="right">{c.day} {c.mon.slice(0, 3)}</span>
                       <Icon name="right" className="ico chev" />
                     </button>

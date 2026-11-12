@@ -429,6 +429,9 @@ export interface Visit {
   patient_id?: string
   doctor_id?: string
   date: string
+  time?: string        // "HH:MM" from the backend (slot_time); date is a display string like "17 Nov 2026"
+  clinic_name?: string
+  date_display?: string
   reason: string
   status: string
   soap_note?: string

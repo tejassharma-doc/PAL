@@ -152,7 +152,7 @@ export default function HomePage() {
                 {(() => { const d = new Date(visit.date); const ok = !Number.isNaN(d.getTime()); return (
                   <div className="datebig">
                     <div className="cal"><small>{ok ? d.toLocaleDateString(undefined, { weekday: 'short' }) : ''}</small><b>{ok ? d.getDate() : '—'}</b><span>{ok ? d.toLocaleDateString(undefined, { month: 'long' }) : ''}</span></div>
-                    <div><div className="t">{visit.reason || 'Appointment'}</div><div className="m">{ok ? d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : ''}</div></div>
+                    <div><div className="t">{visit.reason || 'Appointment'}</div><div className="m">{[fmtTime(visit.time || ''), visit.clinic_name].filter(Boolean).join(', ') || 'Time to be confirmed'}</div></div>
                   </div>
                 )})()}
                 <div className="acts">
