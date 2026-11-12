@@ -4,8 +4,22 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import uuid
+
+# Appointment slot_time is stored in UTC (timestamptz). Patients are in India, so
+# the date/time strings in the API are rendered in IST.
+IST = ZoneInfo("Asia/Kolkata")
+
+
+def _to_ist(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is None:
+        return None
+    # Treat naive datetimes as UTC, then convert to IST.
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(IST)
 
 from database import get_db
 from models import Patient, Appointment, LabTest, Consultation, Prescription
@@ -132,8 +146,8 @@ async def get_patient_visits(
             "doctor_id": str(appt.doctor_id) if appt.doctor_id else None,
             "doctor_name": appt.doctor_name,
             "clinic_name": appt.clinic_name,
-            "date": appt.slot_time.strftime("%d %b %Y") if appt.slot_time else None,
-            "time": appt.slot_time.strftime("%H:%M") if appt.slot_time else None,
+            "date": _to_ist(appt.slot_time).strftime("%d %b %Y") if appt.slot_time else None,
+            "time": _to_ist(appt.slot_time).strftime("%H:%M") if appt.slot_time else None,
             "reason": appt.reason_for_visit or "General Consultation",
             "status": appt.status,
             "previsit_url": appt.previsit_url,
