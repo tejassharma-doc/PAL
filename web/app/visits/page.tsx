@@ -2,9 +2,9 @@
 
 /**
  * Visits — redesigned onto AppShell (pal-app.html `S.visits`).
- * Upcoming + past visits with a detail panel. The doctor's SOAP note is shown
- * only inside the gated "clinical notes" disclosure; patients see the plain-
- * language summary + plan + prescription by default. Data: getPatientVisits.
+ * Upcoming + past visits with a detail panel. Patients see only the plain-language
+ * summary + care plan + prescription; the doctor's internal SOAP/clinical note is
+ * never shown (and is no longer sent by the API). Data: getPatientVisits.
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -143,12 +143,7 @@ export default function VisitsPage() {
                 <h2 className="s">Care plan</h2>
                 <div className="plantext">{sel.management_plan}</div>
               </>)}
-              {sel.soap_note && (
-                <details className="soap">
-                  <summary>Doctor&apos;s clinical notes <Icon name="down" /></summary>
-                  <div><p style={{ whiteSpace: 'pre-wrap' }}>{sel.soap_note}</p></div>
-                </details>
-              )}
+              {/* Doctor's SOAP/clinical note is intentionally NOT shown to the patient. */}
               {rx.length > 0 && (<>
                 <h2 className="s">Prescription</h2>
                 <div className="rx">

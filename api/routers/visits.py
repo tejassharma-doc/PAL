@@ -153,7 +153,8 @@ async def get_patient_visits(
             "previsit_url": appt.previsit_url,
             "previsit_status": appt.previsit_status,
             "has_prescription": has_prescription,
-            "soap_note": clinical_output.soap_note if clinical_output else None,
+            # soap_note is the doctor's internal clinical note — intentionally NOT
+            # exposed to the patient-facing app (only patient_summary/management_plan are).
             "management_plan": clinical_output.management_plan if clinical_output else None,
             "patient_summary": clinical_output.patient_summary if clinical_output else None,
             "medications": medications,
