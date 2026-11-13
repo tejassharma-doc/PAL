@@ -63,7 +63,7 @@ export default function VisitsPage() {
         if (cancelled) return
         setUpcoming(data.upcoming || [])
         setPast(data.past || [])
-        setSelId((data.past || [])[0]?.id || (data.upcoming || [])[0]?.id || null)
+        setSelId((data.upcoming || [])[0]?.id || (data.past || [])[0]?.id || null)
         setError(null)
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load visits')
@@ -76,7 +76,6 @@ export default function VisitsPage() {
 
   const all = useMemo(() => [...upcoming, ...past], [upcoming, past])
   const sel = useMemo(() => all.find(v => v.id === selId) || null, [all, selId])
-  const next = upcoming[0]
 
   return (
     <AppShell active="visits" title="Visits">
@@ -88,21 +87,26 @@ export default function VisitsPage() {
 
         <div className="vgrid" style={{ marginTop: '1.4em' }}>
           <div>
-            {next && (() => { const c = cal(next.date); return (
-              <article className="card hl visitcard">
-                <div className="k">Coming up</div>
-                <div className="datebig" style={{ marginTop: '.5em' }}>
+            {upcoming.length > 0 && <h2 className="s" style={{ marginTop: 0 }}>Coming up{upcoming.length > 1 ? ` · ${upcoming.length}` : ''}</h2>}
+            {upcoming.map((v, i) => { const c = cal(v.date); return (
+              <article key={v.id} className={`card ${v.id === selId ? 'hl' : ''} visitcard`} style={{ cursor: 'pointer', marginBottom: '.8em' }} onClick={() => setSelId(v.id)}>
+                {i === 0 && <div className="k">Next appointment</div>}
+                <div className="datebig" style={{ marginTop: i === 0 ? '.5em' : 0 }}>
                   <div className="cal"><small>{c.dow}</small><b>{c.day}</b><span>{c.mon}</span></div>
-                  <div><div className="t">{next.reason || 'Appointment'}</div><div className="m">{[fmtClock(next.time), next.clinic_name].filter(Boolean).join(', ') || 'Time to be confirmed'}</div></div>
+                  <div><div className="t">{v.reason || 'Appointment'}</div><div className="m">{[fmtClock(v.time), v.clinic_name].filter(Boolean).join(', ') || 'Time to be confirmed'}</div></div>
                 </div>
                 <div className="acts">
-                  <button className="btn pri" onClick={() => openPrevisit(next)}>Answer pre-visit questions</button>
-                  <button className="btn sec" onClick={() => setCalling(true)}><Icon name="phone" /> Call to book, change or cancel</button>
+                  <button className="btn pri" onClick={(e) => { e.stopPropagation(); openPrevisit(v) }}>Answer pre-visit questions</button>
+                  <button className="btn sec" onClick={(e) => { e.stopPropagation(); setCalling(true) }}><Icon name="phone" /> Call to book, change or cancel</button>
                 </div>
               </article>
-            )})()}
+            )})}
 
-            <h2 className="s">Past visits</h2>
+            {!loading && upcoming.length === 0 && (
+              <article className="card"><p className="muted">No upcoming visits.</p><div className="row" style={{ marginTop: '.8em' }}><button className="btn pri" onClick={() => setCalling(true)}><Icon name="phone" /> Call to book an appointment</button></div></article>
+            )}
+
+            <h2 className="s">Past visits{past.length > 1 ? ` · ${past.length}` : ''}</h2>
             {loading ? <div className="muted">Loading…</div> : past.length === 0 ? (
               <article className="card"><p className="muted">No past visits yet.</p></article>
             ) : (
