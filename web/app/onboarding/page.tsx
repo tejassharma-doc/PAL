@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { markSignedIn } from '../../lib/sessionCookie';
+import { getUserProfile } from '../../lib/api-auth';
 import { translations } from '../../lib/i18n';
 import { SUPPORTED_LANGUAGES, type LangCode } from '../../lib/languages';
 
@@ -69,18 +70,32 @@ export default function Onboarding() {
   // Redirect based on auth state
   useEffect(() => {
     const token = localStorage.getItem('pal_token');
-    const patientId = localStorage.getItem('pal_patient_id');
-
     if (!token) {
       // No token - should go to login instead
       window.location.replace('/login');
-    } else if (patientId) {
-      // Already has a patient profile - go to the app. (Only skip onboarding
-      // when a patient actually exists; keying off language alone bounced
-      // not-yet-onboarded users back to "/" and caused a redirect loop.)
-      window.location.replace('/');
+      return;
     }
-    // Token but no patient yet → stay on onboarding so they can create one.
+    if (localStorage.getItem('pal_patient_id')) {
+      // Already has a patient profile - go to the app.
+      window.location.replace('/');
+      return;
+    }
+    // Token but no patient id locally: an EXISTING patient may just be missing
+    // the localStorage key. Confirm with the backend before making them onboard;
+    // if they already have a patient, recover the id and go straight to Home.
+    (async () => {
+      try {
+        const prof = await getUserProfile();
+        const pid = prof.patient?.id || prof.user?.patient_id;
+        if (pid) {
+          localStorage.setItem('pal_patient_id', pid);
+          window.location.replace('/');
+        }
+        // else: genuinely new → stay on onboarding to create a profile.
+      } catch {
+        // Profile check failed → stay on onboarding rather than bouncing.
+      }
+    })();
   }, []);
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
