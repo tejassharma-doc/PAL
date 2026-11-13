@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AppShell } from '@/components/layout/AppShell'
 import { Icon } from '@/components/ui/Icon'
+import VoiceCall from '@/components/VoiceCall'
 import { getPatientVisits, type Visit } from '@/lib/api-auth'
 
 function cal(dateStr: string) {
@@ -39,6 +40,12 @@ export default function VisitsPage() {
   const [selId, setSelId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [calling, setCalling] = useState(false)
+
+  function openPrevisit(v: Visit) {
+    if (v.previsit_url) window.open(v.previsit_url, '_blank', 'noopener')
+    else router.push(`/ask?q=${encodeURIComponent('Help me prepare for my upcoming visit')}`)
+  }
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -89,8 +96,8 @@ export default function VisitsPage() {
                   <div><div className="t">{next.reason || 'Appointment'}</div><div className="m">{[fmtClock(next.time), next.clinic_name].filter(Boolean).join(', ') || 'Time to be confirmed'}</div></div>
                 </div>
                 <div className="acts">
-                  <button className="btn pri" onClick={() => router.push(`/ask?q=${encodeURIComponent('Help me prepare for my upcoming visit')}`)}>Answer pre-visit questions</button>
-                  <button className="btn sec" onClick={() => router.push(`/ask?q=${encodeURIComponent('I want to change or cancel my appointment')}`)}><Icon name="phone" /> Call to book, change or cancel</button>
+                  <button className="btn pri" onClick={() => openPrevisit(next)}>Answer pre-visit questions</button>
+                  <button className="btn sec" onClick={() => setCalling(true)}><Icon name="phone" /> Call to book, change or cancel</button>
                 </div>
               </article>
             )})()}
@@ -162,6 +169,7 @@ export default function VisitsPage() {
           )})()}
         </div>
       </div>
+      {calling && patientId && <VoiceCall patientId={patientId} onClose={() => setCalling(false)} />}
     </AppShell>
   )
 }

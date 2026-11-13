@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AppShell } from '@/components/layout/AppShell'
 import { Icon } from '@/components/ui/Icon'
+import VoiceCall from '@/components/VoiceCall'
 import { Reading, readingFromFact } from '@/components/ui/Reading'
 import { getHealthFacts, type HealthFact } from '@/lib/api'
 import { getPatientVisits, type Visit } from '@/lib/api-auth'
@@ -42,6 +43,7 @@ export default function HomePage() {
   const [unread, setUnread] = useState(0)
   const [familyPlan, setFamilyPlan] = useState(typeof window !== 'undefined' && localStorage.getItem('pal_plan') === 'family')
   const [busyDose, setBusyDose] = useState(false)
+  const [calling, setCalling] = useState(false)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -163,7 +165,7 @@ export default function HomePage() {
                 )})()}
                 <div className="acts">
                   <button className="btn pri" onClick={() => router.push('/visits')}>View visit details</button>
-                  <button className="btn sec" onClick={() => goAsk('I want to change or cancel my appointment')}><Icon name="phone" /> Call to change or cancel</button>
+                  <button className="btn sec" onClick={() => setCalling(true)}><Icon name="phone" /> Call to change or cancel</button>
                 </div>
               </article>
             </>)}
@@ -190,6 +192,7 @@ export default function HomePage() {
           </div>
         </div>
       </div>
+      {calling && <VoiceCall patientId={localStorage.getItem('pal_patient_id') || ''} onClose={() => setCalling(false)} />}
     </AppShell>
   )
 }
