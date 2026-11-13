@@ -160,8 +160,13 @@ async def get_patient_visits(
             "lab_tests": lab_tests_summary,
         }
 
-        # Split by slot_time (datetime, not a re-parsed string); null-dated → past.
-        if appt.slot_time is not None and appt.slot_time >= now:
+        # A visit is "past" once it's done — not only when its slot time passes.
+        # Done = a terminal status, OR the doctor has recorded a clinical output
+        # (SOAP / management plan), which only happens after the consultation.
+        done_statuses = {"completed", "complete", "done", "cancelled", "canceled", "no_show", "missed", "closed"}
+        is_done = (appt.status or "").strip().lower() in done_statuses or clinical_output is not None
+        is_future = appt.slot_time is not None and appt.slot_time >= now
+        if is_future and not is_done:
             upcoming.append(visit)
         else:
             past.append(visit)
