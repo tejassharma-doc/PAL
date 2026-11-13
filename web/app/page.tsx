@@ -16,6 +16,7 @@ import { getHealthFacts, type HealthFact } from '@/lib/api'
 import { getPatientVisits, type Visit } from '@/lib/api-auth'
 import { listMedicationSchedules, pendingDoses, respondToDose, type MedicationSchedule, type PendingDose, type DoseResponse } from '@/lib/medications-api'
 import { chatUnreadCount } from '@/lib/family-api'
+import { getSubscriptionStatus } from '@/lib/subscription-api'
 
 function fmtTime(t: string): string {
   const [h, m] = (t || '').split(':').map(Number)
@@ -39,6 +40,7 @@ export default function HomePage() {
   const [doses, setDoses] = useState<PendingDose[]>([])
   const [visit, setVisit] = useState<Visit | null>(null)
   const [unread, setUnread] = useState(0)
+  const [familyPlan, setFamilyPlan] = useState(typeof window !== 'undefined' && localStorage.getItem('pal_plan') === 'family')
   const [busyDose, setBusyDose] = useState(false)
 
   useEffect(() => {
@@ -50,14 +52,18 @@ export default function HomePage() {
     setName((localStorage.getItem('pal_full_name') || localStorage.getItem('pal_user_name') || '').split(' ')[0])
     setReady(true)
     void (async () => {
-      const [f, sch, ds, v, u] = await Promise.all([
+      const [f, sch, ds, v, u, sub] = await Promise.all([
         getHealthFacts(pid).catch(() => [] as HealthFact[]),
         listMedicationSchedules(pid).catch(() => [] as MedicationSchedule[]),
         pendingDoses(pid).catch(() => [] as PendingDose[]),
         getPatientVisits(pid).catch(() => ({ upcoming: [] as Visit[], past: [] as Visit[] })),
         chatUnreadCount().catch(() => 0),
+        getSubscriptionStatus().catch(() => ({ active: false })),
       ])
       setFacts(f); setSchedules(sch); setDoses(ds); setVisit(v.upcoming?.[0] || null); setUnread(u)
+      const plan = String((sub as { plan?: string }).plan || '')
+      localStorage.setItem('pal_plan', plan)
+      setFamilyPlan(plan === 'family')
     })()
   }, [router])
 
@@ -171,14 +177,16 @@ export default function HomePage() {
               </div>
             </article>
 
-            <h2 className="s">Family</h2>
-            <article className="card">
-              <div className="fam">
-                <div className="stack"><span className="av p">P</span><span className="av m">M</span><span className="av r">R</span></div>
-                <div style={{ flex: 1 }}><b>{unread > 0 ? `${unread} new message${unread > 1 ? 's' : ''}` : 'Your family care'}</b><div className="muted small">{unread > 0 ? 'in your family care room' : 'Groups, access and the care room'}</div></div>
-                <button className="btn sec" onClick={() => router.push('/family')}>Open</button>
-              </div>
-            </article>
+            {familyPlan && (<>
+              <h2 className="s">Family</h2>
+              <article className="card">
+                <div className="fam">
+                  <div className="stack"><span className="av p">P</span><span className="av m">M</span><span className="av r">R</span></div>
+                  <div style={{ flex: 1 }}><b>{unread > 0 ? `${unread} new message${unread > 1 ? 's' : ''}` : 'Your family care'}</b><div className="muted small">{unread > 0 ? 'in your family care room' : 'Groups, access and the care room'}</div></div>
+                  <button className="btn sec" onClick={() => router.push('/family')}>Open</button>
+                </div>
+              </article>
+            </>)}
           </div>
         </div>
       </div>

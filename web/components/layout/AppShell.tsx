@@ -13,6 +13,7 @@ import { PalEmblem, PalRosette } from '../PalEmblem'
 import { Icon, type IconName } from '../ui/Icon'
 import { useNotificationBadge } from '../../lib/useNotificationBadge'
 import { useUiPrefs } from '../../lib/useUiPrefs'
+import { getSubscriptionStatus } from '../../lib/subscription-api'
 
 type NavId = 'home' | 'ask' | 'meds' | 'visits' | 'records' | 'family' | 'settings'
 type NavItem = { id: NavId; label: string; icon: IconName; href: string; sideOnly?: boolean }
@@ -55,12 +56,23 @@ export function AppShell({
   const { scale, cycleScale, hc } = useUiPrefs()
 
   const [userName, setUserName] = useState('You')
+  // Family section is only for the Family plan. Start from the cached plan to
+  // avoid a flash, then confirm with the server.
+  const [familyAllowed, setFamilyAllowed] = useState(
+    typeof window !== 'undefined' && localStorage.getItem('pal_plan') === 'family',
+  )
   useEffect(() => {
     if (typeof window === 'undefined') return
     setUserName(localStorage.getItem('pal_full_name') || localStorage.getItem('pal_user_name') || 'You')
+    void getSubscriptionStatus().then(s => {
+      const plan = String(s.plan || '')
+      localStorage.setItem('pal_plan', plan)
+      setFamilyAllowed(plan === 'family')
+    }).catch(() => {})
   }, [])
   const initial = (userName || 'Y').trim().charAt(0).toUpperCase()
 
+  const sideNav = NAV.filter(n => n.id !== 'family' || familyAllowed)
   const go = (href: string) => router.push(href)
 
   return (
@@ -77,7 +89,7 @@ export function AppShell({
             <span>{userName}<small>Viewing your record</small></span>
             <Icon name="down" />
           </button>
-          {NAV.map(n => (
+          {sideNav.map(n => (
             <button key={n.id} className="navi" aria-current={cur === n.id ? 'page' : undefined} onClick={() => go(n.href)}>
               <Icon name={n.icon} /><span>{n.label}</span>
               {n.id === 'meds' && medsBadge ? <span className="badge">{medsBadge}</span> : null}

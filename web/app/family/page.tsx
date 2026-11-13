@@ -15,6 +15,7 @@ import {
   getFamilyPlans, listAccessRequests, listPayments, payRequest,
   type AccessRequest, type FamilyPlanListItem, type PaymentRequest,
 } from '@/lib/family-api'
+import { getSubscriptionStatus } from '@/lib/subscription-api'
 
 export default function FamilyPage() {
   const router = useRouter()
@@ -27,6 +28,15 @@ export default function FamilyPage() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [sheet, setSheet] = useState<'create' | 'join' | null>(null)
+  // Family is a Family-plan feature. `null` = still checking.
+  const [allowed, setAllowed] = useState<boolean | null>(
+    typeof window !== 'undefined' ? (localStorage.getItem('pal_plan') === 'family' ? true : null) : null,
+  )
+  useEffect(() => {
+    void getSubscriptionStatus().then(s => {
+      const plan = String(s.plan || ''); localStorage.setItem('pal_plan', plan); setAllowed(plan === 'family')
+    }).catch(() => setAllowed(false))
+  }, [])
 
   // create/join form
   const [gName, setGName] = useState('')
@@ -80,6 +90,27 @@ export default function FamilyPage() {
     try { await deleteFamilyPlan(id); setPlans(ps => ps.filter(p => p.plan_id !== id)); setCanJoinMore(true); setToast(`"${name}" deleted`) }
     catch (e) { setToast(e instanceof Error ? e.message : 'Could not delete group') }
     setBusyId(null)
+  }
+
+  if (allowed === false) {
+    return (
+      <AppShell active="family" title="Family">
+        <div className="page narrow">
+          <h1 className="h">Family care</h1>
+          <p className="lede">Shared family groups, access controls, a care room and shared payments are part of the <b>Family plan</b>.</p>
+          <article className="card hl" style={{ marginTop: '1.2em' }}>
+            <div className="fam">
+              <div className="stack"><span className="av p">P</span><span className="av m">M</span><span className="av r">R</span></div>
+              <div style={{ flex: 1 }}><b>Look after your family together</b><div className="muted small">Up to 3 people, one shared care room.</div></div>
+            </div>
+            <div className="row" style={{ marginTop: '1em' }}>
+              <button className="btn pri" onClick={() => router.push('/pricing')}>Upgrade to Family</button>
+              <button className="btn ghost" onClick={() => router.push('/')}>Not now</button>
+            </div>
+          </article>
+        </div>
+      </AppShell>
+    )
   }
 
   return (
