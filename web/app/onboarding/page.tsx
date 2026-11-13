@@ -69,16 +69,18 @@ export default function Onboarding() {
   // Redirect based on auth state
   useEffect(() => {
     const token = localStorage.getItem('pal_token');
-    const lang = localStorage.getItem('pal_preferred_lang');
+    const patientId = localStorage.getItem('pal_patient_id');
 
     if (!token) {
       // No token - should go to login instead
       window.location.replace('/login');
-    } else if (token && lang) {
-      // Fully authenticated - go to main app
+    } else if (patientId) {
+      // Already has a patient profile - go to the app. (Only skip onboarding
+      // when a patient actually exists; keying off language alone bounced
+      // not-yet-onboarded users back to "/" and caused a redirect loop.)
       window.location.replace('/');
     }
-    // If token exists but no lang, stay on onboarding
+    // Token but no patient yet → stay on onboarding so they can create one.
   }, []);
 
   const [step, setStep] = useState<1 | 2 | 3>(1);

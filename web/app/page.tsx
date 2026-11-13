@@ -14,7 +14,7 @@ import { Icon } from '@/components/ui/Icon'
 import VoiceCall from '@/components/VoiceCall'
 import { Reading, readingFromFact } from '@/components/ui/Reading'
 import { getHealthFacts, type HealthFact } from '@/lib/api'
-import { getPatientVisits, type Visit } from '@/lib/api-auth'
+import { getPatientVisits, getUserProfile, type Visit } from '@/lib/api-auth'
 import { listMedicationSchedules, pendingDoses, respondToDose, type MedicationSchedule, type PendingDose, type DoseResponse } from '@/lib/medications-api'
 import { chatUnreadCount } from '@/lib/family-api'
 import { getSubscriptionStatus } from '@/lib/subscription-api'
@@ -48,12 +48,21 @@ export default function HomePage() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     const token = localStorage.getItem('pal_token')
-    const pid = localStorage.getItem('pal_patient_id')
     if (!token) { router.replace('/login'); return }
-    if (!pid) { router.replace('/onboarding'); return }
-    setName((localStorage.getItem('pal_full_name') || localStorage.getItem('pal_user_name') || '').split(' ')[0])
-    setReady(true)
     void (async () => {
+      let pid = localStorage.getItem('pal_patient_id')
+      // Recover a missing patient id from the profile instead of bouncing to
+      // /onboarding (that bounce vs. onboarding's own redirect caused a loop).
+      if (!pid) {
+        try {
+          const prof = await getUserProfile()
+          const recovered = prof.patient?.id || prof.user?.patient_id
+          if (recovered) { localStorage.setItem('pal_patient_id', recovered); pid = recovered }
+        } catch { /* ignore */ }
+      }
+      if (!pid) { router.replace('/onboarding'); return }
+      setName((localStorage.getItem('pal_full_name') || localStorage.getItem('pal_user_name') || '').split(' ')[0])
+      setReady(true)
       const [f, sch, ds, v, u, sub] = await Promise.all([
         getHealthFacts(pid).catch(() => [] as HealthFact[]),
         listMedicationSchedules(pid).catch(() => [] as MedicationSchedule[]),
