@@ -515,12 +515,15 @@ async def receive_inutrimon_webhook(
             try:
                 from nutrition_store import store_nutrition_prescription
                 stored_id = await store_nutrition_prescription(db, payload)
+                # Mark the raw event handled so the drain/backfill pipeline skips it.
+                await db.execute("UPDATE webhook_events SET processed = TRUE WHERE id = $1", row['id'])
                 if stored_id:
                     print(f"✅ Nutrition prescription projected to tables: {stored_id}")
                 else:
                     print("ℹ️ Payload had no nutrition prescription to project")
             except Exception as proj_err:
-                print(f"⚠️ Nutrition projection failed (raw event still saved): {proj_err}")
+                # Leave processed = FALSE so process_nutrition_webhooks.py retries it later.
+                print(f"⚠️ Nutrition projection failed (raw event still saved, will retry): {proj_err}")
                 import traceback
                 traceback.print_exc()
 
