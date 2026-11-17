@@ -65,9 +65,19 @@ const nextConfig = {
   async headers() {
     return [
       {
-        // Everything EXCEPT /pricing gets cross-origin isolation (needed for
-        // WebGPU SharedArrayBuffer). /pricing is excluded so Razorpay Checkout's
-        // cross-origin script + iframe can load (COEP require-corp would block them).
+        // /pricing must NOT be cross-origin isolated, or Razorpay Checkout's
+        // cross-origin script + iframe are blocked. Set unsafe-none EXPLICITLY
+        // (rather than relying on the absence of the headers below) so nothing —
+        // a cached response, a proxy, a service worker — can leave COEP on.
+        source: '/pricing',
+        headers: [
+          { key: 'Cross-Origin-Opener-Policy', value: 'unsafe-none' },
+          { key: 'Cross-Origin-Embedder-Policy', value: 'unsafe-none' },
+        ],
+      },
+      {
+        // Everything else gets cross-origin isolation (needed for WebGPU /
+        // SharedArrayBuffer in the ML Web Workers).
         source: '/((?!pricing).*)',
         headers: [
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },

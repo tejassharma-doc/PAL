@@ -74,24 +74,28 @@ export default function PricingPage() {
     setBusy(tier); setError(null)
     try {
       const { subscription_id, razorpay_key_id, short_url } = await createSubscription(tier)
-      // Prefer Razorpay's hosted payment page. It avoids loading checkout.js
-      // (which COOP/COEP blocks) and works on every network. After payment
-      // Razorpay returns to the app, where the status check lets the user in.
-      if (short_url) { window.location.href = short_url; return }
-      // Fallback: inline Checkout.js (only if no hosted link was returned).
+      // Primary: inline Razorpay Checkout. Its handler runs in THIS page after
+      // payment, so we can take the user straight into the app. (/pricing is set
+      // unsafe-none in next.config so COEP doesn't block checkout.js.)
       const ok = await loadRazorpay()
-      if (!ok) throw new Error('Could not load the payment window. Check your connection.')
-      const rzp = new (window as unknown as { Razorpay: new (o: Record<string, unknown>) => { open: () => void; on: (e: string, cb: () => void) => void } }).Razorpay({
-        key: razorpay_key_id,
-        subscription_id,
-        name: 'PAL',
-        description: tier === 'family' ? 'PAL Family membership' : 'PAL Individual membership',
-        theme: { color: '#37b59b' },
-        handler: () => { setBusy(tier); void pollActive() },
-        modal: { ondismiss: () => setBusy(null) },
-      })
-      rzp.on('payment.failed', () => { setError('Payment failed. Please try again.'); setBusy(null) })
-      rzp.open()
+      if (ok && (window as unknown as { Razorpay?: unknown }).Razorpay) {
+        const rzp = new (window as unknown as { Razorpay: new (o: Record<string, unknown>) => { open: () => void; on: (e: string, cb: () => void) => void } }).Razorpay({
+          key: razorpay_key_id,
+          subscription_id,
+          name: 'PAL',
+          description: tier === 'family' ? 'PAL Family membership' : 'PAL Individual membership',
+          theme: { color: '#37b59b' },
+          handler: () => { setBusy(tier); void pollActive() },   // → polls status, then router.push('/')
+          modal: { ondismiss: () => setBusy(null) },
+        })
+        rzp.on('payment.failed', () => { setError('Payment failed. Please try again.'); setBusy(null) })
+        rzp.open()
+        return
+      }
+      // Fallback only if checkout.js can't load: hosted page (note — that page is a
+      // status page and won't bounce back automatically).
+      if (short_url) { window.location.href = short_url; return }
+      throw new Error('Could not start the payment. Please try again.')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong'); setBusy(null)
     }
