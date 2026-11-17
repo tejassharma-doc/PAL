@@ -13,6 +13,7 @@ import { PalEmblem, PalRosette } from '../PalEmblem'
 import { Icon, type IconName } from '../ui/Icon'
 import { useNotificationBadge } from '../../lib/useNotificationBadge'
 import { useUiPrefs } from '../../lib/useUiPrefs'
+import { useUiT } from '../../lib/ui-i18n'
 import { getSubscriptionStatus } from '../../lib/subscription-api'
 
 type NavId = 'home' | 'ask' | 'meds' | 'visits' | 'records' | 'family' | 'settings'
@@ -54,6 +55,7 @@ export function AppShell({
   const cur = active ?? deriveActive(pathname)
   const bell = useNotificationBadge()
   const { scale, cycleScale, hc } = useUiPrefs()
+  const { t } = useUiT()
 
   const [userName, setUserName] = useState('You')
   // Family section is only for the Family plan. Start from the cached plan to
@@ -82,22 +84,22 @@ export function AppShell({
           <button className="logo" onClick={() => go('/')} aria-label="PAL home">
             <span className="logo-full"><PalEmblem width="5.6em" color="var(--jade)" /></span>
             <span className="logo-ros"><PalRosette size={30} color="var(--jade)" /></span>
-            <span>PAL<small>doctor-anchored care</small></span>
+            <span>PAL<small>{t('doctor-anchored care')}</small></span>
           </button>
           <button className="who" onClick={() => go('/profile')}>
             <span className="av a">{initial}</span>
-            <span>{userName}<small>Viewing your record</small></span>
+            <span>{userName}<small>{t('Viewing your record')}</small></span>
             <Icon name="down" />
           </button>
           {sideNav.map(n => (
             <button key={n.id} className="navi" aria-current={cur === n.id ? 'page' : undefined} onClick={() => go(n.href)}>
-              <Icon name={n.icon} /><span>{n.label}</span>
+              <Icon name={n.icon} /><span>{t(n.label)}</span>
               {n.id === 'meds' && medsBadge ? <span className="badge">{medsBadge}</span> : null}
             </button>
           ))}
           <div className="spacer" />
           <button className="navi" aria-current={cur === 'settings' ? 'page' : undefined} onClick={() => go('/settings')}>
-            <Icon name="set" /><span>Settings</span>
+            <Icon name="set" /><span>{t('Settings')}</span>
           </button>
           <p className="help">PAL gives health information, not a diagnosis. In an emergency call 112.</p>
         </aside>
@@ -110,7 +112,7 @@ export function AppShell({
             <span className="av a">{initial}</span>
             <span><b>{userName}</b><small>Your record ▾</small></span>
           </button>
-          {title ? <div className="ptitle">{title}</div> : null}
+          {title ? <div className="ptitle">{t(title)}</div> : null}
           <div className="tools">
             <button className="tbtn size" aria-label="Text size" onClick={cycleScale}>
               <span style={{ fontSize: '1.1em' }}>Aa</span>
@@ -130,7 +132,7 @@ export function AppShell({
         <nav className="bottom" aria-label="Main">
           {NAV.filter(n => !n.sideOnly).map(n => (
             <button key={n.id} aria-current={cur === n.id ? 'page' : undefined} onClick={() => go(n.href)}>
-              <span className="pill"><Icon name={n.icon} /></span>{n.label}
+              <span className="pill"><Icon name={n.icon} /></span>{t(n.label)}
             </button>
           ))}
         </nav>

@@ -13,6 +13,7 @@ import { AppShell } from '@/components/layout/AppShell'
 import { Icon } from '@/components/ui/Icon'
 import VoiceCall from '@/components/VoiceCall'
 import { Reading, readingFromFact } from '@/components/ui/Reading'
+import { useUiT } from '@/lib/ui-i18n'
 import { getHealthFacts, type HealthFact } from '@/lib/api'
 import { getPatientVisits, getUserProfile, type Visit } from '@/lib/api-auth'
 import { listMedicationSchedules, pendingDoses, respondToDose, type MedicationSchedule, type PendingDose, type DoseResponse } from '@/lib/medications-api'
@@ -32,6 +33,7 @@ function isDue(d: PendingDose): boolean {
 
 export default function HomePage() {
   const router = useRouter()
+  const { t } = useUiT()
   const [name, setName] = useState('')
   const [q, setQ] = useState('')
   const [ready, setReady] = useState(false)
@@ -107,12 +109,12 @@ export default function HomePage() {
   return (
     <AppShell active="home" title="Home" medsBadge={doses.filter(isDue).length}>
       <div className="page">
-        <h1 className="h">{greeting}{name ? `, ${name}` : ''}.</h1>
+        <h1 className="h">{t(greeting)}{name ? `, ${name}` : ''}.</h1>
         <p className="lede">{due ? 'One medicine is due now.' : 'Everything is up to date.'} Ask about your health, check your medicines and visits, and keep your records in one place.</p>
 
         <div className="askbox" role="search">
           <button className="attach" aria-label="Add a report" onClick={() => router.push('/upload')}><Icon name="cam" /></button>
-          <input aria-label="Ask PAL" placeholder="Ask about your health, in any language" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') goAsk() }} />
+          <input aria-label="Ask PAL" placeholder={t('Ask about your health, in any language')} value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') goAsk() }} />
           <button className="mic" aria-label="Ask" onClick={() => goAsk()}><Icon name="ask" /></button>
         </div>
         <div className="suggest">
@@ -123,7 +125,7 @@ export default function HomePage() {
 
         <div className="homegrid">
           <div>
-            <h2 className="s">Needs your attention</h2>
+            <h2 className="s">{t('Needs your attention')}</h2>
             {due ? (
               <article className="card due" aria-label="Medicine due now">
                 <div className="head">
@@ -135,10 +137,10 @@ export default function HomePage() {
                   </div>
                 </div>
                 <div className="acts">
-                  <button className="btn pri" disabled={busyDose} onClick={() => void respond('yes')}><Icon name="check" /> Yes, I took it</button>
+                  <button className="btn pri" disabled={busyDose} onClick={() => void respond('yes')}><Icon name="check" /> {t('Yes, I took it')}</button>
                   <div className="two">
-                    <button className="btn sec" disabled={busyDose} onClick={() => void respond('snooze_10')}><Icon name="clock" /> In 10 minutes</button>
-                    <button className="btn sec" disabled={busyDose} onClick={() => void respond('no')}>Skip this dose</button>
+                    <button className="btn sec" disabled={busyDose} onClick={() => void respond('snooze_10')}><Icon name="clock" /> {t('In 10 minutes')}</button>
+                    <button className="btn sec" disabled={busyDose} onClick={() => void respond('no')}>{t('Skip this dose')}</button>
                   </div>
                 </div>
               </article>
@@ -157,14 +159,14 @@ export default function HomePage() {
             )}
 
             {readings.length > 0 && (<>
-              <h2 className="s">Latest readings <button className="more" onClick={() => router.push('/records')}>See all</button></h2>
+              <h2 className="s">{t('Latest readings')} <button className="more" onClick={() => router.push('/records')}>{t('See all')}</button></h2>
               <div className="card">{readings.map(f => <Reading key={f.id} {...readingFromFact(f)} />)}</div>
             </>)}
           </div>
 
           <div>
             {visit && (<>
-              <h2 className="s">Next visit</h2>
+              <h2 className="s">{t('Next visit')}</h2>
               <article className="card hl visitcard">
                 {(() => { const d = new Date(visit.date); const ok = !Number.isNaN(d.getTime()); return (
                   <div className="datebig">
@@ -179,22 +181,22 @@ export default function HomePage() {
               </article>
             </>)}
 
-            <h2 className="s">Add a report</h2>
+            <h2 className="s">{t('Add a report')}</h2>
             <article className="card">
               <p className="muted">Photograph a prescription or lab report. PAL reads it and you check it before it&apos;s saved.</p>
               <div className="row" style={{ marginTop: '.8em' }}>
-                <button className="btn pri" onClick={() => router.push('/upload')}><Icon name="cam" /> Take a photo</button>
-                <button className="btn sec" onClick={() => router.push('/upload')}><Icon name="up" /> Choose a file</button>
+                <button className="btn pri" onClick={() => router.push('/upload')}><Icon name="cam" /> {t('Take a photo')}</button>
+                <button className="btn sec" onClick={() => router.push('/upload')}><Icon name="up" /> {t('Choose a file')}</button>
               </div>
             </article>
 
             {familyPlan && (<>
-              <h2 className="s">Family</h2>
+              <h2 className="s">{t('Family')}</h2>
               <article className="card">
                 <div className="fam">
                   <div className="stack"><span className="av p">P</span><span className="av m">M</span><span className="av r">R</span></div>
                   <div style={{ flex: 1 }}><b>{unread > 0 ? `${unread} new message${unread > 1 ? 's' : ''}` : 'Your family care'}</b><div className="muted small">{unread > 0 ? 'in your family care room' : 'Groups, access and the care room'}</div></div>
-                  <button className="btn sec" onClick={() => router.push('/family')}>Open</button>
+                  <button className="btn sec" onClick={() => router.push('/family')}>{t('Open')}</button>
                 </div>
               </article>
             </>)}

@@ -11,18 +11,20 @@ import { useRouter } from 'next/navigation'
 import { AppShell } from '@/components/layout/AppShell'
 import { Icon } from '@/components/ui/Icon'
 import { useUiPrefs, TEXT_SCALES } from '@/lib/useUiPrefs'
+import { useUiT } from '@/lib/ui-i18n'
 import { SUPPORTED_LANGUAGES } from '@/lib/languages'
 import { useTranslation } from '@/lib/useTranslation'
 import { updateProfile, clearAuth } from '@/lib/api-auth'
 import { markSignedOut } from '@/lib/sessionCookie'
 import { getSubscriptionStatus, subscriptionAction, type SubscriptionStatus } from '@/lib/subscription-api'
 
-const SIZE_LABELS = ['Standard', 'Large', 'Largest']
 
 export default function SettingsPage() {
   const router = useRouter()
   const { lang } = useTranslation()
+  const { t } = useUiT()
   const { scale, setScale, hc, setHc, readAloud, setReadAloud } = useUiPrefs()
+  const SIZE_T = [t('Standard'), t('Large'), t('Largest')]
   const [sub, setSub] = useState<SubscriptionStatus | null>(null)
   const [subBusy, setSubBusy] = useState(false)
   const [showAllLangs, setShowAllLangs] = useState(false)
@@ -70,9 +72,9 @@ export default function SettingsPage() {
   return (
     <AppShell active="settings" title="Settings">
       <div className="page narrow">
-        <h1 className="h">Settings</h1>
+        <h1 className="h">{t('Settings')}</h1>
 
-        <h2 className="s">Membership</h2>
+        <h2 className="s">{t('Membership')}</h2>
         <div className="card hl subcard">
           {subState === 'none' ? (
             <>
@@ -101,25 +103,25 @@ export default function SettingsPage() {
           )}
         </div>
 
-        <h2 className="s">Reading</h2>
+        <h2 className="s">{t('Reading')}</h2>
         <div className="set">
           <div className="it" style={{ display: 'block' }}>
-            <div className="tx"><b>Text size</b><span>Makes every screen larger or smaller</span></div>
+            <div className="tx"><b>{t('Text size')}</b><span>Makes every screen larger or smaller</span></div>
             <div className="sizes" role="group" aria-label="Text size">
               {TEXT_SCALES.map((s, i) => (
                 <button key={s} aria-pressed={Math.abs(scale - s) < 0.001} onClick={() => setScale(s)}>
-                  <span style={{ fontSize: `${17 * s}px` }}>Aa</span><small>{SIZE_LABELS[i]}</small>
+                  <span style={{ fontSize: `${17 * s}px` }}>Aa</span><small>{SIZE_T[i]}</small>
                 </button>
               ))}
             </div>
           </div>
-          <div className="it"><div className="tx"><b>High contrast</b><span>Stronger colours and borders</span></div>
+          <div className="it"><div className="tx"><b>{t('High contrast')}</b><span>Stronger colours and borders</span></div>
             <button className="sw2" role="switch" aria-checked={hc} aria-label="High contrast" onClick={() => setHc(!hc)} /></div>
-          <div className="it"><div className="tx"><b>Read answers aloud</b><span>PAL speaks each answer automatically</span></div>
+          <div className="it"><div className="tx"><b>{t('Read answers aloud')}</b><span>PAL speaks each answer automatically</span></div>
             <button className="sw2" role="switch" aria-checked={readAloud} aria-label="Read answers aloud" onClick={() => setReadAloud(!readAloud)} /></div>
         </div>
 
-        <h2 className="s">Language</h2>
+        <h2 className="s">{t('Language')}</h2>
         <div className="langs" role="group" aria-label="Language">
           {langs.map(l => (
             <button key={l.code} aria-pressed={curLang === l.code} onClick={() => chooseLang(l.code)}>
@@ -129,24 +131,24 @@ export default function SettingsPage() {
         </div>
         {!showAllLangs && <button className="btn ghost" style={{ padding: 0 }} onClick={() => setShowAllLangs(true)}>Show all {SUPPORTED_LANGUAGES.length} languages</button>}
 
-        <h2 className="s">Privacy</h2>
+        <h2 className="s">{t('Privacy')}</h2>
         <div className="set">
-          <div className="it"><div className="tx"><b>Use my record without asking</b><span>Skip the permission question in Ask</span></div>
+          <div className="it"><div className="tx"><b>{t('Use my record without asking')}</b><span>Skip the permission question in Ask</span></div>
             <button className="sw2" role="switch" aria-checked={consentAlways} aria-label="Use my record without asking" onClick={() => togglePref('pal_consent_always', consentAlways, setConsentAlways)} /></div>
-          <div className="it"><div className="tx"><b>Who can see my record</b><span>Manage family access and consents</span></div>
+          <div className="it"><div className="tx"><b>{t('Who can see my record')}</b><span>Manage family access and consents</span></div>
             <button className="iconbtn" aria-label="Manage access" onClick={() => router.push('/family')}><Icon name="right" /></button></div>
-          <div className="it"><div className="tx"><b>Help improve PAL</b><span>Share anonymous usage data</span></div>
+          <div className="it"><div className="tx"><b>{t('Help improve PAL')}</b><span>Share anonymous usage data</span></div>
             <button className="sw2" role="switch" aria-checked={analytics} aria-label="Share usage data" onClick={() => togglePref('pal_usage_analytics', analytics, setAnalytics)} /></div>
-          <div className="it"><div className="tx"><b>Download my data</b><span>A copy of everything PAL holds — coming soon</span></div>
+          <div className="it"><div className="tx"><b>{t('Download my data')}</b><span>A copy of everything PAL holds — coming soon</span></div>
             <button className="iconbtn" aria-label="Download my data" disabled style={{ opacity: .5 }}><Icon name="dl" /></button></div>
         </div>
 
-        <h2 className="s">Account</h2>
+        <h2 className="s">{t('Account')}</h2>
         <div className="set">
-          <div className="it"><div className="tx"><b>Profile and emergency contact</b><span>Name, photo, blood group, ABHA ID</span></div>
+          <div className="it"><div className="tx"><b>{t('Profile and emergency contact')}</b><span>Name, photo, blood group, ABHA ID</span></div>
             <button className="iconbtn" aria-label="Open profile" onClick={() => router.push('/profile')}><Icon name="right" /></button></div>
-          {phone && <div className="it"><div className="tx"><b>Mobile number</b><span>{phone}</span></div></div>}
-          <div className="it"><button className="btn sec" style={{ color: 'var(--rose-deep)' }} onClick={() => setSignOut(true)}>Sign out</button></div>
+          {phone && <div className="it"><div className="tx"><b>{t('Mobile number')}</b><span>{phone}</span></div></div>}
+          <div className="it"><button className="btn sec" style={{ color: 'var(--rose-deep)' }} onClick={() => setSignOut(true)}>{t('Sign out')}</button></div>
         </div>
       </div>
 
