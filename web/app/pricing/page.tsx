@@ -59,7 +59,12 @@ export default function PricingPage() {
   async function subscribe(tier: Tier) {
     setBusy(tier); setError(null)
     try {
-      const { subscription_id, razorpay_key_id } = await createSubscription(tier)
+      const { subscription_id, razorpay_key_id, short_url } = await createSubscription(tier)
+      // Prefer Razorpay's hosted payment page. It avoids loading checkout.js
+      // (which COOP/COEP blocks) and works on every network. After payment
+      // Razorpay returns to the app, where the status check lets the user in.
+      if (short_url) { window.location.href = short_url; return }
+      // Fallback: inline Checkout.js (only if no hosted link was returned).
       const ok = await loadRazorpay()
       if (!ok) throw new Error('Could not load the payment window. Check your connection.')
       const rzp = new (window as unknown as { Razorpay: new (o: Record<string, unknown>) => { open: () => void; on: (e: string, cb: () => void) => void } }).Razorpay({
