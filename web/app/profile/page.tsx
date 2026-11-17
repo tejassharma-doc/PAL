@@ -3,13 +3,14 @@
 /**
  * Profile — redesigned onto AppShell (pal-app.html `S.profile`).
  * About you / Health IDs / Medical details / Emergency contact, from the real
- * patient record (getUserProfile). Name edit via updateProfile.
+ * patient record (getUserProfile). "Edit profile" opens the full edit form at
+ * /profile/create (edit mode), which lets every section be changed.
  */
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AppShell } from '@/components/layout/AppShell'
 import { Icon } from '@/components/ui/Icon'
-import { getUserProfile, updateProfile } from '@/lib/api-auth'
+import { getUserProfile } from '@/lib/api-auth'
 
 type Patient = NonNullable<Awaited<ReturnType<typeof getUserProfile>>['patient']>
 
@@ -23,9 +24,6 @@ export default function ProfilePage() {
   const router = useRouter()
   const [patient, setPatient] = useState<Patient | null>(null)
   const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState(false)
-  const [name, setName] = useState('')
-  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -34,22 +32,10 @@ export default function ProfilePage() {
       try {
         const data = await getUserProfile()
         setPatient(data.patient)
-        setName(data.patient?.full_name || '')
       } catch { /* ignore */ }
       finally { setLoading(false) }
     })()
   }, [router])
-
-  async function save() {
-    setSaving(true)
-    try {
-      await updateProfile({ full_name: name.trim() })
-      localStorage.setItem('pal_full_name', name.trim())
-      setPatient(p => p ? { ...p, full_name: name.trim() } : p)
-      setEditing(false)
-    } catch { /* ignore */ }
-    finally { setSaving(false) }
-  }
 
   const p = patient
   const initial = (p?.full_name || 'Y').trim().charAt(0).toUpperCase()
@@ -62,15 +48,11 @@ export default function ProfilePage() {
           <div className="row" style={{ gap: '1em' }}>
             <span className="av a" style={{ width: '4.2em', height: '4.2em', fontSize: '1.3em', borderRadius: '1.1em' }}>{initial}</span>
             <div>
-              {editing
-                ? <input value={name} onChange={e => setName(e.target.value)} style={{ font: 'inherit', fontSize: '1.4em', border: '1.5px solid var(--line-2)', borderRadius: '.6em', padding: '.2em .5em' }} />
-                : <h1 className="h">{p?.full_name || 'Your profile'}</h1>}
+              <h1 className="h">{p?.full_name || 'Your profile'}</h1>
               <p className="lede">{p?.phone || ''}</p>
             </div>
           </div>
-          {editing
-            ? <div className="row"><button className="btn pri" disabled={saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Save'}</button><button className="btn ghost" onClick={() => { setEditing(false); setName(p?.full_name || '') }}>Cancel</button></div>
-            : <button className="btn sec" onClick={() => setEditing(true)}>Edit profile</button>}
+          <button className="btn sec" onClick={() => router.push('/profile/create')}>Edit profile</button>
         </div>
 
         {loading ? <div className="muted" style={{ marginTop: '1em' }}>Loading…</div> : (

@@ -241,13 +241,13 @@ export default function CreateProfilePage() {
 
       const data = await response.json()
 
-      // Store patient ID and set language preference
+      // Store patient ID and name
       localStorage.setItem('pal_patient_id', data.id)
-      localStorage.setItem('pal_preferred_lang', 'en')
       localStorage.setItem('pal_user_name', formData.full_name)
+      localStorage.setItem('pal_full_name', formData.full_name)
 
-      // Redirect to home
-      router.push('/')
+      // After editing go back to the profile; after first creation go to the app.
+      router.push(isUpdate ? '/profile' : '/')
     } catch (err: any) {
       console.error('Submit Error:', err)
       setError(err.message || 'Something went wrong')
