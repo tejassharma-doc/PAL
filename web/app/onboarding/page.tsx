@@ -80,9 +80,9 @@ export default function Onboarding() {
       window.location.replace('/');
       return;
     }
-    // Token but no patient id locally: an EXISTING patient may just be missing
-    // the localStorage key. Confirm with the backend before making them onboard;
-    // if they already have a patient, recover the id and go straight to Home.
+    // Token but no patient id locally. The phone/OTP was already done at /login,
+    // so never re-verify here — send them to the profile-details form (which
+    // creates the patient). If an EXISTING patient is found, recover it and go Home.
     (async () => {
       try {
         const prof = await getUserProfile();
@@ -90,11 +90,12 @@ export default function Onboarding() {
         if (pid) {
           localStorage.setItem('pal_patient_id', pid);
           window.location.replace('/');
+          return;
         }
-        // else: genuinely new → stay on onboarding to create a profile.
       } catch {
-        // Profile check failed → stay on onboarding rather than bouncing.
+        // fall through to the profile form
       }
+      window.location.replace('/profile/create');
     })();
   }, []);
 

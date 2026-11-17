@@ -60,8 +60,12 @@ export default function LoginPage() {
     setError(''); setLoading(true)
     try {
       const r = await verifyLoginOTP(phone, code)
+      // Remember the number they signed in with, so the profile form can auto-fill it.
+      localStorage.setItem('pal_phone', phone.replace(/\D/g, ''))
       if (r.has_subscription === false) { router.push('/pricing'); return }
-      if (r.requires_onboarding || !r.user.patient_id) { router.push('/onboarding'); return }
+      // New user (no patient yet) → go straight to the profile-details form, which
+      // creates the patient. (No second phone/OTP step — they just verified.)
+      if (r.requires_onboarding || !r.user.patient_id) { router.push('/profile/create'); return }
       router.push('/')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Invalid code')

@@ -57,6 +57,9 @@ export default function CreateProfilePage() {
       loadExistingProfile()
     } else {
       setIsEditMode(false)
+      // New user: auto-fill the phone with the number they just logged in with.
+      const loginPhone = localStorage.getItem('pal_phone')
+      if (loginPhone) setFormData(prev => ({ ...prev, phone: loginPhone }))
     }
   }, [])
 
@@ -339,15 +342,16 @@ export default function CreateProfilePage() {
 
               <div>
                 <label style={{ fontFamily: mono, fontSize: '.57rem', letterSpacing: '.1em', textTransform: 'uppercase', color: c.ink, opacity: 0.5, marginBottom: 6, display: 'block' }}>
-                  Phone *
+                  Phone * <span style={{ textTransform: 'none', opacity: 0.7 }}>(your login number)</span>
                 </label>
                 <input
                   type="tel"
                   name="phone"
                   required
+                  readOnly
                   value={formData.phone}
-                  onChange={handleChange}
-                  style={{ width: '100%', padding: '12px 14px', fontFamily: sans, fontSize: '.9rem', color: c.ink, background: '#fff', border: '1px solid rgba(13,31,36,.16)', borderRadius: 11, outline: 'none' }}
+                  title="This is the number you signed in with"
+                  style={{ width: '100%', padding: '12px 14px', fontFamily: sans, fontSize: '.9rem', color: c.ink, background: 'rgba(13,31,36,.05)', border: '1px solid rgba(13,31,36,.16)', borderRadius: 11, outline: 'none', cursor: 'not-allowed' }}
                 />
               </div>
 
