@@ -40,7 +40,21 @@ export default function PricingPage() {
 
   useEffect(() => {
     if (!token()) { router.push('/login'); return }
+    const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams()
+    const returning = params.get('from') === 'razorpay' || params.has('razorpay_payment_id') || params.has('razorpay_subscription_id')
     ;(async () => {
+      if (returning) {
+        // Came back from the Razorpay hosted page — poll until the webhook marks
+        // the subscription active, then take the user into the app.
+        for (let i = 0; i < 15; i++) {
+          const s = await getSubscriptionStatus()
+          if (s.active) { router.push('/'); return }
+          await new Promise(r => setTimeout(r, 2000))
+        }
+        setChecking(false)
+        setError('Payment is being confirmed. If you completed it, reload this page in a moment.')
+        return
+      }
       const s = await getSubscriptionStatus()
       if (s.active) { router.push('/'); return }
       setChecking(false)
