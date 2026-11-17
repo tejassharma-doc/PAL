@@ -37,6 +37,9 @@ export default function PricingPage() {
   const [busy, setBusy] = useState<Tier | null>(null)
   const [checking, setChecking] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [waiting, setWaiting] = useState(false)
+  const [payUrl, setPayUrl] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
 
   useEffect(() => {
     if (!token()) { router.push('/login'); return }
@@ -70,6 +73,21 @@ export default function PricingPage() {
     setError('Payment received — activation is taking a moment. Please reload shortly.')
   }, [router])
 
+  // Long poll used while the customer pays on the Razorpay page in another tab.
+  const waitForActivation = useCallback(async () => {
+    for (let i = 0; i < 120; i++) {
+      try { const s = await getSubscriptionStatus(); if (s.active) { router.push('/'); return } } catch { /* retry */ }
+      await new Promise(r => setTimeout(r, 3000))
+    }
+  }, [router])
+
+  // Manual "I've paid" check.
+  async function confirmNow() {
+    setConfirming(true)
+    try { const s = await getSubscriptionStatus(); if (s.active) { router.push('/'); return } setError('We can\'t see the payment yet. If you just paid, give it a few seconds and try again.') }
+    finally { setConfirming(false) }
+  }
+
   async function subscribe(tier: Tier) {
     setBusy(tier); setError(null)
     try {
@@ -92,9 +110,17 @@ export default function PricingPage() {
         rzp.open()
         return
       }
-      // Fallback only if checkout.js can't load: hosted page (note — that page is a
-      // status page and won't bounce back automatically).
-      if (short_url) { window.location.href = short_url; return }
+      // Fallback (checkout.js blocked): the hosted page is a dead-end that never
+      // returns. So open it in a NEW tab and keep this tab waiting — we poll the
+      // subscription status and move the user in automatically once it's active.
+      if (short_url) {
+        window.open(short_url, '_blank', 'noopener')
+        setPayUrl(short_url)
+        setWaiting(true)
+        setBusy(null)
+        void waitForActivation()
+        return
+      }
       throw new Error('Could not start the payment. Please try again.')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong'); setBusy(null)
@@ -114,7 +140,19 @@ export default function PricingPage() {
           <h1 className="h" style={{ fontSize: '2.1em' }}>Choose your plan</h1>
           <p className="lede">One price, everything included. Inclusive of all taxes. Cancel any time.</p>
           {error && <div className="alertcard" style={{ marginTop: '1em' }}><Icon name="alert" /><div><b>Payment</b><span className="muted small">{error}</span></div></div>}
-          {checking ? <div className="muted" style={{ marginTop: '1.4em' }}>Loading…</div> : (
+          {waiting ? (
+            <article className="card hl" style={{ marginTop: '1.4em', textAlign: 'center' }}>
+              <div className="pillico" style={{ margin: '0 auto .6em' }}><Icon name="clock" /></div>
+              <b style={{ fontSize: '1.1em' }}>Complete your payment</b>
+              <p className="muted small" style={{ margin: '.4em auto 1em', maxWidth: '26em' }}>
+                A secure Razorpay page opened in a new tab. Pay there, then come back — we&apos;ll take you in automatically. You can also tap below once it&apos;s done.
+              </p>
+              <div className="row" style={{ justifyContent: 'center' }}>
+                <button className="btn pri" disabled={confirming} onClick={() => void confirmNow()}>{confirming ? 'Checking…' : "I've completed payment"}</button>
+                {payUrl && <a className="btn sec" href={payUrl} target="_blank" rel="noreferrer">Reopen payment page</a>}
+              </div>
+            </article>
+          ) : checking ? <div className="muted" style={{ marginTop: '1.4em' }}>Loading…</div> : (
             <div className="plans">
               <div className="plan2">
                 <h3>Individual</h3><p className="muted small">For 1 person</p>
