@@ -15,6 +15,7 @@ import { useNotificationBadge } from '../../lib/useNotificationBadge'
 import { useUiPrefs } from '../../lib/useUiPrefs'
 import { useUiT } from '../../lib/ui-i18n'
 import { getSubscriptionStatus } from '../../lib/subscription-api'
+import { getUserProfile } from '../../lib/api-auth'
 
 type NavId = 'home' | 'ask' | 'meds' | 'nutrition' | 'visits' | 'records' | 'family' | 'settings'
 type NavItem = { id: NavId; label: string; icon: IconName; href: string; sideOnly?: boolean }
@@ -67,7 +68,17 @@ export function AppShell({
   )
   useEffect(() => {
     if (typeof window === 'undefined') return
+    // Cached name first (avoids a flash), but it can be stale — phone login never
+    // sets a name — so confirm with the real patient record and refresh the cache.
     setUserName(localStorage.getItem('pal_full_name') || localStorage.getItem('pal_user_name') || 'You')
+    void getUserProfile().then(p => {
+      const real = p.patient?.full_name
+      if (real) {
+        localStorage.setItem('pal_full_name', real)
+        localStorage.setItem('pal_user_name', real)
+        setUserName(real)
+      }
+    }).catch(() => {})
     void getSubscriptionStatus().then(s => {
       const plan = String(s.plan || '')
       localStorage.setItem('pal_plan', plan)

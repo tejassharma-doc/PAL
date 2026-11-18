@@ -43,7 +43,10 @@ export function clearAuth() {
   localStorage.removeItem('pal_session_id')
   localStorage.removeItem('pal_preferred_lang')
   localStorage.removeItem('pal_user_name')
+  localStorage.removeItem('pal_full_name')
   localStorage.removeItem('pal_patient_id')
+  localStorage.removeItem('pal_phone')
+  localStorage.removeItem('pal_plan')
 }
 
 export function getToken(): string | null {
