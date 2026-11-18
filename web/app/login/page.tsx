@@ -65,7 +65,9 @@ export default function LoginPage() {
       if (r.has_subscription === false) { router.push('/pricing'); return }
       // New user (no patient yet) → go straight to the profile-details form, which
       // creates the patient. (No second phone/OTP step — they just verified.)
-      if (r.requires_onboarding || !r.user.patient_id) { router.push('/profile/create'); return }
+      // NOTE: the backend returns patient_id at the TOP level (r.patient_id), not
+      // on r.user — using r.user.patient_id here sent EXISTING users to onboarding.
+      if (r.requires_onboarding || !r.patient_id) { router.push('/profile/create'); return }
       router.push('/')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Invalid code')
