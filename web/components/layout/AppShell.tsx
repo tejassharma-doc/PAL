@@ -16,13 +16,14 @@ import { useUiPrefs } from '../../lib/useUiPrefs'
 import { useUiT } from '../../lib/ui-i18n'
 import { getSubscriptionStatus } from '../../lib/subscription-api'
 
-type NavId = 'home' | 'ask' | 'meds' | 'visits' | 'records' | 'family' | 'settings'
+type NavId = 'home' | 'ask' | 'meds' | 'nutrition' | 'visits' | 'records' | 'family' | 'settings'
 type NavItem = { id: NavId; label: string; icon: IconName; href: string; sideOnly?: boolean }
 
 const NAV: NavItem[] = [
   { id: 'home', label: 'Home', icon: 'home', href: '/' },
   { id: 'ask', label: 'Ask', icon: 'ask', href: '/ask' },
   { id: 'meds', label: 'Medicines', icon: 'pill', href: '/medications' },
+  { id: 'nutrition', label: 'Nutrition', icon: 'leaf', href: '/nutrition' },
   { id: 'visits', label: 'Visits', icon: 'cal', href: '/visits' },
   { id: 'records', label: 'Records', icon: 'rec', href: '/records' },
   { id: 'family', label: 'Family', icon: 'fam', href: '/family', sideOnly: true },
@@ -32,6 +33,7 @@ function deriveActive(pathname: string): NavId {
   if (pathname === '/' ) return 'home'
   if (pathname.startsWith('/ask') || pathname.startsWith('/history') || pathname.startsWith('/search')) return 'ask'
   if (pathname.startsWith('/medications') || pathname.startsWith('/reminders')) return 'meds'
+  if (pathname.startsWith('/nutrition')) return 'nutrition'
   if (pathname.startsWith('/visits')) return 'visits'
   if (pathname.startsWith('/records') || pathname.startsWith('/upload') || pathname.startsWith('/lab-reports')) return 'records'
   if (pathname.startsWith('/family')) return 'family'

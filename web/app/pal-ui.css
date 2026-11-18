@@ -547,3 +547,64 @@
   .palui .lgrid { grid-template-columns: repeat(3,1fr); }
   .palui .lhero h1 { font-size: 3.9em; }
 }
+
+/* ───── Nutrition Rx (ported from pal-app.html, scoped) ───── */
+.palui .rxhead { display: flex; flex-wrap: wrap; gap: 1em; align-items: flex-end; justify-content: space-between; }
+.palui .rxacts .btn { min-height: 2.9em; }
+.palui .goal { display: flex; gap: 1em; align-items: flex-start; margin-top: 1.2em; }
+.palui .gicon { width: 3em; height: 3em; border-radius: .9em; background: #fff; color: var(--jade-deep); display: grid; place-items: center; flex-shrink: 0; border: 1px solid rgba(31,125,107,.25); }
+.palui .goal .gt { font-size: 1.15em; }
+.palui .goal p { color: var(--ink-2); margin-top: .2em; }
+.palui .empty { display: flex; gap: 1em; align-items: flex-start; margin-top: 1.2em; }
+.palui .empty .gt { font-size: 1.15em; display: block; }
+.palui .empty p { color: var(--ink-2); margin-top: .2em; }
+.palui .facts { display: flex; flex-wrap: wrap; gap: .4em .6em; margin-top: .7em; }
+.palui .facts span { display: inline-flex; align-items: center; gap: .35em; background: #fff; border: 1px solid rgba(31,125,107,.2); border-radius: 999px; padding: .25em .8em; font-size: .88em; font-weight: 500; }
+.palui .facts .ico { width: 1.05em; height: 1.05em; color: var(--jade-deep); }
+.palui .ntabs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .3em; background: #fff; border: 1px solid var(--line); border-radius: 1em; padding: .3em; margin: 1.3em 0 .4em; }
+.palui .ntabs button { border: 0; background: transparent; border-radius: .75em; font-weight: 600; font-size: .9em; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .2em; min-height: 3.6em; color: var(--ink-2); padding: .3em; }
+.palui .ntabs button[aria-selected="true"] { background: var(--jade-deep); color: #fff; }
+.palui .dayrow { display: flex; gap: .4em; overflow-x: auto; padding: .6em 0 .3em; scrollbar-width: none; align-items: stretch; }
+.palui .dayrow button { flex-shrink: 0; border: 1.5px solid var(--line-2); background: #fff; border-radius: .9em; min-width: 3.6em; min-height: 3.9em; display: grid; place-items: center; line-height: 1.1; padding: .3em .5em; }
+.palui .dayrow button small { font-size: .75em; color: var(--ink-3); font-weight: 600; }
+.palui .dayrow button b { font-size: 1.15em; }
+.palui .dayrow button.is-today { border-color: var(--jade); }
+.palui .dayrow button[aria-selected="true"] { background: var(--jade-deep); border-color: var(--jade-deep); color: #fff; }
+.palui .dayrow button[aria-selected="true"] small { color: #d6efe8; }
+.palui .meals { display: grid; grid-template-columns: minmax(0,1fr); gap: .7em; }
+.palui .meal { background: #fff; border: 1px solid var(--line); border-radius: 1.1em; padding: 1em; display: grid; gap: .6em; }
+.palui .mslot { display: flex; align-items: center; gap: .5em; flex-wrap: wrap; font-weight: 600; font-size: .9em; color: var(--jade-deep); }
+.palui .sico { width: 1.9em; height: 1.9em; border-radius: .6em; background: var(--jade-tint); display: inline-grid; place-items: center; flex-shrink: 0; }
+.palui .sico .ico { width: 1.1em !important; height: 1.1em !important; }
+.palui .kc { margin-left: auto; font-size: .85em; color: var(--ink-3); font-weight: 500; }
+.palui .dish b { display: block; font-size: 1.1em; line-height: 1.3; }
+.palui .dish span { display: block; color: var(--ink-3); font-size: .9em; }
+.palui .dish + .dish { margin-top: .45em; padding-top: .45em; border-top: 1px dashed var(--line-2); }
+.palui .daytot { display: flex; gap: .5em; align-items: center; margin-top: 1em; color: var(--ink-2); font-size: .92em; }
+.palui .daytot .ico { color: var(--jade-deep); }
+.palui .safety { background: var(--amber-tint); border: 1.5px solid var(--amber); border-radius: 1.1em; padding: 1em 1.1em; margin-top: 1em; }
+.palui .safety .t { display: flex; gap: .5em; font-weight: 700; color: var(--amber-deep); align-items: flex-start; }
+.palui .safety p { margin-top: .4em; }
+.palui .nsrc { font-size: .8em; color: var(--ink-3); margin-top: .25em; }
+.palui .tipg { display: grid; gap: 0; }
+.palui .tipg h3 { display: flex; align-items: center; gap: .5em; font-size: 1.05em; font-weight: 600; color: var(--jade-deep); }
+.palui .tip { padding: .75em 0; border-top: 1px solid var(--line); }
+.palui .tipg h3 + .tip { border-top: 0; }
+.palui .tip b { display: block; }
+.palui .tip p { color: var(--ink-2); font-size: .94em; margin-top: .15em; }
+.palui .tgrid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .6em; }
+.palui .tg { display: grid; gap: .05em; margin: 0 !important; }
+.palui .tg .tl { font-weight: 600; font-size: .9em; color: var(--jade-deep); }
+.palui .tg b { font-family: var(--serif); font-weight: 400; font-size: 1.8em; line-height: 1.1; }
+.palui .tg .tu { font-size: .88em; color: var(--ink-2); }
+.palui .tg .tn { font-size: .8em; color: var(--ink-3); margin-top: .3em; }
+.palui .rxfoot { margin-top: 1.6em; padding-top: 1em; border-top: 1px solid var(--line); }
+.palui .nutcard .nm { display: flex; gap: .7em; align-items: center; margin-top: .6em; }
+@media (min-width:700px) {
+  .palui .ntabs button { flex-direction: row; font-size: .95em; }
+  .palui .meals { grid-template-columns: 1fr 1fr; }
+  .palui .tgrid { grid-template-columns: repeat(4,minmax(0,1fr)); }
+}
+@media (min-width:1100px) {
+  .palui .meals { grid-template-columns: repeat(3,minmax(0,1fr)); }
+}
