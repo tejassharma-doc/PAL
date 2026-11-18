@@ -21,6 +21,9 @@ COPY webhook_helper.py .
 COPY webhook_processor.py .
 COPY clinical_output_processor.py .
 COPY models_minimal.py .
+COPY nutrition_store.py .
+COPY create_nutrition_tables.py .
+COPY process_nutrition_webhooks.py .
 
 # Set ownership to non-root user
 RUN chown -R mcpapp:mcpapp /app

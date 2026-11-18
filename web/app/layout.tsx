@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import './pal-ui.css'
 import ClientPreloader from './ClientPreloader'
 import MedicationReminderHost from '@/components/medications/MedicationReminderHost'
 import { Newsreader, Space_Grotesk, Space_Mono } from 'next/font/google'

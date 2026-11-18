@@ -1,0 +1,157 @@
+'use client'
+
+/**
+ * PAL redesign app shell — ported from pal-app.html `shell()`.
+ * Left sidebar (desktop) + top bar + bottom nav (mobile). Nav items are real
+ * Next.js routes. Wrap a redesigned screen:
+ *   <AppShell active="ask" title="Ask PAL"><div className="page">…</div></AppShell>
+ * `active` is optional — derived from the pathname when omitted.
+ */
+import React, { useEffect, useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
+import { PalEmblem, PalRosette } from '../PalEmblem'
+import { Icon, type IconName } from '../ui/Icon'
+import { useNotificationBadge } from '../../lib/useNotificationBadge'
+import { useUiPrefs } from '../../lib/useUiPrefs'
+import { useUiT } from '../../lib/ui-i18n'
+import { getSubscriptionStatus } from '../../lib/subscription-api'
+import { getUserProfile } from '../../lib/api-auth'
+
+type NavId = 'home' | 'ask' | 'meds' | 'nutrition' | 'visits' | 'records' | 'family' | 'settings'
+type NavItem = { id: NavId; label: string; icon: IconName; href: string; sideOnly?: boolean }
+
+const NAV: NavItem[] = [
+  { id: 'home', label: 'Home', icon: 'home', href: '/' },
+  { id: 'ask', label: 'Ask', icon: 'ask', href: '/ask' },
+  { id: 'meds', label: 'Medicines', icon: 'pill', href: '/medications' },
+  { id: 'nutrition', label: 'Nutrition', icon: 'leaf', href: '/nutrition' },
+  { id: 'visits', label: 'Visits', icon: 'cal', href: '/visits' },
+  { id: 'records', label: 'Records', icon: 'rec', href: '/records' },
+  { id: 'family', label: 'Family', icon: 'fam', href: '/family', sideOnly: true },
+]
+
+function deriveActive(pathname: string): NavId {
+  if (pathname === '/' ) return 'home'
+  if (pathname.startsWith('/ask') || pathname.startsWith('/history') || pathname.startsWith('/search')) return 'ask'
+  if (pathname.startsWith('/medications') || pathname.startsWith('/reminders')) return 'meds'
+  if (pathname.startsWith('/nutrition')) return 'nutrition'
+  if (pathname.startsWith('/visits')) return 'visits'
+  if (pathname.startsWith('/records') || pathname.startsWith('/upload') || pathname.startsWith('/lab-reports')) return 'records'
+  if (pathname.startsWith('/family')) return 'family'
+  if (pathname.startsWith('/settings') || pathname.startsWith('/profile')) return 'settings'
+  return 'home'
+}
+
+export function AppShell({
+  active,
+  title,
+  medsBadge,
+  children,
+}: {
+  active?: NavId
+  title?: string
+  medsBadge?: number
+  children: React.ReactNode
+}) {
+  const router = useRouter()
+  const pathname = usePathname() || '/'
+  const cur = active ?? deriveActive(pathname)
+  const bell = useNotificationBadge()
+  const { scale, cycleScale, hc } = useUiPrefs()
+  const { t } = useUiT()
+
+  const [userName, setUserName] = useState('You')
+  // Family section is only for the Family plan. Start from the cached plan to
+  // avoid a flash, then confirm with the server.
+  const [familyAllowed, setFamilyAllowed] = useState(
+    typeof window !== 'undefined' && localStorage.getItem('pal_plan') === 'family',
+  )
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    // Cached name first (avoids a flash), but it can be stale — phone login never
+    // sets a name — so confirm with the real patient record and refresh the cache.
+    setUserName(localStorage.getItem('pal_full_name') || localStorage.getItem('pal_user_name') || 'You')
+    void getUserProfile().then(p => {
+      const real = p.patient?.full_name
+      if (real) {
+        localStorage.setItem('pal_full_name', real)
+        localStorage.setItem('pal_user_name', real)
+        setUserName(real)
+      }
+    }).catch(() => {})
+    void getSubscriptionStatus().then(s => {
+      const plan = String(s.plan || '')
+      localStorage.setItem('pal_plan', plan)
+      setFamilyAllowed(plan === 'family')
+    }).catch(() => {})
+  }, [])
+  const initial = (userName || 'Y').trim().charAt(0).toUpperCase()
+
+  const sideNav = NAV.filter(n => n.id !== 'family' || familyAllowed)
+  const go = (href: string) => router.push(href)
+
+  return (
+    <div className={`palui${hc ? ' hc' : ''}`}>
+      <div className="app" style={{ ['--scale' as string]: scale } as React.CSSProperties}>
+        <aside className="side" aria-label="Main">
+          <button className="logo" onClick={() => go('/')} aria-label="PAL home">
+            <span className="logo-full"><PalEmblem width="5.6em" color="var(--jade)" /></span>
+            <span className="logo-ros"><PalRosette size={30} color="var(--jade)" /></span>
+            <span>PAL<small>{t('doctor-anchored care')}</small></span>
+          </button>
+          <button className="who" onClick={() => go('/profile')}>
+            <span className="av a">{initial}</span>
+            <span>{userName}<small>{t('Viewing your record')}</small></span>
+            <Icon name="down" />
+          </button>
+          {sideNav.map(n => (
+            <button key={n.id} className="navi" aria-current={cur === n.id ? 'page' : undefined} onClick={() => go(n.href)}>
+              <Icon name={n.icon} /><span>{t(n.label)}</span>
+              {n.id === 'meds' && medsBadge ? <span className="badge">{medsBadge}</span> : null}
+            </button>
+          ))}
+          <div className="spacer" />
+          <button className="navi" aria-current={cur === 'settings' ? 'page' : undefined} onClick={() => go('/settings')}>
+            <Icon name="set" /><span>{t('Settings')}</span>
+          </button>
+          <p className="help">PAL gives health information, not a diagnosis. In an emergency call 112.</p>
+        </aside>
+
+        <header className="top">
+          <button className="toplogo" onClick={() => go('/')} aria-label="PAL home">
+            <PalRosette size={30} color="var(--jade-deep)" />
+          </button>
+          <button className="who-m" onClick={() => go('/profile')} aria-label="Your record and settings">
+            <span className="av a">{initial}</span>
+            <span><b>{userName}</b><small>Your record ▾</small></span>
+          </button>
+          {title ? <div className="ptitle">{t(title)}</div> : null}
+          <div className="tools">
+            <button className="tbtn size" aria-label="Text size" onClick={cycleScale}>
+              <span style={{ fontSize: '1.1em' }}>Aa</span>
+            </button>
+            <button className="tbtn gear" aria-label="Settings" onClick={() => go('/settings')}>
+              <Icon name="set" />
+            </button>
+            <button className="tbtn" aria-label={`Notifications${bell ? `, ${bell} new` : ''}`} onClick={() => go('/notifications')}>
+              <Icon name="bell" />
+              {bell ? <span className="dot">{bell}</span> : null}
+            </button>
+          </div>
+        </header>
+
+        <main className="main">{children}</main>
+
+        <nav className="bottom" aria-label="Main">
+          {NAV.filter(n => !n.sideOnly).map(n => (
+            <button key={n.id} aria-current={cur === n.id ? 'page' : undefined} onClick={() => go(n.href)}>
+              <span className="pill"><Icon name={n.icon} /></span>{t(n.label)}
+            </button>
+          ))}
+        </nav>
+      </div>
+    </div>
+  )
+}
+
+export default AppShell

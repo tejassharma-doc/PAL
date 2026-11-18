@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Union
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -220,6 +221,20 @@ async def create_subscription(
         "razorpay_key_id": settings.razorpay_key_id,
         "short_url": sub.get("short_url"),
     }
+
+
+@router.api_route("/return", methods=["GET", "POST"])
+async def subscription_return(request: Request):
+    """Landing URL after the Razorpay hosted subscription page.
+
+    Configure this as the subscription redirect/callback URL in the Razorpay
+    Dashboard: https://palcare.life/api/subscription/return
+
+    The subscription.* webhook is the source of truth for activation; this route
+    just bounces the customer's browser back into the app, where /pricing confirms
+    the active status and forwards them in. Razorpay may POST the result here, so
+    both GET and POST redirect (303 turns the POST into a GET)."""
+    return RedirectResponse(url="/pricing?from=razorpay", status_code=303)
 
 
 @router.post("/webhook")

@@ -508,8 +508,24 @@ async def receive_inutrimon_webhook(
         webhook_id = str(row['id'])
         print(f"✅ iNutriMon webhook saved to database: {webhook_id}")
 
-        # TODO: Add iNutriMon-specific processing here if needed
-        # For now, just store the raw data
+        # Project a nutrition_prescription.published payload into its relational
+        # tables (nutrition_prescriptions + children). Best-effort: a projection
+        # failure must not fail the webhook ack — the raw row is already saved.
+        if event_type == "nutrition_prescription.published" or "nutritionPrescription" in payload or "handover" in payload:
+            try:
+                from nutrition_store import store_nutrition_prescription
+                stored_id = await store_nutrition_prescription(db, payload)
+                # Mark the raw event handled so the drain/backfill pipeline skips it.
+                await db.execute("UPDATE webhook_events SET processed = TRUE WHERE id = $1", row['id'])
+                if stored_id:
+                    print(f"✅ Nutrition prescription projected to tables: {stored_id}")
+                else:
+                    print("ℹ️ Payload had no nutrition prescription to project")
+            except Exception as proj_err:
+                # Leave processed = FALSE so process_nutrition_webhooks.py retries it later.
+                print(f"⚠️ Nutrition projection failed (raw event still saved, will retry): {proj_err}")
+                import traceback
+                traceback.print_exc()
 
         return WebhookResponse(
             success=True,

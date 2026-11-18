@@ -57,6 +57,9 @@ export default function CreateProfilePage() {
       loadExistingProfile()
     } else {
       setIsEditMode(false)
+      // New user: auto-fill the phone with the number they just logged in with.
+      const loginPhone = localStorage.getItem('pal_phone')
+      if (loginPhone) setFormData(prev => ({ ...prev, phone: loginPhone }))
     }
   }, [])
 
@@ -238,13 +241,13 @@ export default function CreateProfilePage() {
 
       const data = await response.json()
 
-      // Store patient ID and set language preference
+      // Store patient ID and name
       localStorage.setItem('pal_patient_id', data.id)
-      localStorage.setItem('pal_preferred_lang', 'en')
       localStorage.setItem('pal_user_name', formData.full_name)
+      localStorage.setItem('pal_full_name', formData.full_name)
 
-      // Redirect to home
-      router.push('/')
+      // After editing go back to the profile; after first creation go to the app.
+      router.push(isUpdate ? '/profile' : '/')
     } catch (err: any) {
       console.error('Submit Error:', err)
       setError(err.message || 'Something went wrong')
@@ -339,15 +342,16 @@ export default function CreateProfilePage() {
 
               <div>
                 <label style={{ fontFamily: mono, fontSize: '.57rem', letterSpacing: '.1em', textTransform: 'uppercase', color: c.ink, opacity: 0.5, marginBottom: 6, display: 'block' }}>
-                  Phone *
+                  Phone * <span style={{ textTransform: 'none', opacity: 0.7 }}>(your login number)</span>
                 </label>
                 <input
                   type="tel"
                   name="phone"
                   required
+                  readOnly
                   value={formData.phone}
-                  onChange={handleChange}
-                  style={{ width: '100%', padding: '12px 14px', fontFamily: sans, fontSize: '.9rem', color: c.ink, background: '#fff', border: '1px solid rgba(13,31,36,.16)', borderRadius: 11, outline: 'none' }}
+                  title="This is the number you signed in with"
+                  style={{ width: '100%', padding: '12px 14px', fontFamily: sans, fontSize: '.9rem', color: c.ink, background: 'rgba(13,31,36,.05)', border: '1px solid rgba(13,31,36,.16)', borderRadius: 11, outline: 'none', cursor: 'not-allowed' }}
                 />
               </div>
 

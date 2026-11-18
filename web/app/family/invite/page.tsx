@@ -1,274 +1,108 @@
-'use client';
+'use client'
 
-import { Suspense, useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import PhoneShell from '@/components/layout/PhoneShell';
-import TabBar from '@/components/layout/TabBar';
-import {
-  createFamilyPlan,
-  getFamilyPlan,
-  inviteMember,
-  type FamilyPlanInfo,
-} from '@/lib/family-api';
-import { invalidateFamilyPlanCache } from '@/components/family/FamilyHubButton';
+/**
+ * Add a family member — redesigned onto AppShell (pal-app.html `S.invite`).
+ * inviteMember / createFamilyPlan logic preserved; member-kind as the radio set.
+ */
+import { Suspense, useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { AppShell } from '@/components/layout/AppShell'
+import { Icon } from '@/components/ui/Icon'
+import { createFamilyPlan, getFamilyPlan, inviteMember, type FamilyPlanInfo } from '@/lib/family-api'
+import { invalidateFamilyPlanCache } from '@/components/family/FamilyHubButton'
 
-const RELATIONSHIPS = [
-  { value: 'spouse', label: 'Spouse' },
-  { value: 'parent', label: 'Parent' },
-  { value: 'child', label: 'Child' },
-  { value: 'sibling', label: 'Sibling' },
-  { value: 'grandparent', label: 'Grandparent' },
-  { value: 'other', label: 'Other' },
-];
+const RELATIONSHIPS = ['spouse', 'parent', 'child', 'sibling', 'grandparent', 'other']
+type Role = 'adult' | 'dependent_adult' | 'minor'
+const ROLES: { value: Role; title: string; sub: string }[] = [
+  { value: 'adult', title: 'An adult who manages their own care', sub: 'They decide what you can see.' },
+  { value: 'dependent_adult', title: 'An adult who needs help', sub: 'For example, an elderly parent.' },
+  { value: 'minor', title: 'A child under 18', sub: 'You’ll be their guardian.' },
+]
 
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  background: '#fff',
-  border: '1px solid var(--line-2)',
-  borderRadius: 12,
-  padding: '10px 12px',
-  fontSize: 13,
-  fontFamily: 'var(--sans)',
-  color: 'var(--ink)',
-  outline: 'none',
-};
+function InviteInner() {
+  const router = useRouter()
+  const planId = useSearchParams()?.get('planId') ?? undefined
+  const [plan, setPlan] = useState<FamilyPlanInfo | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [code, setCode] = useState<string | null>(null)
 
-const labelStyle: React.CSSProperties = {
-  fontFamily: 'var(--mono)',
-  fontSize: '0.55rem',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  color: 'rgba(13,31,36,0.45)',
-  marginBottom: 5,
-  display: 'block',
-};
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('+91')
+  const [relation, setRelation] = useState('parent')
+  const [role, setRole] = useState<Role>('dependent_adult')
+  const [dob, setDob] = useState('')
 
-function FamilyInviteInner() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  // planId from URL — tells us which group to add the member to.
-  // Without it we fall back to the user's first/only plan (legacy path).
-  const planId = searchParams.get('planId') ?? undefined;
-
-  const [plan, setPlan] = useState<FamilyPlanInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [issuedCode, setIssuedCode] = useState<string | null>(null);
-
-  // invite form
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('+91');
-  const [relation, setRelation] = useState('parent');
-  const [role, setRole] = useState<'adult' | 'dependent_adult' | 'minor'>('dependent_adult');
-  const [dob, setDob] = useState('');
-  const [delegate, setDelegate] = useState(false);
-
-  useEffect(() => {
-    getFamilyPlan(planId)
-      .then(p => setPlan(p))
-      .catch(() => setPlan(null))
-      .finally(() => setLoading(false));
-  }, [planId]);
+  useEffect(() => { getFamilyPlan(planId).then(setPlan).catch(() => setPlan(null)) }, [planId])
 
   async function ensurePlan(): Promise<boolean> {
-    if (plan) return true;
-    // No planId — create a fresh plan (first-time user flow).
+    if (plan) return true
     try {
-      const nm = typeof window !== 'undefined'
-        ? localStorage.getItem('pal_user_name') || localStorage.getItem('pal_full_name') || 'Me'
-        : 'Me';
-      await createFamilyPlan({ name: `${nm}'s Family`, display_name: nm });
-      invalidateFamilyPlanCache();
-      const p = await getFamilyPlan();
-      setPlan(p);
-      return !!p;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not create a family plan');
-      return false;
-    }
+      const nm = localStorage.getItem('pal_user_name') || localStorage.getItem('pal_full_name') || 'Me'
+      await createFamilyPlan({ name: `${nm}'s Family`, display_name: nm })
+      invalidateFamilyPlanCache()
+      const p = await getFamilyPlan(); setPlan(p); return !!p
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not create a family plan'); return false }
   }
 
-  async function handleInvite() {
-    setError(null);
-    if (!name.trim()) { setError('Enter a name'); return; }
-    if (!/^\+\d{6,}$/.test(phone.replace(/[\s-]/g, ''))) {
-      setError('Phone must be in international format, e.g. +919876543210');
-      return;
-    }
-    setBusy(true);
+  async function invite() {
+    setError(null)
+    if (!name.trim()) { setError('Enter a name'); return }
+    if (!/^\+\d{6,}$/.test(phone.replace(/[\s-]/g, ''))) { setError('Phone must be international format, e.g. +919876543210'); return }
+    setBusy(true)
     if (await ensurePlan()) {
       try {
-        // Pass planId so the member is added to the correct group, not the default one.
-        const r = await inviteMember({
-          display_name: name.trim(),
-          phone: phone.replace(/[\s-]/g, ''),
-          relationship_type: relation,
-          role,
-          date_of_birth: dob || undefined,
-          is_billing_delegate: delegate,
-        });
-        setIssuedCode(r.invite_code);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Could not send the invitation');
-      }
+        const r = await inviteMember({ display_name: name.trim(), phone: phone.replace(/[\s-]/g, ''), relationship_type: relation, role, date_of_birth: dob || undefined })
+        setCode(r.invite_code)
+      } catch (e) { setError(e instanceof Error ? e.message : 'Could not send the invitation') }
     }
-    setBusy(false);
+    setBusy(false)
   }
 
   return (
-    <PhoneShell>
-      <div style={{ height: 28 }} />
+    <AppShell active="family" title="Family">
+      <div className="page narrow">
+        <button className="btn ghost" style={{ padding: 0 }} onClick={() => router.push('/family')}><Icon name="left" /> Back to family</button>
+        <h1 className="h" style={{ marginTop: '.3em' }}>Add a family member</h1>
+        <p className="lede">They&apos;ll get a code to join your family group.</p>
 
-
-      <div style={{
-        padding: '10px 18px 10px', flexShrink: 0, borderBottom: '1px solid var(--line)',
-        display: 'flex', alignItems: 'center', gap: 10,
-      }}>
-        <button
-          onClick={() => router.push('/family')}
-          aria-label="Back"
-          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 16, color: 'rgba(13,31,36,0.45)' }}
-        >
-          ←
-        </button>
-        <div>
-          <p style={{ fontFamily: 'var(--mono)', fontSize: '0.55rem', letterSpacing: '0.12em', textTransform: 'uppercase', opacity: 0.45 }}>
-            Family
-          </p>
-          <h2 style={{ fontFamily: 'var(--serif)', fontWeight: 300, fontSize: '1.05rem', color: 'var(--ink)' }}>
-            Add someone
-          </h2>
-        </div>
-      </div>
-
-      <div className="scr" style={{ flex: 1, overflowY: 'auto', padding: '14px 16px 90px' }}>
-        {loading && (
-          <p style={{ fontFamily: 'var(--mono)', fontSize: '0.6rem', opacity: 0.4, textAlign: 'center' }}>
-            Loading…
-          </p>
-        )}
-
-        {!loading && (
-          <>
-            {/* ── INVITE ─────────────────────────────────────────────────── */}
-            {!issuedCode && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
-                <div>
-                  <label style={labelStyle}>Their name</label>
-                  <input style={inputStyle} value={name} onChange={e => setName(e.target.value)} placeholder="Amma" />
-                </div>
-                <div>
-                  <label style={labelStyle}>Their phone</label>
-                  <input style={inputStyle} value={phone} onChange={e => setPhone(e.target.value)} placeholder="+919876543210" inputMode="tel" />
-                  <p style={{ fontFamily: 'var(--mono)', fontSize: '0.55rem', color: 'rgba(13,31,36,.35)', marginTop: 5, lineHeight: 1.6 }}>
-                    They will be matched to this seat when they sign in with this number.
-                  </p>
-                </div>
-                <div>
-                  <label style={labelStyle}>Relationship</label>
-                  <select style={inputStyle} value={relation} onChange={e => setRelation(e.target.value)}>
-                    {RELATIONSHIPS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={labelStyle}>Kind of member</label>
-                  <select
-                    style={inputStyle}
-                    value={role}
-                    onChange={e => setRole(e.target.value as typeof role)}
-                  >
-                    <option value="adult">Adult — manages their own care</option>
-                    <option value="dependent_adult">Adult needing help — e.g. elderly parent</option>
-                    <option value="minor">Child under 18 — I am the guardian</option>
-                  </select>
-                  <p style={{ fontFamily: 'var(--mono)', fontSize: '0.55rem', color: 'rgba(13,31,36,.35)', marginTop: 5, lineHeight: 1.6 }}>
-                    {role === 'minor'
-                      ? 'Guardian access ends automatically on their 18th birthday.'
-                      : 'They see only their own record until they grant you access.'}
-                  </p>
-                </div>
-                <div>
-                  <label style={labelStyle}>Date of birth (optional)</label>
-                  <input style={inputStyle} type="date" value={dob} onChange={e => setDob(e.target.value)} />
-                </div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={delegate} onChange={e => setDelegate(e.target.checked)} />
-                  <span style={{ fontSize: 12.5, color: 'var(--ink)' }}>
-                    Can pay for other members
-                  </span>
+        {code ? (
+          <article className="card" style={{ marginTop: '1.2em', textAlign: 'center' }}>
+            <p className="small muted" style={{ letterSpacing: '.1em', textTransform: 'uppercase' }}>Invitation code</p>
+            <p style={{ fontFamily: 'var(--mono)', fontSize: '2rem', fontWeight: 700, letterSpacing: '.18em', margin: '.3em 0' }}>{code}</p>
+            <p className="muted small">Send this to {name}. It&apos;s shown only once and expires in 7 days.</p>
+            <div className="row" style={{ marginTop: '1em', justifyContent: 'center' }}>
+              <button className="btn sec" onClick={() => { setCode(null); setName(''); setPhone('+91') }}>Invite another</button>
+              <button className="btn pri" onClick={() => router.push('/family')}>Done</button>
+            </div>
+          </article>
+        ) : (
+          <article className="card" style={{ marginTop: '1.2em' }}>
+            <div className="field" style={{ marginTop: 0 }}><label>Their name</label><input value={name} onChange={e => setName(e.target.value)} placeholder="Amma" /></div>
+            <div className="field"><label>Their mobile number</label><input value={phone} onChange={e => setPhone(e.target.value)} inputMode="tel" placeholder="+91 98765 43210" /></div>
+            <div className="field"><label>How are they related to you?</label>
+              <select value={relation} onChange={e => setRelation(e.target.value)} style={{ font: 'inherit', border: '1.5px solid var(--line-2)', borderRadius: '.8em', padding: '.7em .9em', background: '#fff', minHeight: '3em', width: '100%' }}>
+                {RELATIONSHIPS.map(r => <option key={r} value={r}>{r[0].toUpperCase() + r.slice(1)}</option>)}
+              </select>
+            </div>
+            <div className="field"><label>What kind of member are they?</label></div>
+            <div className="radio">
+              {ROLES.map(r => (
+                <label key={r.value} className={role === r.value ? 'on' : ''} onClick={() => setRole(r.value)}>
+                  <span className="dotr" /><span><b>{r.title}</b><span>{r.sub}</span></span>
                 </label>
-
-                {error && (
-                  <p style={{ fontFamily: 'var(--mono)', fontSize: '0.6rem', color: 'var(--rose)', lineHeight: 1.6 }}>
-                    {error}
-                  </p>
-                )}
-
-                <button
-                  onClick={handleInvite}
-                  disabled={busy}
-                  style={{
-                    background: '#37b59b', color: '#0c2429', border: 'none', borderRadius: 12,
-                    padding: '12px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-                    opacity: busy ? 0.6 : 1, marginTop: 4,
-                  }}
-                >
-                  {busy ? 'Creating…' : 'Create invitation'}
-                </button>
-              </div>
-            )}
-
-            {/* invite code result */}
-            {issuedCode && (
-              <div style={{
-                background: '#fff', border: '1px solid rgba(55,181,155,.45)', borderRadius: 14,
-                padding: 18, textAlign: 'center',
-              }}>
-                <p style={{ fontFamily: 'var(--mono)', fontSize: '0.55rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--jade-deep)', marginBottom: 10 }}>
-                  Invitation code
-                </p>
-                <p style={{ fontFamily: 'var(--mono)', fontSize: '2rem', fontWeight: 700, letterSpacing: '0.18em', color: 'var(--ink)', marginBottom: 12 }}>
-                  {issuedCode}
-                </p>
-                <p style={{ fontSize: 12.5, color: 'rgba(13,31,36,.55)', lineHeight: 1.6, marginBottom: 16 }}>
-                  Send this to {name}. It is shown only once and expires in 7 days.
-                </p>
-                <button
-                  onClick={() => { setIssuedCode(null); setName(''); setPhone('+91'); }}
-                  style={{
-                    background: 'transparent', border: '1px solid var(--line-2)', borderRadius: 11,
-                    padding: '9px 16px', fontSize: 13, cursor: 'pointer', marginRight: 8,
-                  }}
-                >
-                  Invite another
-                </button>
-                <button
-                  onClick={() => router.push(planId ? `/family/hub?planId=${planId}` : '/family')}
-                  style={{
-                    background: '#37b59b', color: '#0c2429', border: 'none', borderRadius: 11,
-                    padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                  }}
-                >
-                  Done
-                </button>
-              </div>
-            )}
-
-          </>
+              ))}
+            </div>
+            <div className="field"><label>Date of birth (optional)</label><input type="date" value={dob} onChange={e => setDob(e.target.value)} /></div>
+            {error && <p className="small" style={{ color: 'var(--rose-deep)', marginTop: '.6em' }}>{error}</p>}
+            <button className="btn pri big full" style={{ marginTop: '1.2em' }} disabled={busy} onClick={() => void invite()}>{busy ? 'Creating…' : 'Send invite'}</button>
+          </article>
         )}
       </div>
-
-      <TabBar />
-    </PhoneShell>
-  );
+    </AppShell>
+  )
 }
 
-/* Suspense required because FamilyInviteInner uses useSearchParams (App Router). */
 export default function FamilyInvitePage() {
-  return (
-    <Suspense fallback={null}>
-      <FamilyInviteInner />
-    </Suspense>
-  );
+  return <Suspense fallback={null}><InviteInner /></Suspense>
 }

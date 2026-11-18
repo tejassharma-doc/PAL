@@ -43,7 +43,10 @@ export function clearAuth() {
   localStorage.removeItem('pal_session_id')
   localStorage.removeItem('pal_preferred_lang')
   localStorage.removeItem('pal_user_name')
+  localStorage.removeItem('pal_full_name')
   localStorage.removeItem('pal_patient_id')
+  localStorage.removeItem('pal_phone')
+  localStorage.removeItem('pal_plan')
 }
 
 export function getToken(): string | null {
@@ -429,6 +432,11 @@ export interface Visit {
   patient_id?: string
   doctor_id?: string
   date: string
+  time?: string        // "HH:MM" from the backend (slot_time); date is a display string like "17 Nov 2026"
+  clinic_name?: string
+  date_display?: string
+  previsit_url?: string | null      // Vaide pre-visit interview link
+  previsit_status?: string | null
   reason: string
   status: string
   soap_note?: string

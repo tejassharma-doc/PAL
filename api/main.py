@@ -90,6 +90,8 @@ app.include_router(user_profile.router)  # User profile and credits
 app.include_router(patients.router)  # Patient CRUD
 app.include_router(records.router)
 app.include_router(visits.router)  # Visits with clinical outputs
+from routers import nutrition as nutrition_router
+app.include_router(nutrition_router.router)  # /nutrition/patient/{id} — iNutriMon plan
 app.include_router(lab_tests.router)  # Lab tests and results
 app.include_router(prescriptions.router)  # Prescriptions with SOAP notes
 app.include_router(hermes_chat.router)  # Hermes AI chat with MCP + Vertex AI

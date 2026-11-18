@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { markSignedIn } from '../../lib/sessionCookie';
+import { getUserProfile } from '../../lib/api-auth';
 import { translations } from '../../lib/i18n';
 import { SUPPORTED_LANGUAGES, type LangCode } from '../../lib/languages';
 
@@ -69,16 +70,33 @@ export default function Onboarding() {
   // Redirect based on auth state
   useEffect(() => {
     const token = localStorage.getItem('pal_token');
-    const lang = localStorage.getItem('pal_preferred_lang');
-
     if (!token) {
       // No token - should go to login instead
       window.location.replace('/login');
-    } else if (token && lang) {
-      // Fully authenticated - go to main app
-      window.location.replace('/');
+      return;
     }
-    // If token exists but no lang, stay on onboarding
+    if (localStorage.getItem('pal_patient_id')) {
+      // Already has a patient profile - go to the app.
+      window.location.replace('/');
+      return;
+    }
+    // Token but no patient id locally. The phone/OTP was already done at /login,
+    // so never re-verify here — send them to the profile-details form (which
+    // creates the patient). If an EXISTING patient is found, recover it and go Home.
+    (async () => {
+      try {
+        const prof = await getUserProfile();
+        const pid = prof.patient?.id || prof.user?.patient_id;
+        if (pid) {
+          localStorage.setItem('pal_patient_id', pid);
+          window.location.replace('/');
+          return;
+        }
+      } catch {
+        // fall through to the profile form
+      }
+      window.location.replace('/profile/create');
+    })();
   }, []);
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
