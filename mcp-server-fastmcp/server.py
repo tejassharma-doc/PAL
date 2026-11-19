@@ -408,6 +408,131 @@ async def get_medication_schedule(patient_id: str) -> List[dict]:
 
 
 @mcp.tool()
+async def get_nutrition_plan(patient_id: str) -> dict:
+    """
+    Get the patient's current nutrition / diet plan prescribed by their dietitian:
+    the goal, daily calorie/protein/carb/fat targets, BMI and measurements, the
+    foods to eat and to avoid, dietary instructions, and the day-by-day meal plan
+    with each dish's calories. Use this for ANY question about the patient's diet,
+    meals, what they should or shouldn't eat, calories, macros, or nutrition goal.
+
+    Args:
+        patient_id: UUID of the patient
+
+    Returns:
+        The current nutrition plan, or {"has_plan": false} if none exists.
+    """
+    db = await get_pool()
+
+    # Match the plan to this patient by resolved pal_patient_id, or by the
+    # patient's phone (last 10 digits) — the webhook may not have resolved the id.
+    presc = await db.fetchrow(r"""
+        SELECT * FROM nutrition_prescriptions
+        WHERE pal_patient_id = $1::uuid
+           OR right(regexp_replace(coalesce(patient_phone, ''), '\D', '', 'g'), 10) = (
+                SELECT right(regexp_replace(coalesce(phone, ''), '\D', '', 'g'), 10)
+                FROM patients WHERE id = $1::uuid
+           )
+        ORDER BY is_current DESC NULLS LAST, coalesce(published_at, received_at) DESC
+        LIMIT 1
+    """, patient_id)
+
+    if not presc:
+        return {"has_plan": False}
+
+    pid = presc["id"]
+    menu = await db.fetch(
+        "SELECT day_number, day_label, feed_time, recipe_name, servings, "
+        "energy_kcal, protein_g, carb_g, fat_g FROM nutrition_menu_items "
+        "WHERE prescription_id = $1 ORDER BY day_number, id", pid)
+    totals = await db.fetch(
+        "SELECT day_number, energy_kcal, protein_g FROM nutrition_day_totals "
+        "WHERE prescription_id = $1 ORDER BY day_number", pid)
+    guidance = await db.fetch(
+        "SELECT kind, text FROM nutrition_guidance WHERE prescription_id = $1 ORDER BY id", pid)
+    instructions = await db.fetch(
+        "SELECT text FROM nutrition_instructions WHERE prescription_id = $1 ORDER BY id", pid)
+    diagnoses = await db.fetch(
+        "SELECT code, description FROM nutrition_diagnoses WHERE prescription_id = $1 ORDER BY id", pid)
+    labs = await db.fetch(
+        "SELECT display_name, analyte, result, numeric_value, unit, flag "
+        "FROM nutrition_labs WHERE prescription_id = $1 ORDER BY id", pid)
+
+    def numval(v):
+        if v is None:
+            return None
+        try:
+            f = float(v)
+            return int(f) if f.is_integer() else round(f, 2)
+        except (TypeError, ValueError):
+            return None
+
+    def _iso(v):
+        return v.isoformat() if v is not None and hasattr(v, "isoformat") else v
+
+    totals_by_day = {t["day_number"]: t for t in totals}
+    days: dict = {}
+    for r in menu:
+        dn = r["day_number"]
+        if dn not in days:
+            t = totals_by_day.get(dn)
+            days[dn] = {
+                "day": dn,
+                "label": r["day_label"],
+                "day_total_kcal": numval(t["energy_kcal"]) if t else None,
+                "meals": [],
+            }
+        days[dn]["meals"].append({
+            "feed_time": r["feed_time"],
+            "dish": r["recipe_name"],
+            "servings": numval(r["servings"]),
+            "energy_kcal": numval(r["energy_kcal"]),
+            "protein_g": numval(r["protein_g"]),
+        })
+
+    def _kind(g):
+        return (g["kind"] or "").upper()
+
+    return {
+        "has_plan": True,
+        "dietitian": presc["dietitian_name"],
+        "clinic": presc["clinic_name"],
+        "issued_at": _iso(presc["published_at"]) or _iso(presc["created_at"]),
+        "status": presc["status"],
+        "goal": {"label": presc["goal_label"], "summary": presc["goal_summary"]},
+        "diet_pattern": presc["diet_pattern"],
+        "cuisine": presc["cuisine"],
+        "daily_targets": {
+            "energy_kcal_min": numval(presc["energy_kcal_min"]),
+            "energy_kcal_max": numval(presc["energy_kcal_max"]),
+            "protein_g": numval(presc["protein_g"]),
+            "carb_g": numval(presc["carb_g"]),
+            "fat_g": numval(presc["fat_g"]),
+        },
+        "anthropometry": {
+            "bmi": numval(presc["bmi"]),
+            "bmi_status": presc["bmi_status"],
+            "height_cm": numval(presc["height_cm"]),
+            "weight_kg": numval(presc["weight_kg"]),
+        },
+        "diagnoses": [d["description"] or d["code"] for d in diagnoses if (d["description"] or d["code"])],
+        "foods_to_eat": [g["text"] for g in guidance if _kind(g) == "EAT" and g["text"]],
+        "foods_to_avoid": [g["text"] for g in guidance if _kind(g) == "AVOID" and g["text"]],
+        "other_guidance": [g["text"] for g in guidance if _kind(g) not in ("EAT", "AVOID") and g["text"]],
+        "instructions": [i["text"] for i in instructions if i["text"]],
+        "relevant_labs": [
+            {
+                "name": l["display_name"] or l["analyte"],
+                "result": l["result"] or (f'{numval(l["numeric_value"])} {l["unit"] or ""}'.strip() if l["numeric_value"] is not None else None),
+                "flag": l["flag"],
+            }
+            for l in labs
+        ],
+        "meal_plan_days": list(days.values()),
+    }
+
+
+@mcp.tool()
 async def search_patients(
     phone: Optional[str] = None,
     email: Optional[str] = None,
@@ -471,7 +596,7 @@ custom_app = FastAPI()
 _PATIENT_ID_TOOLS = {
     "get_patient_info", "get_patient_records",
     "get_latest_prescription", "get_lab_results",
-    "get_medication_schedule",
+    "get_medication_schedule", "get_nutrition_plan",
 }
 
 
@@ -552,6 +677,7 @@ async def http_call_tool(
         "get_latest_prescription": get_latest_prescription,
         "get_lab_results": get_lab_results,
         "get_medication_schedule": get_medication_schedule,
+        "get_nutrition_plan": get_nutrition_plan,
         "search_patients": search_patients
     }
 
@@ -621,6 +747,15 @@ async def http_list_tools():
             {
                 "name": "get_medication_schedule",
                 "description": "Get the patient's active medication reminders: which medicines, dosage, the times of day, and which days to take them. Use for questions like 'when do I take my medication?' or 'how do I take <medicine>?'.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"patient_id": {"type": "string"}},
+                    "required": ["patient_id"]
+                }
+            },
+            {
+                "name": "get_nutrition_plan",
+                "description": "Get the patient's current nutrition/diet plan from their dietitian: goal, daily calorie/protein/carb/fat targets, BMI, foods to eat and avoid, dietary instructions, and the day-by-day meal plan. Use for ANY question about the patient's diet, meals, what to eat/avoid, calories, macros, or nutrition goal.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {"patient_id": {"type": "string"}},

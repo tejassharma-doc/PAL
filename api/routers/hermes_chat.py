@@ -281,6 +281,8 @@ PATIENT DATA TOOLS (Local):
 - get_patient_records: Get complete medical records (appointments, prescriptions, lab tests)
 - get_latest_prescription: Get most recent prescription
 - get_lab_results: Get lab test results
+- get_medication_schedule: Get the patient's active medicine reminders (which medicine, dose, times, days)
+- get_nutrition_plan: Get the patient's dietitian-prescribed nutrition/diet plan — goal, daily calorie/protein/carb/fat targets, BMI, foods to eat and avoid, dietary instructions, and the day-by-day meal plan. ALWAYS call this for any question about the patient's diet, meals, what to eat or avoid, calories, macros, or nutrition goal.
 
 DOCTOR & APPOINTMENT TOOLS (MCP-DocEHR):
 - Tools for checking doctor availability and booking appointments
@@ -294,7 +296,8 @@ DOCTOR & APPOINTMENT TOOLS (MCP-DocEHR):
 
 IMPORTANT RULES:
 1. When asked about patient medical data, use patient data tools with patient_id: {request.patient_id}
-2. When asked about doctor availability or booking appointments, use the MCP-DocEHR tools
+2. For ANY question about the patient's diet, meals, nutrition, what to eat or avoid, calories or macros, FIRST call get_nutrition_plan with patient_id: {request.patient_id} and answer from that plan. If it returns has_plan=false, tell the patient they don't have a nutrition plan yet (don't invent one).
+3. When asked about doctor availability or booking appointments, use the MCP-DocEHR tools
 3. BEFORE booking any appointment, ALWAYS confirm: doctor name, date, time, and reason with the user
 4. Use tool results to answer - never make up or guess information
 5. Be concise and helpful
