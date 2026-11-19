@@ -7,7 +7,7 @@
  *   <AppShell active="ask" title="Ask PAL"><div className="page">…</div></AppShell>
  * `active` is optional — derived from the pathname when omitted.
  */
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { PalEmblem, PalRosette } from '../PalEmblem'
 import { Icon, type IconName } from '../ui/Icon'
@@ -16,6 +16,17 @@ import { useUiPrefs } from '../../lib/useUiPrefs'
 import { useUiT } from '../../lib/ui-i18n'
 import { getSubscriptionStatus } from '../../lib/subscription-api'
 import { getUserProfile } from '../../lib/api-auth'
+import { pendingDoses, listMedicationSchedules, respondToDose, type DoseResponse } from '../../lib/medications-api'
+
+type DueDose = { id: string; medicine: string; dosage: string | null; time: string }
+
+function fmtDoseTime(t: string): string {
+  const [h, m] = (t || '').split(':').map(Number)
+  if (Number.isNaN(h)) return t
+  const am = h < 12
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return `${h12}:${String(m || 0).padStart(2, '0')} ${am ? 'am' : 'pm'}`
+}
 
 type NavId = 'home' | 'ask' | 'meds' | 'nutrition' | 'visits' | 'records' | 'family' | 'settings'
 type NavItem = { id: NavId; label: string; icon: IconName; href: string; sideOnly?: boolean }
@@ -66,6 +77,51 @@ export function AppShell({
   const [familyAllowed, setFamilyAllowed] = useState(
     typeof window !== 'undefined' && localStorage.getItem('pal_plan') === 'family',
   )
+
+  // Medicine reminders the bell pops up: doses awaiting your answer, joined with
+  // the schedule so we can show the medicine name + dose in the pop-up.
+  const [due, setDue] = useState<DueDose[]>([])
+  const [dueOpen, setDueOpen] = useState(false)
+  const [dueBusy, setDueBusy] = useState<string | null>(null)
+
+  const loadDue = useCallback(async (): Promise<number> => {
+    const pid = typeof window === 'undefined' ? null : localStorage.getItem('pal_patient_id')
+    if (!pid) { setDue([]); return 0 }
+    try {
+      const [doses, schedules] = await Promise.all([pendingDoses(pid), listMedicationSchedules(pid)])
+      const byId = new Map(schedules.map(s => [s.id, s]))
+      const awaiting = doses
+        .filter(d => d.status === 'awaiting_ack')
+        .map(d => {
+          const s = byId.get(d.schedule_id)
+          return { id: d.id, medicine: s?.medicine_name || 'Your medicine', dosage: s?.dosage || null, time: d.scheduled_time }
+        })
+      setDue(awaiting)
+      return awaiting.length
+    } catch {
+      // Medication reminders may be disabled on the backend — fall back silently.
+      setDue([])
+      return 0
+    }
+  }, [])
+
+  async function respondDue(id: string, value: DoseResponse) {
+    setDueBusy(id)
+    try {
+      await respondToDose(id, value)
+      const rest = due.filter(d => d.id !== id)
+      setDue(rest)
+      if (rest.length === 0) setDueOpen(false)
+    } catch { /* leave the card up so they can retry */ }
+    finally { setDueBusy(null) }
+  }
+
+  function onBellClick() {
+    // If we already know a dose is due, pop it up immediately; otherwise check,
+    // then either pop up or fall back to the full notifications page.
+    if (due.length > 0) { setDueOpen(true); void loadDue(); return }
+    void loadDue().then(n => { if (n > 0) setDueOpen(true); else go('/notifications') })
+  }
   useEffect(() => {
     if (typeof window === 'undefined') return
     // Cached name first (avoids a flash), but it can be stale — phone login never
@@ -84,7 +140,8 @@ export function AppShell({
       localStorage.setItem('pal_plan', plan)
       setFamilyAllowed(plan === 'family')
     }).catch(() => {})
-  }, [])
+    void loadDue()
+  }, [loadDue])
   const initial = (userName || 'Y').trim().charAt(0).toUpperCase()
 
   const sideNav = NAV.filter(n => n.id !== 'family' || familyAllowed)
@@ -133,9 +190,9 @@ export function AppShell({
             <button className="tbtn gear" aria-label="Settings" onClick={() => go('/settings')}>
               <Icon name="set" />
             </button>
-            <button className="tbtn" aria-label={`Notifications${bell ? `, ${bell} new` : ''}`} onClick={() => go('/notifications')}>
+            <button className="tbtn" aria-label={`Notifications${bell + due.length ? `, ${bell + due.length} new` : ''}`} onClick={onBellClick}>
               <Icon name="bell" />
-              {bell ? <span className="dot">{bell}</span> : null}
+              {bell + due.length ? <span className="dot">{bell + due.length}</span> : null}
             </button>
           </div>
         </header>
@@ -150,6 +207,47 @@ export function AppShell({
           ))}
         </nav>
       </div>
+
+      {/* Medicine reminder pop-up — opened from the bell when a dose is due. */}
+      {dueOpen && (
+        <div className="overlay on" onClick={e => { if (e.target === e.currentTarget) setDueOpen(false) }}>
+          <div className="sheet" role="dialog" aria-modal="true" aria-label="Medicine reminder">
+            <h3>{t('Time for your medicine')}</h3>
+            <p className="muted small" style={{ margin: '.3em 0 0' }}>
+              {due.length > 1 ? `You have ${due.length} medicines to take.` : 'Let PAL know if you took it.'}
+            </p>
+            {due.map(d => (
+              <article className="card due" key={d.id} style={{ marginTop: '.9em' }}>
+                <div className="head">
+                  <div className="pillico"><Icon name="pill" /></div>
+                  <div>
+                    <div className="when">{t('Due now')}{d.time ? `, ${fmtDoseTime(d.time)}` : ''}</div>
+                    <div className="what">{d.medicine}</div>
+                    {d.dosage ? <div className="dhow">{d.dosage}</div> : null}
+                  </div>
+                </div>
+                <div className="acts">
+                  <button className="btn pri" disabled={dueBusy === d.id} onClick={() => void respondDue(d.id, 'yes')}>
+                    <Icon name="check" /> {t('Yes, I took it')}
+                  </button>
+                  <div className="two">
+                    <button className="btn sec" disabled={dueBusy === d.id} onClick={() => void respondDue(d.id, 'snooze_10')}>
+                      <Icon name="clock" /> {t('In 10 minutes')}
+                    </button>
+                    <button className="btn sec" disabled={dueBusy === d.id} onClick={() => void respondDue(d.id, 'no')}>
+                      {t('Skip this dose')}
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
+            <div className="stack2" style={{ marginTop: '1em' }}>
+              <button className="btn ghost" onClick={() => { setDueOpen(false); go('/medications') }}>{t('Manage medicines')}</button>
+              <button className="btn sec" onClick={() => setDueOpen(false)}>{t('Close')}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
