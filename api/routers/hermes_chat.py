@@ -391,6 +391,33 @@ async def _translate_chunked(text: str, *, source: str, target: str, limit: int 
     return "\n".join(out)
 
 
+async def _to_english(text: str) -> tuple[str, str]:
+    """Detect the query's language and translate it to English for Gemma.
+
+    Keeps the whole pipeline English-only (retrieval + reasoning), then callers
+    translate the answer back. English or undetected text passes through.
+    Returns (english_text, source_language_code) where source is 'en-IN' when the
+    text is already English / detection fails.
+    """
+    from services.sarvam import client as sarvam
+    stripped = (text or "").strip()
+    if not stripped:
+        return text, "en-IN"
+    try:
+        lang = await sarvam.identify_language(stripped)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("language id failed: %s", exc)
+        lang = None
+    if not lang or lang.lower().startswith("en"):
+        return text, "en-IN"
+    try:
+        english = await sarvam.translate(stripped, source=lang, target="en-IN")
+        return (english or text), lang
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("query translate failed, using original: %s", exc)
+        return text, lang
+
+
 @router.post("/voice-query")
 async def hermes_voice_query(
     audio: UploadFile = File(...),
@@ -470,8 +497,20 @@ async def chat_with_hermes_stream(
     db: AsyncSession = Depends(get_db),
 ):
     """Streaming chat: resolves tool calls, then streams the answer as SSE.
-    Events: `data: {"delta": "..."}` per chunk, then `data: {"done": true, ...}`."""
-    ctx = await _build_chat_setup(request, user, db)
+    Events: `data: {"delta": "..."}` per chunk, then `data: {"done": true, ...}`.
+
+    The query is always sent to Gemma in English (so retrieval + reasoning stay in
+    one language); the answer is returned in the language the user wrote in. For a
+    non-English question we can't token-stream the translation, so we resolve the
+    full English answer, translate it, and emit it as a single delta."""
+    original_query = request.query
+    english_query, src_lang = await _to_english(original_query)
+    is_english = src_lang.lower().startswith("en")
+
+    setup_request = request if is_english else ChatRequest(
+        query=english_query, patient_id=request.patient_id, conversation_id=request.conversation_id,
+    )
+    ctx = await _build_chat_setup(setup_request, user, db)
     messages = ctx["messages"]
     tools = ctx["tools"]
     fastmcp_client = ctx["fastmcp_client"]
@@ -494,19 +533,30 @@ async def chat_with_hermes_stream(
             return {"error": str(exc)}
 
     async def event_stream():
-        parts: list[str] = []
+        answer_en = ""
+        answer_display = ""
         try:
-            async for delta in vertex_client.stream_tokens(messages, tools, tool_executor):
-                parts.append(delta)
-                yield f"data: {json.dumps({'delta': delta})}\n\n"
+            if is_english:
+                parts: list[str] = []
+                async for delta in vertex_client.stream_tokens(messages, tools, tool_executor):
+                    parts.append(delta)
+                    yield f"data: {json.dumps({'delta': delta})}\n\n"
+                answer_en = answer_display = "".join(parts)
+            else:
+                # Resolve fully in English, translate back, emit as one block.
+                answer_en = await _resolve_with_tools(messages, tools, fastmcp_client, mcp_token, db)
+                answer_display = await _translate_chunked(answer_en, source="en-IN", target=src_lang) if answer_en else answer_en
+                if answer_display:
+                    yield f"data: {json.dumps({'delta': answer_display})}\n\n"
         except Exception as exc:  # noqa: BLE001
             logger.exception("Hermes stream error")
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
-        answer = "".join(parts)
         try:
+            # Show the user what they saw (original question + localized answer);
+            # feed Hindsight the English pair for better cross-lingual memory.
             await store_conversation(db=db, conversation_id=conversation_uuid, user=user,
-                                     patient_id=patient_uuid, query=request.query, answer=answer)
-            await hindsight.update_summary(query=request.query, answer=answer,
+                                     patient_id=patient_uuid, query=original_query, answer=answer_display)
+            await hindsight.update_summary(query=english_query, answer=answer_en,
                                            conversation_id=conversation_uuid)
         except Exception:  # noqa: BLE001
             logger.exception("Hermes stream: post-stream persist failed")
@@ -534,101 +584,45 @@ async def chat_with_hermes(
         logger.info(f"Hermes chat request from user {user.id}: {request.query[:100]}")
 
         # Shared setup: auth gate, mcp token, history, tools, system prompt, messages.
-        ctx = await _build_chat_setup(request, user, db)
-        messages = ctx["messages"]
-        tools = ctx["tools"]
-        fastmcp_client = ctx["fastmcp_client"]
-        mcp_token = ctx["mcp_token"]
+        # Query → English for Gemma; the answer is returned in the user's language.
+        original_query = request.query
+        english_query, src_lang = await _to_english(original_query)
+        is_english = src_lang.lower().startswith("en")
+        setup_request = request if is_english else ChatRequest(
+            query=english_query, patient_id=request.patient_id, conversation_id=request.conversation_id,
+        )
+
+        ctx = await _build_chat_setup(setup_request, user, db)
         conversation_id = ctx["conversation_id"]
         conversation_uuid = ctx["conversation_uuid"]
         patient_uuid = ctx["patient_uuid"]
         hindsight = ctx["hindsight"]
 
-        # Call Gemma with tools
-        vertex_client = get_vertex_client()
-
         try:
-            MAX_TOOL_ROUNDS = 6
-            answer = None
-
-            for round_num in range(MAX_TOOL_ROUNDS):
-                response = await vertex_client.generate_with_tools(messages, tools)
-                message = response.choices[0].message
-
-                if not message.tool_calls:
-                    answer = message.content
-                    break
-
-                logger.info(
-                    f"Round {round_num + 1}: Gemma requested "
-                    f"{len(message.tool_calls)} tool call(s): "
-                    f"{[tc.function.name for tc in message.tool_calls]}"
-                )
-
-                # Append assistant turn with all tool calls for this round
-                messages.append({
-                    "role": "assistant",
-                    "content": message.content,
-                    "tool_calls": [tc.dict() for tc in message.tool_calls],
-                })
-
-                # Execute every tool call and append each result
-                for tool_call in message.tool_calls:
-                    tool_name = tool_call.function.name
-                    try:
-                        tool_args = json.loads(tool_call.function.arguments or "{}")
-                    except json.JSONDecodeError:
-                        tool_args = {}
-                    logger.info(f"Calling tool: {tool_name} args={tool_args}")
-                    try:
-                        tool_result = await fastmcp_client.call_tool(tool_name, tool_args, db, mcp_token=mcp_token)
-                    except Exception as tool_err:
-                        # A single tool failure (e.g. an unmatched clinic/doctor name)
-                        # must NEVER abort the whole chat with a 500. Hand the error
-                        # back to the model so it can recover — typically by asking
-                        # the user to choose from the valid names the error lists.
-                        logger.error(f"Tool {tool_name} failed: {tool_err}")
-                        tool_result = {"error": str(tool_err)}
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": json.dumps(tool_result, default=str),
-                    })
-
-            if answer is None:
-                # Hit the round cap — do one final call to get a plain answer
-                logger.warning("Hit MAX_TOOL_ROUNDS cap, forcing final answer")
-                response = await vertex_client.generate_with_tools(messages, tools)
-                answer = response.choices[0].message.content or ""
-
+            answer_en = await _resolve_with_tools(
+                ctx["messages"], ctx["tools"], ctx["fastmcp_client"], ctx["mcp_token"], db
+            )
         except Exception as e:
             logger.error(f"Error calling Vertex AI with tools: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"AI service error: {str(e)}"
-            )
+            raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
 
-        # Store conversation in database
+        answer_display = answer_en if is_english else (
+            await _translate_chunked(answer_en, source="en-IN", target=src_lang) if answer_en else answer_en
+        )
+
+        # Store what the user saw; feed Hindsight the English pair.
         await store_conversation(
-            db=db,
-            conversation_id=conversation_uuid,
-            user=user,
-            patient_id=patient_uuid,
-            query=request.query,
-            answer=answer
+            db=db, conversation_id=conversation_uuid, user=user,
+            patient_id=patient_uuid, query=original_query, answer=answer_display,
         )
-
-        # Update Hindsight summary with this Q&A
         await hindsight.update_summary(
-            query=request.query,
-            answer=answer,
-            conversation_id=conversation_uuid,
+            query=english_query, answer=answer_en, conversation_id=conversation_uuid,
         )
 
-        logger.info(f"Hermes chat response generated: {len(answer)} chars")
+        logger.info(f"Hermes chat response generated: {len(answer_display)} chars")
 
         return ChatResponse(
-            answer=answer,
+            answer=answer_display,
             conversation_id=conversation_id,
             sources=[]  # Will be populated from tool usage
         )
