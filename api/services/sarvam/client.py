@@ -259,7 +259,17 @@ async def speech_to_text(
         }
 
 
-async def translate(text: str, *, source: str, target: str) -> str:
+async def translate(
+    text: str, *, source: str, target: str, mode: str = "modern-colloquial"
+) -> str:
+    """Translate text between languages.
+
+    mode:
+      - "modern-colloquial" (default): everyday speech; keeps common English
+        loanwords (code-mixed). Good for the spoken voice agent.
+      - "formal": renders English words into the target language's own vocabulary
+        — use this for chat answers the user wants fully in their language.
+    """
     async with httpx.AsyncClient(timeout=20.0) as http:
         r = await http.post(
             f"{BASE_URL}/translate",
@@ -267,7 +277,9 @@ async def translate(text: str, *, source: str, target: str) -> str:
                 "input": text,
                 "source_language_code": source,
                 "target_language_code": target,
-                "mode": "modern-colloquial",
+                "mode": mode,
+                "output_script": "fully-native",
+                "numerals_format": "international",
             },
             headers=_headers(),
         )

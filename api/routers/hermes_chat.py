@@ -384,7 +384,9 @@ async def _translate_chunked(text: str, *, source: str, target: str, limit: int 
             out.append(ch)
             continue
         try:
-            out.append(await sarvam.translate(ch, source=source, target=target))
+            # formal mode renders English words into the target language instead
+            # of keeping them code-mixed, so the answer is fully in the user's language.
+            out.append(await sarvam.translate(ch, source=source, target=target, mode="formal"))
         except Exception as exc:  # noqa: BLE001
             logger.warning("translate chunk failed, keeping original: %s", exc)
             out.append(ch)
