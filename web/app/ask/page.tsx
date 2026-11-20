@@ -13,7 +13,7 @@ import { AppShell } from '@/components/layout/AppShell'
 import { Icon } from '@/components/ui/Icon'
 import { PalVoice } from '@/components/PalEmblem'
 import Markdown, { CopyAnswerButton } from '@/components/Markdown'
-import { askHermes, askHermesStream } from '@/lib/hermes-api'
+import { askHermes, askHermesStream, askHermesVoice } from '@/lib/hermes-api'
 import { listConversations, getConversationTurns, type ConversationSummary } from '@/lib/api'
 
 type Msg = { id: string; role: 'user' | 'assistant'; text: string; thinking?: boolean; secondLook?: boolean; error?: boolean }
@@ -30,9 +30,12 @@ function AskInner() {
   const [sos, setSos] = useState<string | null>(null)
   const [noPatient, setNoPatient] = useState(false)
 
+  const [recording, setRecording] = useState(false)
   const conversationId = useRef<string | undefined>(undefined)
   const endRef = useRef<HTMLDivElement>(null)
   const started = useRef(false)
+  const mediaRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -90,6 +93,62 @@ function AskInner() {
     if (SOS_WORDS.some(w => q.toLowerCase().includes(w))) { setSos(q); return }
     await run(q, false)
   }
+
+  // ── Voice Ask: record → Sarvam STT → Gemma (English) → answer in your language ──
+  async function sendVoice(blob: Blob) {
+    const patientId = localStorage.getItem('pal_patient_id') || ''
+    setBusy(true)
+    const id = Date.now().toString()
+    setMsgs(p => [
+      ...p,
+      { id: `u-${id}`, role: 'user', text: '🎤 Transcribing…' },
+      { id: `a-${id}`, role: 'assistant', text: '', thinking: true },
+    ])
+    try {
+      const ext = blob.type.includes('ogg') ? 'ogg' : blob.type.includes('wav') ? 'wav' : blob.type.includes('mp4') ? 'mp4' : 'webm'
+      const r = await askHermesVoice(blob, patientId, conversationId.current, `query.${ext}`)
+      conversationId.current = r.conversation_id || conversationId.current
+      setMsgs(p => p.map(m =>
+        m.id === `u-${id}` ? { ...m, text: r.transcript || '🎤' }
+          : m.id === `a-${id}` ? { ...m, thinking: false, text: r.answer || 'No answer was returned.' }
+            : m))
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Could not process the recording.'
+      setMsgs(p => p.map(m =>
+        m.id === `u-${id}` ? { ...m, text: '🎤 Voice message' }
+          : m.id === `a-${id}` ? { ...m, thinking: false, error: true, text: `⚠ ${msg}` } : m))
+    } finally { setBusy(false) }
+  }
+
+  async function startRecording() {
+    if (busy || recording) return
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setMsgs(p => [...p, { id: `e-${Date.now()}`, role: 'assistant', error: true, text: '⚠ Voice recording isn’t supported on this device/browser.' }])
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mr = new MediaRecorder(stream)
+      chunksRef.current = []
+      mr.ondataavailable = e => { if (e.data.size) chunksRef.current.push(e.data) }
+      mr.onstop = () => {
+        stream.getTracks().forEach(t => t.stop())
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' })
+        if (blob.size > 0) void sendVoice(blob)
+      }
+      mediaRef.current = mr
+      mr.start()
+      setRecording(true)
+    } catch {
+      setMsgs(p => [...p, { id: `e-${Date.now()}`, role: 'assistant', error: true, text: '⚠ Microphone permission was denied. Allow mic access to ask by voice.' }])
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRef.current && recording) { mediaRef.current.stop(); setRecording(false) }
+  }
+
+  function toggleRecord() { if (recording) stopRecording(); else void startRecording() }
 
   async function openThread(c: ConversationSummary) {
     setBusy(true)
@@ -178,12 +237,18 @@ function AskInner() {
 
           <div className="composer">
             <div className="askbox" style={{ boxShadow: 'none' }}>
-              <button className="attach" aria-label="Add a report" onClick={() => router.push('/upload')}><Icon name="cam" /></button>
-              <input aria-label="Ask a question" placeholder="Ask about your health, in any language"
-                value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void ask(input) }} />
-              <button className="mic" aria-label="Send" onClick={() => void ask(input)} disabled={busy}><Icon name="send" /></button>
+              <button className="attach" aria-label="Add a report" onClick={() => router.push('/upload')} disabled={recording}><Icon name="cam" /></button>
+              <input aria-label="Ask a question" placeholder={recording ? 'Listening… tap the mic to stop' : 'Ask about your health, in any language'}
+                value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void ask(input) }} disabled={recording} />
+              <button className="attach" aria-label="Send" onClick={() => void ask(input)} disabled={busy || recording || !input.trim()}><Icon name="send" /></button>
+              <button className="mic" aria-label={recording ? 'Stop recording' : 'Ask by voice'} onClick={toggleRecord} disabled={busy && !recording}
+                style={recording ? { background: 'var(--rose-deep)' } : undefined}>
+                <Icon name={recording ? 'x' : 'mic'} />
+              </button>
             </div>
-            <p className="fine">PAL gives health information, not a diagnosis. <b>In an emergency call 112.</b></p>
+            <p className="fine">{recording
+              ? 'Listening… speak your question in any language, then tap the mic to stop.'
+              : <>PAL gives health information, not a diagnosis. <b>In an emergency call 112.</b></>}</p>
           </div>
         </div>
       </div>

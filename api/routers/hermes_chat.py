@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
@@ -319,6 +319,147 @@ Patient ID for this conversation: {request.patient_id}
         "conversation_uuid": conversation_uuid,
         "patient_uuid": patient_uuid,
         "hindsight": hindsight,
+    }
+
+
+async def _resolve_with_tools(messages, tools, fastmcp_client, mcp_token, db) -> str:
+    """Run the Gemma tool-resolution loop (same as /chat) and return the final
+    answer text. Shared by the text and voice endpoints."""
+    vertex_client = get_vertex_client()
+    MAX_TOOL_ROUNDS = 6
+    answer = None
+    for _round in range(MAX_TOOL_ROUNDS):
+        response = await vertex_client.generate_with_tools(messages, tools)
+        message = response.choices[0].message
+        if not message.tool_calls:
+            answer = message.content
+            break
+        messages.append({
+            "role": "assistant",
+            "content": message.content,
+            "tool_calls": [tc.dict() for tc in message.tool_calls],
+        })
+        for tool_call in message.tool_calls:
+            tool_name = tool_call.function.name
+            try:
+                tool_args = json.loads(tool_call.function.arguments or "{}")
+            except json.JSONDecodeError:
+                tool_args = {}
+            try:
+                tool_result = await fastmcp_client.call_tool(tool_name, tool_args, db, mcp_token=mcp_token)
+            except Exception as tool_err:  # noqa: BLE001
+                logger.error("Tool %s failed: %s", tool_name, tool_err)
+                tool_result = {"error": str(tool_err)}
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": json.dumps(tool_result, default=str),
+            })
+    if answer is None:
+        response = await vertex_client.generate_with_tools(messages, tools)
+        answer = response.choices[0].message.content or ""
+    return answer or ""
+
+
+async def _translate_chunked(text: str, *, source: str, target: str, limit: int = 900) -> str:
+    """Translate a long answer by splitting on blank lines so each piece stays
+    under the Sarvam /translate input limit. A chunk that fails to translate is
+    kept as-is rather than dropping content."""
+    from services.sarvam import client as sarvam
+    if not text.strip():
+        return text
+    chunks: list[str] = []
+    cur = ""
+    for para in text.split("\n"):
+        if cur and len(cur) + len(para) + 1 > limit:
+            chunks.append(cur)
+            cur = para
+        else:
+            cur = f"{cur}\n{para}" if cur else para
+    if cur:
+        chunks.append(cur)
+    out: list[str] = []
+    for ch in chunks:
+        if not ch.strip():
+            out.append(ch)
+            continue
+        try:
+            out.append(await sarvam.translate(ch, source=source, target=target))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("translate chunk failed, keeping original: %s", exc)
+            out.append(ch)
+    return "\n".join(out)
+
+
+@router.post("/voice-query")
+async def hermes_voice_query(
+    audio: UploadFile = File(...),
+    patient_id: str = Form(...),
+    conversation_id: Optional[str] = Form(None),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Voice Ask. Sarvam transcribes the clip in the spoken Indian language,
+    the query is translated to English for Gemma, Gemma answers (grounded on the
+    patient's data + literature), and the answer is translated back to the spoken
+    language. Returns the original transcript and the localized answer."""
+    from services.sarvam import client as sarvam
+
+    audio_bytes = await audio.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="No audio received")
+
+    # 1) Speech → text in the spoken language (+ detected language).
+    try:
+        stt = await sarvam.speech_to_text(
+            audio_bytes,
+            filename=audio.filename or "query.webm",
+            content_type=audio.content_type or "audio/webm",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Sarvam STT failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Could not transcribe the audio")
+
+    spoken_text = (stt.get("text") or "").strip()
+    lang = (stt.get("language_code") or "").strip() or "en-IN"
+    if not spoken_text:
+        raise HTTPException(status_code=422, detail="Couldn't hear a question in the recording")
+    is_english = lang.lower().startswith("en")
+
+    # 2) Translate the question to English for Gemma (skip if already English).
+    english_query = spoken_text
+    if not is_english:
+        try:
+            english_query = await sarvam.translate(spoken_text, source=lang, target="en-IN")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Query translate failed, using original text: %s", exc)
+            english_query = spoken_text
+
+    # 3) Run the Hermes agent on the English query.
+    req = ChatRequest(query=english_query, patient_id=patient_id, conversation_id=conversation_id)
+    ctx = await _build_chat_setup(req, user, db)
+    answer_en = await _resolve_with_tools(
+        ctx["messages"], ctx["tools"], ctx["fastmcp_client"], ctx["mcp_token"], db
+    )
+
+    # Persist the English Q/A so history matches the text chat.
+    try:
+        await store_conversation(db, ctx["conversation_uuid"], user, ctx["patient_uuid"], english_query, answer_en)
+        await ctx["hindsight"].update_summary(query=english_query, answer=answer_en, conversation_id=ctx["conversation_uuid"])
+    except Exception:  # noqa: BLE001
+        logger.exception("voice-query: persist failed")
+
+    # 4) Translate the answer back to the spoken language.
+    answer_local = answer_en
+    if not is_english and answer_en:
+        answer_local = await _translate_chunked(answer_en, source="en-IN", target=lang)
+
+    return {
+        "transcript": spoken_text,
+        "source_language": lang,
+        "answer": answer_local,
+        "answer_en": answer_en,
+        "conversation_id": ctx["conversation_id"],
     }
 
 

@@ -60,6 +60,46 @@ export async function askHermes(
   return response.json()
 }
 
+export interface HermesVoiceResponse {
+  transcript: string        // what the user said, in their own language
+  source_language: string   // e.g. "hi-IN"
+  answer: string            // answer in the user's language
+  answer_en: string         // answer in English
+  conversation_id: string
+}
+
+/**
+ * Voice Ask — upload a recorded clip. Sarvam transcribes it, the query goes to
+ * Gemma in English, and the answer comes back translated into the spoken language.
+ */
+export async function askHermesVoice(
+  audio: Blob,
+  patientId: string,
+  conversationId?: string,
+  filename = 'query.webm',
+): Promise<HermesVoiceResponse> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('pal_token') : null
+  if (!token) throw new Error('Please log in to chat with PAL')
+  if (!patientId) throw new Error('Patient ID not found. Please log in again.')
+
+  const form = new FormData()
+  form.append('audio', audio, filename)
+  form.append('patient_id', patientId)
+  if (conversationId) form.append('conversation_id', conversationId)
+
+  // No Content-Type header — the browser sets the multipart boundary.
+  const res = await fetch('/api/hermes/voice-query', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  })
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}))
+    throw new Error((e as { detail?: string }).detail || `API error: ${res.status}`)
+  }
+  return res.json()
+}
+
 /**
  * Streaming version — Gemma resolves tool calls (retrieval) then streams the
  * answer. `onDelta` is called with each text chunk; `onDone` with the final

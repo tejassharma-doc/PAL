@@ -224,6 +224,41 @@ async def transliterate(
         return r.json().get("transliterated_text") or text
 
 
+STT_BATCH_MODEL = os.getenv("SARVAM_STT_BATCH_MODEL", "saarika:v2.5")
+
+
+async def speech_to_text(
+    audio: bytes,
+    *,
+    filename: str = "audio.wav",
+    content_type: str = "audio/wav",
+    language_code: str = "unknown",
+) -> dict[str, Any]:
+    """One-shot (batch) speech-to-text via Saarika.
+
+    Transcribes a recorded clip and returns the text in the SPOKEN language plus
+    the detected language code — used by the Ask mic (record → send → transcribe).
+    Multipart upload, so the JSON Content-Type from `_headers()` must NOT be used;
+    httpx sets the multipart boundary itself.
+
+    Returns: {"text": "<transcript>", "language_code": "hi-IN" | None}
+    """
+    async with httpx.AsyncClient(timeout=60.0) as http:
+        r = await http.post(
+            f"{BASE_URL}/speech-to-text",
+            headers={"api-subscription-key": _api_key()},
+            data={"model": STT_BATCH_MODEL, "language_code": language_code},
+            files={"file": (filename, audio, content_type)},
+        )
+        if r.status_code >= 400:
+            raise SarvamError(f"stt {r.status_code}: {r.text[:200]}")
+        j = r.json()
+        return {
+            "text": (j.get("transcript") or "").strip(),
+            "language_code": j.get("language_code"),
+        }
+
+
 async def translate(text: str, *, source: str, target: str) -> str:
     async with httpx.AsyncClient(timeout=20.0) as http:
         r = await http.post(
