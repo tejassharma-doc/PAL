@@ -321,7 +321,12 @@ export default function FamilyHubPage() {
     let cancelled = false;
     (async () => {
       try {
-        const h = await getHub();
+        // Which group to open — the plan_id the Family list linked to. Without
+        // this, every group opened the same (default) hub.
+        const planId = typeof window !== 'undefined'
+          ? new URLSearchParams(window.location.search).get('planId') || undefined
+          : undefined;
+        const h = await getHub(planId);
         if (cancelled) return;
         if (!h) {
           setError('You are not part of a family plan yet.');
