@@ -362,6 +362,17 @@ async def upsert_patient(
     )
     row = result.fetchone()
 
+    # Fallback: a patient may already exist for this phone_user_id (e.g. created
+    # at phone sign-up or by an earlier webhook that had no/other external_id).
+    # patients.phone_user_id is UNIQUE (ux_patients_phone_user_id), so inserting a
+    # second row for it fails — match and update that row instead.
+    if not row and phone_user_id:
+        result = await db.execute(
+            text("SELECT id FROM patients WHERE phone_user_id = :pid"),
+            {"pid": str(phone_user_id)}
+        )
+        row = result.fetchone()
+
     if row:
         # Update existing
         patient_id = uuid.UUID(str(row[0]))
@@ -391,7 +402,8 @@ async def upsert_patient(
                     abha_id = :abha_id,
                     abha_address = :abha_address,
                     clinic_id = :clinic_id,
-                    phone_user_id = :phone_user_id,
+                    phone_user_id = COALESCE(:phone_user_id, phone_user_id),
+                    external_id = COALESCE(:external_id, external_id),
                     updated_at = NOW()
                 WHERE id = :id
             """),
@@ -408,7 +420,8 @@ async def upsert_patient(
                 "abha_id": patient_data.get("abhaId"),
                 "abha_address": patient_data.get("abhaAddress"),
                 "clinic_id": clinic_id,
-                "phone_user_id": phone_user_id
+                "phone_user_id": phone_user_id,
+                "external_id": external_id
             }
         )
         await db.flush()
