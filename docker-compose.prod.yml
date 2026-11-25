@@ -1,10 +1,14 @@
-name: pal-prod
+# Parametrized so the SAME file runs two isolated stacks on one host:
+#   prod    (defaults):  docker compose up -d --build        (in the pal-master checkout)
+#   staging (overrides):  a `.env` in the staging checkout sets STACK/ENV_FILE/*_PORT
+# Every default below equals the original prod value, so prod behaviour is unchanged.
+name: ${STACK:-pal-prod}
 
 services:
   # PostgreSQL database with pgvector extension
   db:
     image: pgvector/pgvector:pg16
-    container_name: pal-prod-db
+    container_name: ${STACK:-pal-prod}-db
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-pal}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -12,7 +16,7 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:5433:5432"  # ✅ SECURITY FIX: Bind to localhost only
+      - "127.0.0.1:${DB_PORT:-5433}:5432"  # ✅ SECURITY FIX: Bind to localhost only
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pal}"]
       interval: 5s
@@ -25,9 +29,9 @@ services:
   # Redis cache
   redis:
     image: redis:7-alpine
-    container_name: pal-prod-redis
+    container_name: ${STACK:-pal-prod}-redis
     ports:
-      - "127.0.0.1:6380:6379"  # ✅ SECURITY FIX: Bind to localhost only
+      - "127.0.0.1:${REDIS_PORT:-6380}:6379"  # ✅ SECURITY FIX: Bind to localhost only
     volumes:
       - redis_data:/data
     healthcheck:
@@ -44,15 +48,15 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
-    image: pal-prod-api:latest          # built once; reused by celery/flower below
-    container_name: pal-prod-api
-    env_file: .env.production
+    image: ${STACK:-pal-prod}-api:latest          # built once; reused by celery/flower below
+    container_name: ${STACK:-pal-prod}-api
+    env_file: ${ENV_FILE:-.env.production}
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pal}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pal}
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: production
     ports:
-      - "8001:8000"  # Use 8001 externally
+      - "${API_PORT:-8001}:8000"  # Use 8001 externally (staging overrides via .env)
     depends_on:
       db:
         condition: service_healthy
@@ -67,9 +71,9 @@ services:
 
   # Celery worker — runs medication reminder tasks
   celery-worker:
-    image: pal-prod-api:latest          # reuse the api image (same code, different command)
-    container_name: pal-prod-celery-worker
-    env_file: .env.production
+    image: ${STACK:-pal-prod}-api:latest          # reuse the api image (same code, different command)
+    container_name: ${STACK:-pal-prod}-celery-worker
+    env_file: ${ENV_FILE:-.env.production}
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pal}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pal}
       REDIS_URL: redis://redis:6379/0
@@ -86,9 +90,9 @@ services:
 
   # Celery beat — fires the 60s medication scan tick
   celery-beat:
-    image: pal-prod-api:latest          # reuse the api image (same code, different command)
-    container_name: pal-prod-celery-beat
-    env_file: .env.production
+    image: ${STACK:-pal-prod}-api:latest          # reuse the api image (same code, different command)
+    container_name: ${STACK:-pal-prod}-celery-beat
+    env_file: ${ENV_FILE:-.env.production}
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pal}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pal}
       REDIS_URL: redis://redis:6379/0
@@ -105,9 +109,9 @@ services:
 
   # Flower — Celery monitoring dashboard (served behind nginx at /flower)
   flower:
-    image: pal-prod-api:latest          # reuse the api image (same code, different command)
-    container_name: pal-prod-flower
-    env_file: .env.production
+    image: ${STACK:-pal-prod}-api:latest          # reuse the api image (same code, different command)
+    container_name: ${STACK:-pal-prod}-flower
+    env_file: ${ENV_FILE:-.env.production}
     environment:
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: production
@@ -116,7 +120,7 @@ services:
         condition: service_healthy
     command: celery -A celery_app flower --port=5555 --url_prefix=flower
     ports:
-      - "127.0.0.1:5555:5555"  # loopback only; public access is via nginx /flower
+      - "127.0.0.1:${FLOWER_PORT:-5555}:5555"  # loopback only; public access is via nginx /flower
     restart: unless-stopped
     networks:
       - pal-network
@@ -127,15 +131,15 @@ services:
       context: ./web
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: https://palcare.life
-    container_name: pal-prod-web
-    env_file: .env.production
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-https://palcare.life}
+    container_name: ${STACK:-pal-prod}-web
+    env_file: ${ENV_FILE:-.env.production}
     environment:
-      NEXT_PUBLIC_API_URL: https://palcare.life
+      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-https://palcare.life}
       API_INTERNAL_URL: http://api:8000
       NODE_ENV: production
     ports:
-      - "3002:3000"  # Use 3002 externally to keep 3000 free for BusinessAgent
+      - "${WEB_PORT:-3002}:3000"  # Use 3002 externally to keep 3000 free for BusinessAgent
     depends_on:
       - api
     restart: unless-stopped
@@ -147,8 +151,8 @@ services:
     build:
       context: ./mcp-server
       dockerfile: Dockerfile
-    container_name: pal-prod-mcp-api
-    env_file: .env.production
+    container_name: ${STACK:-pal-prod}-mcp-api
+    env_file: ${ENV_FILE:-.env.production}
     environment:
       PORT: 3001
       PAL_API_KEY: ${PAL_API_KEY}
@@ -158,7 +162,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-pal}
     ports:
-      - "3003:3001"  # Use 3003 externally
+      - "${MCP_PORT:-3003}:3001"  # Use 3003 externally
     depends_on:
       db:
         condition: service_healthy
@@ -177,8 +181,8 @@ services:
     build:
       context: ./mcp-server-fastmcp
       dockerfile: Dockerfile
-    container_name: pal-prod-fastmcp
-    env_file: .env.production
+    container_name: ${STACK:-pal-prod}-fastmcp
+    env_file: ${ENV_FILE:-.env.production}
     environment:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
@@ -203,7 +207,7 @@ services:
       # Bound to loopback only: the API reaches this over the internal docker
       # network (http://fastmcp:8002), so it never needs a public interface.
       # (JWT auth is the primary guard; this is defence in depth.)
-      - "127.0.0.1:8002:8002"
+      - "127.0.0.1:${FASTMCP_PORT:-8002}:8002"
     networks:
       - pal-network
 
@@ -212,13 +216,13 @@ services:
     build:
       context: ./mdt-source
       dockerfile: Dockerfile
-    container_name: pal-prod-mdt
+    container_name: ${STACK:-pal-prod}-mdt
     environment:
       GEMINI_API_KEY: ${GEMINI_API_KEY}
     ports:
-      - "8081:8080"  # Use 8081 externally
+      - "${MDT_PORT:-8081}:8080"  # Use 8081 externally
     volumes:
-      - /data/apps/docmode/PAL/loinc-kb-minimal:/data:ro
+      - ${LOINC_DIR:-/data/apps/docmode/PAL/loinc-kb-minimal}:/data:ro
     restart: unless-stopped
     networks:
       - pal-network
