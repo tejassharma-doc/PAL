@@ -212,7 +212,12 @@ services:
       - pal-network
 
   # Medical Data Toolkit
+  # Its source (./mdt-source) is NOT in the repo — it lives only on the prod host —
+  # so it's behind a Compose profile. It runs only when the `mdt` profile is active.
+  #   Prod:    set COMPOSE_PROFILES=mdt in prod's .env  → mdt starts as before.
+  #   Staging: leave COMPOSE_PROFILES unset             → mdt is skipped (no mdt-source needed).
   mdt:
+    profiles: ["mdt"]
     build:
       context: ./mdt-source
       dockerfile: Dockerfile
